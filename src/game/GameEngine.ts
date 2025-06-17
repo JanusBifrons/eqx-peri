@@ -22,10 +22,10 @@ export class GameEngine {
     this.engine = Matter.Engine.create();
     this.world = this.engine.world;
     this.runner = Matter.Runner.create();
-    console.log('⚙️  Matter.js engine created');
-    
-    // Configure engine
-    this.engine.world.gravity.y = 0; // No gravity in space    // Create renderer with debug options - matching MVP spec
+    console.log('⚙️  Matter.js engine created');    // Configure engine
+    this.engine.world.gravity.y = 0; // No gravity in space
+
+    // Create renderer with debug options - matching MVP spec
     const containerWidth = container.clientWidth || 800;
     const containerHeight = container.clientHeight || 600;
     
@@ -201,13 +201,12 @@ export class GameEngine {
 
   private handleInput(): void {
     if (!this.playerAssembly || this.playerAssembly.destroyed) return;
-    
-    // Thrust
+      // Thrust
     if (this.keys.has('w') || this.keys.has('arrowup')) {
       const angle = this.playerAssembly.rootBody.angle;
       const thrust = {
-        x: Math.cos(angle) * 0.001,
-        y: Math.sin(angle) * 0.001
+        x: Math.cos(angle) * 0.003, // Increased from 0.001 to 0.003
+        y: Math.sin(angle) * 0.003
       };
       this.playerAssembly.applyThrust(thrust);
     }
@@ -216,19 +215,18 @@ export class GameEngine {
     if (this.keys.has('s') || this.keys.has('arrowdown')) {
       const angle = this.playerAssembly.rootBody.angle;
       const thrust = {
-        x: Math.cos(angle) * -0.0005,
-        y: Math.sin(angle) * -0.0005
+        x: Math.cos(angle) * -0.0015, // Increased from -0.0005 to -0.0015
+        y: Math.sin(angle) * -0.0015
       };
       this.playerAssembly.applyThrust(thrust);
     }
-    
-    // Rotation
+      // Rotation
     if (this.keys.has('a') || this.keys.has('arrowleft')) {
-      this.playerAssembly.applyTorque(-0.1);
+      this.playerAssembly.applyTorque(-0.15); // Increased from -0.1 to -0.15
     }
     if (this.keys.has('d') || this.keys.has('arrowright')) {
-      this.playerAssembly.applyTorque(0.1);
-    }    // Firing
+      this.playerAssembly.applyTorque(0.15); // Increased from 0.1 to 0.15
+    }// Firing
     if (this.keys.has(' ')) {
       const newBullets = this.playerAssembly.fireWeapons();
       newBullets.forEach(bullet => {

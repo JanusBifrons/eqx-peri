@@ -4,15 +4,15 @@ import { EntityConfig, GRID_SIZE, Vector2 } from '../types/GameTypes';
 
 export class Assembly {
   public id: string;
-  public rootBody: Matter.Body;
-  public entities: Entity[] = [];
-  public isPlayerControlled: boolean = false;
-  public destroyed: boolean = false;  constructor(entityConfigs: EntityConfig[], position: Vector2 = { x: 0, y: 0 }) {
+  public rootBody: Matter.Body;  public entities: Entity[] = [];
+  public isPlayerControlled: boolean = false;  public destroyed: boolean = false;
+  private lastFireTime: number = 0;
+  private fireRate: number = 500; // 500ms between shots = 2 shots per second
+  constructor(entityConfigs: EntityConfig[], position: Vector2 = { x: 0, y: 0 }) {
     this.id = Math.random().toString(36).substr(2, 9);
     
     // Create entities
-    this.entities = entityConfigs.map(config => new Entity(config));
-      // Create root body
+    this.entities = entityConfigs.map(config => new Entity(config));    // Create root body
     this.rootBody = Matter.Body.create({
       parts: this.entities.map(e => e.body),
       isStatic: false
@@ -72,6 +72,13 @@ export class Assembly {
   }  public fireWeapons(): Matter.Body[] {
     if (this.destroyed) return [];
     
+    const currentTime = Date.now();
+    
+    // Enforce firing rate limit
+    if (currentTime - this.lastFireTime < this.fireRate) {
+      return []; // Can't fire yet, return empty array
+    }
+    
     const weapons = this.entities.filter(e => e.canFire());
     const lasers: Matter.Body[] = [];
     
@@ -82,21 +89,26 @@ export class Assembly {
       }
     });
     
-    return lasers;
-  }private createLaser(weapon: Entity): Matter.Body | null {
+    // Update last fire time to current time
+    this.lastFireTime = currentTime;
+      return lasers;
+  }
+  private createLaser(weapon: Entity): Matter.Body | null {
     // Calculate laser spawn position and direction
     const weaponWorldPos = weapon.body.position;
     const assemblyAngle = this.rootBody.angle;
     const weaponLocalAngle = weapon.rotation * Math.PI / 180;
     const totalAngle = assemblyAngle + weaponLocalAngle;
-      // Spawn laser further in front of weapon to avoid self-collision
+    
+    // Spawn laser further in front of weapon to avoid self-collision
     const spawnDistance = 40;
     const spawnX = weaponWorldPos.x + Math.cos(totalAngle) * spawnDistance;
     const spawnY = weaponWorldPos.y + Math.sin(totalAngle) * spawnDistance;
-      // Create rectangular laser body - longer and thinner for laser appearance
+    
+    // Create rectangular laser body - longer and thinner for laser appearance
     const laserWidth = 20; // Length of the laser
     const laserHeight = 4; // Thickness of the laser
-    const laser = Matter.Bodies.rectangle(spawnX, spawnY, laserWidth, laserHeight, {
+      const laser = Matter.Bodies.rectangle(spawnX, spawnY, laserWidth, laserHeight, {
       isSensor: true, // Lasers are sensors - they pass through objects but trigger collision events
       render: {
         fillStyle: '#00ffff', // Cyan laser color
@@ -122,14 +134,16 @@ export class Assembly {
     laser.timeToLive = Date.now() + 3000; // 3 seconds from now
     
     return laser;
-  }public removeEntity(entity: Entity): Assembly[] {
+  }
+
+  public removeEntity(entity: Entity): Assembly[] {
     const entityIndex = this.entities.findIndex(e => e.id === entity.id);
     if (entityIndex === -1) return [this];
-    
-    // Store current physics state before destroying
+      // Store current physics state before destroying
     const currentVelocity = this.rootBody.velocity;
     const currentAngularVelocity = this.rootBody.angularVelocity;
     const currentPosition = this.rootBody.position;
+    const currentAngle = this.rootBody.angle; // Store the rotation angle
     const wasPlayerControlled = this.isPlayerControlled;
     
     // Remove the destroyed entity
@@ -148,12 +162,12 @@ export class Assembly {
     // Create completely new assemblies for each component
     const newAssemblies: Assembly[] = [];
     
-    components.forEach((component) => {
-      const newAssembly = this.createNewAssemblyFromComponent(
+    components.forEach((component) => {      const newAssembly = this.createNewAssemblyFromComponent(
         component, 
         currentPosition, 
         currentVelocity, 
-        currentAngularVelocity
+        currentAngularVelocity,
+        currentAngle
       );
         // Transfer player control to first assembly with a cockpit
       if (wasPlayerControlled && newAssembly.hasControlCenter() && !newAssemblies.some(a => a.isPlayerControlled)) {
@@ -183,9 +197,7 @@ export class Assembly {
       };
       newEntities.push(new Entity(config));
     });
-    
-    this.entities = newEntities;
-      // Create new root body
+      this.entities = newEntities;    // Create new root body
     this.rootBody = Matter.Body.create({
       parts: this.entities.map(e => e.body),
       isStatic: false
@@ -196,41 +208,56 @@ export class Assembly {
     
     // Store reference
     this.rootBody.assembly = this;
-  }
-  private createNewAssemblyFromComponent(component: Entity[], basePosition: Vector2, velocity: Vector2, angularVelocity: number): Assembly {
+  }  private createNewAssemblyFromComponent(component: Entity[], basePosition: Vector2, velocity: Vector2, angularVelocity: number, baseAngle: number): Assembly {
+    // Calculate the center offset of this component relative to original assembly
+    const avgOffsetX = component.reduce((sum, e) => sum + e.localOffset.x, 0) / component.length;
+    const avgOffsetY = component.reduce((sum, e) => sum + e.localOffset.y, 0) / component.length;
+    
+    // Rotate the average offset by the assembly's current angle to get world offset
+    const cos = Math.cos(baseAngle);
+    const sin = Math.sin(baseAngle);
+    const worldOffsetX = avgOffsetX * cos - avgOffsetY * sin;
+    const worldOffsetY = avgOffsetX * sin + avgOffsetY * cos;
+    
+    // Create configs with positions relative to the NEW assembly's center (not the original)
     const configs: EntityConfig[] = component.map(entity => ({
       type: entity.type,
-      x: entity.localOffset.x,
-      y: entity.localOffset.y,
+      x: entity.localOffset.x - avgOffsetX, // Make relative to new assembly center
+      y: entity.localOffset.y - avgOffsetY, // Make relative to new assembly center
       rotation: entity.rotation,
       health: entity.health,
       maxHealth: entity.maxHealth
     }));
     
-    // Calculate the center offset of this component relative to original assembly
-    const avgOffsetX = component.reduce((sum, e) => sum + e.localOffset.x, 0) / component.length;
-    const avgOffsetY = component.reduce((sum, e) => sum + e.localOffset.y, 0) / component.length;
-    
     // Position the new assembly at the component's world position
     const newPosition = {
-      x: basePosition.x + avgOffsetX,
-      y: basePosition.y + avgOffsetY
+      x: basePosition.x + worldOffsetX,
+      y: basePosition.y + worldOffsetY
     };
     
-    console.log(`🔧 Creating new assembly at (${newPosition.x}, ${newPosition.y}) with ${component.length} parts`);
+    console.log(`🔧 Creating new assembly at (${newPosition.x}, ${newPosition.y}) with ${component.length} parts`);    const newAssembly = new Assembly(configs, newPosition);
+      // Set the assembly's rotation to match the original
+    Matter.Body.setAngle(newAssembly.rootBody, baseAngle);
     
-    const newAssembly = new Assembly(configs, newPosition);
+    // Conserve all energy - inherit full velocity and angular momentum
+    Matter.Body.setVelocity(newAssembly.rootBody, velocity);
+    Matter.Body.setAngularVelocity(newAssembly.rootBody, angularVelocity);
     
-    // Give it some velocity with slight randomization for separation
-    const separationFactor = 2;
+    // Add small explosion force for dramatic effect
+    const explosionForce = 0.5; // Small explosion magnitude
     const randomAngle = Math.random() * Math.PI * 2;
-    const newVelocity = {
-      x: velocity.x + Math.cos(randomAngle) * separationFactor,
-      y: velocity.y + Math.sin(randomAngle) * separationFactor
+    const explosionVelocity = {
+      x: Math.cos(randomAngle) * explosionForce,
+      y: Math.sin(randomAngle) * explosionForce
     };
     
-    Matter.Body.setVelocity(newAssembly.rootBody, newVelocity);
-    Matter.Body.setAngularVelocity(newAssembly.rootBody, angularVelocity * 0.8);
+    // Apply the explosion force on top of the conserved momentum
+    const finalVelocity = {
+      x: velocity.x + explosionVelocity.x,
+      y: velocity.y + explosionVelocity.y
+    };
+    
+    Matter.Body.setVelocity(newAssembly.rootBody, finalVelocity);
     
     return newAssembly;
   }
@@ -311,7 +338,6 @@ export class Assembly {
   public getControlCenter(): Entity | null {
     return this.entities.find(e => e.isControlCenter()) || null;
   }
-
   public hasControlCenter(): boolean {
     return this.getControlCenter() !== null;
   }
