@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { GameEngine } from './game/GameEngine';
 import Radar from './components/Radar';
+import StatusHUD from './components/StatusHUD';
 import {
   Paper,
   Typography,
@@ -173,10 +174,11 @@ const App: React.FC = () => {
             <div style={{ marginTop: 4 }}>• AI ships hunt and attack enemies</div>
             <div>• Ships break apart when damaged</div>
           </Box>
-        </Paper>
-
-        {/* Radar Component - Always visible */}
+        </Paper>        {/* Radar Component - Always visible */}
         <Radar gameEngine={gameEngine} />
+
+        {/* Status HUD - Always visible at bottom */}
+        <StatusHUD gameEngine={gameEngine} />
       </div>
     </ThemeProvider>
   );

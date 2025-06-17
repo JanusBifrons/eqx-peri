@@ -1457,4 +1457,12 @@ export class GameEngine {
       this.playerAssembly!.applyThrust(thrustInput);
     }
   }
+
+  public getPlayerAssembly(): Assembly | null {
+    return this.playerAssembly;
+  }
+
+  public getPlayerCommand(): string | null {
+    return this.playerCommand;
+  }
 }
