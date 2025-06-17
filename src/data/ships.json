@@ -1,0 +1,39 @@
+{
+  "ships": [
+    {
+      "name": "Basic Fighter",
+      "parts": [
+        { "type": "Cockpit", "x": 0, "y": 0, "rotation": 0 },
+        { "type": "Engine", "x": 0, "y": 32, "rotation": 180 },
+        { "type": "Gun", "x": 0, "y": -32, "rotation": 0 }
+      ]
+    },
+    {
+      "name": "Cruiser",
+      "parts": [
+        { "type": "Cockpit", "x": 0, "y": 0, "rotation": 0 },
+        { "type": "Engine", "x": -32, "y": 32, "rotation": 180 },
+        { "type": "Engine", "x": 32, "y": 32, "rotation": 180 },
+        { "type": "Gun", "x": -32, "y": -32, "rotation": 0 },
+        { "type": "Gun", "x": 32, "y": -32, "rotation": 0 },
+        { "type": "Hull", "x": -32, "y": 0, "rotation": 0 },
+        { "type": "Hull", "x": 32, "y": 0, "rotation": 0 },
+        { "type": "Hull", "x": 0, "y": 32, "rotation": 0 },
+        { "type": "PowerCell", "x": 0, "y": -64, "rotation": 0 }
+      ]
+    },
+    {
+      "name": "Heavy Fighter",
+      "parts": [
+        { "type": "Cockpit", "x": 0, "y": 0, "rotation": 0 },
+        { "type": "Engine", "x": 0, "y": 64, "rotation": 180 },
+        { "type": "Gun", "x": -32, "y": -32, "rotation": 315 },
+        { "type": "Gun", "x": 32, "y": -32, "rotation": 45 },
+        { "type": "Hull", "x": -32, "y": 0, "rotation": 0 },
+        { "type": "Hull", "x": 32, "y": 0, "rotation": 0 },
+        { "type": "Hull", "x": 0, "y": 32, "rotation": 0 },
+        { "type": "PowerCell", "x": 0, "y": -32, "rotation": 0 }
+      ]
+    }
+  ]
+}
