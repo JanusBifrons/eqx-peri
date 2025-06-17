@@ -1,6 +1,7 @@
 import * as Matter from 'matter-js';
 import { Entity } from './Entity';
-import { EntityConfig, GRID_SIZE, Vector2 } from '../types/GameTypes';
+import { EntityConfig, Vector2 } from '../types/GameTypes';
+import { areEntitiesAdjacent } from './BlockSystem';
 
 export class Assembly {
   public id: string;
@@ -9,7 +10,7 @@ export class Assembly {
   public isPlayerControlled: boolean = false;
   public destroyed: boolean = false;
   public lastFireTime: number = 0;
-  public fireRate: number = 500; // 500ms between shots = 2 shots per second
+  public fireRate: number = 300; // 300ms between shots = 3.3 shots per second (faster firing)
   constructor(entityConfigs: EntityConfig[], position: Vector2 = { x: 0, y: 0 }) {
     this.id = Math.random().toString(36).substr(2, 9);
     
@@ -55,16 +56,31 @@ export class Assembly {
       this.isPlayerControlled = false;
     }
   }
-
   public applyThrust(force: Vector2): void {
     if (this.destroyed) return;
     
     const engines = this.entities.filter(e => e.canProvideThrust());
     if (engines.length === 0) return;
 
-    // Apply thrust from the center of mass
-    const forceVector = Matter.Vector.mult(force, engines.length);
-    Matter.Body.applyForce(this.rootBody, this.rootBody.position, forceVector);
+    // Calculate total thrust power based on engine types
+    let totalThrustPower = 0;
+    engines.forEach(engine => {
+      switch (engine.type) {
+        case 'Engine':
+          totalThrustPower += 1;
+          break;
+        case 'LargeEngine':
+          totalThrustPower += 3; // 3x power of regular engine
+          break;
+        case 'CapitalEngine':
+          totalThrustPower += 8; // 8x power of regular engine
+          break;
+      }
+    });
+
+    // Apply thrust from the center of mass, scaled by total thrust power
+    const scaledForce = Matter.Vector.mult(force, totalThrustPower);
+    Matter.Body.applyForce(this.rootBody, this.rootBody.position, scaledForce);
   }
   public applyTorque(torque: number): void {
     if (this.destroyed) return;
@@ -106,20 +122,43 @@ export class Assembly {
     // Use target angle if provided, otherwise use weapon's natural direction
     const firingAngle = targetAngle !== undefined ? targetAngle : assemblyAngle + weaponLocalAngle;
     
+    // Configure laser properties based on weapon type
+    let laserWidth = 20; // Length of the laser
+    let laserHeight = 4; // Thickness of the laser
+    let laserSpeed = 25;
+    let spawnDistance = 40;
+    let laserColor = '#00ffff'; // Default cyan
+    
+    switch (weapon.type) {
+      case 'Gun':
+        // Default values already set
+        break;
+      case 'LargeGun':
+        laserWidth = 30;
+        laserHeight = 6;
+        laserSpeed = 28;
+        spawnDistance = 50;
+        laserColor = '#ff6600'; // Orange for large guns
+        break;
+      case 'CapitalWeapon':
+        laserWidth = 50;
+        laserHeight = 10;
+        laserSpeed = 30;
+        spawnDistance = 80;
+        laserColor = '#ff0000'; // Red for capital weapons
+        break;
+    }
+    
     // Spawn laser further in front of weapon to avoid self-collision
-    const spawnDistance = 40;
     const spawnX = weaponWorldPos.x + Math.cos(firingAngle) * spawnDistance;
     const spawnY = weaponWorldPos.y + Math.sin(firingAngle) * spawnDistance;
     
-    // Create rectangular laser body - longer and thinner for laser appearance
-    const laserWidth = 20; // Length of the laser
-    const laserHeight = 4; // Thickness of the laser
-    
+    // Create rectangular laser body
     const laser = Matter.Bodies.rectangle(spawnX, spawnY, laserWidth, laserHeight, {
       isSensor: true, // Lasers are sensors - they pass through objects but trigger collision events
       frictionAir: 0, // No air resistance in space
       render: {
-        fillStyle: '#00ffff', // Cyan laser color
+        fillStyle: laserColor,
         strokeStyle: '#ffffff',
         lineWidth: 1
       }
@@ -129,12 +168,12 @@ export class Assembly {
     Matter.Body.rotate(laser, firingAngle);
     
     // Set laser velocity using the firing angle
-    const laserSpeed = 10;
     const velocity = {
       x: Math.cos(firingAngle) * laserSpeed,
       y: Math.sin(firingAngle) * laserSpeed
     };
-      Matter.Body.setVelocity(laser, velocity);
+    
+    Matter.Body.setVelocity(laser, velocity);
     
     // Mark as bullet for collision detection (keeping original property name for compatibility)
     laser.isBullet = true;
@@ -207,7 +246,9 @@ export class Assembly {
       this.entities = newEntities;    // Create new root body
     this.rootBody = Matter.Body.create({
       parts: this.entities.map(e => e.body),
-      isStatic: false
+      isStatic: false,
+      frictionAir: 0, // No air resistance in space
+      friction: 0.001 // Minimal friction for surface contact
     });
     
     // Restore position
@@ -267,9 +308,10 @@ export class Assembly {
     Matter.Body.setVelocity(newAssembly.rootBody, finalVelocity);
     
     return newAssembly;
-  }
-  private findConnectedComponents(): Entity[][] {
+  }  private findConnectedComponents(): Entity[][] {
     if (this.entities.length <= 1) return [this.entities];
+    
+    console.log(`🔍 Finding connected components for ${this.entities.length} entities`);
     
     // Build connectivity graph
     const graph = new Map<string, Set<string>>();
@@ -298,21 +340,23 @@ export class Assembly {
         const component: Entity[] = [];
         this.dfsComponent(entity.id, graph, visited, component);
         components.push(component);
+        console.log(`📦 Found component with ${component.length} entities: ${component.map(e => e.type).join(', ')}`);
       }
     });
     
+    console.log(`🔧 Total components found: ${components.length}`);
     return components;
-  }
-
-  private areEntitiesConnected(entity1: Entity, entity2: Entity): boolean {
-    const pos1 = entity1.localOffset;
-    const pos2 = entity2.localOffset;
+  }private areEntitiesConnected(entity1: Entity, entity2: Entity): boolean {
+    // Use the updated adjacency function from BlockSystem that handles different block sizes
+    const result = areEntitiesAdjacent(
+      { type: entity1.type, x: entity1.localOffset.x, y: entity1.localOffset.y },
+      { type: entity2.type, x: entity2.localOffset.x, y: entity2.localOffset.y }
+    );
     
-    // Check if entities are adjacent on the grid - cardinal connections only
-    const dx = Math.abs(pos1.x - pos2.x);
-    const dy = Math.abs(pos1.y - pos2.y);
+    // Debug logging to understand connectivity
+    console.log(`🔗 Checking connection: ${entity1.type}(${entity1.localOffset.x},${entity1.localOffset.y}) -> ${entity2.type}(${entity2.localOffset.x},${entity2.localOffset.y}) = ${result}`);
     
-    return (dx === GRID_SIZE && dy === 0) || (dx === 0 && dy === GRID_SIZE);
+    return result;
   }
 
   private dfsComponent(
