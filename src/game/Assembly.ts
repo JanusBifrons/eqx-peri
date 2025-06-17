@@ -73,54 +73,56 @@ export class Assembly {
     if (this.destroyed) return [];
     
     const weapons = this.entities.filter(e => e.canFire());
-    const bullets: Matter.Body[] = [];
+    const lasers: Matter.Body[] = [];
     
     weapons.forEach(weapon => {
-      const bullet = this.createBullet(weapon);
-      if (bullet) {
-        bullets.push(bullet);
+      const laser = this.createLaser(weapon);
+      if (laser) {
+        lasers.push(laser);
       }
     });
     
-    return bullets;
-  }
-
-  private createBullet(weapon: Entity): Matter.Body | null {
-    // Calculate bullet spawn position and direction
+    return lasers;
+  }private createLaser(weapon: Entity): Matter.Body | null {
+    // Calculate laser spawn position and direction
     const weaponWorldPos = weapon.body.position;
     const assemblyAngle = this.rootBody.angle;
     const weaponLocalAngle = weapon.rotation * Math.PI / 180;
     const totalAngle = assemblyAngle + weaponLocalAngle;
-      // Spawn bullet further in front of weapon to avoid self-collision
+      // Spawn laser further in front of weapon to avoid self-collision
     const spawnDistance = 40;
     const spawnX = weaponWorldPos.x + Math.cos(totalAngle) * spawnDistance;
     const spawnY = weaponWorldPos.y + Math.sin(totalAngle) * spawnDistance;
-    
-    // Create bullet body - smaller and faster
-    const bullet = Matter.Bodies.circle(spawnX, spawnY, 4, {
-      isSensor: false,
+      // Create rectangular laser body - longer and thinner for laser appearance
+    const laserWidth = 20; // Length of the laser
+    const laserHeight = 4; // Thickness of the laser
+    const laser = Matter.Bodies.rectangle(spawnX, spawnY, laserWidth, laserHeight, {
+      isSensor: true, // Lasers are sensors - they pass through objects but trigger collision events
       render: {
-        fillStyle: '#ffff00',
+        fillStyle: '#00ffff', // Cyan laser color
         strokeStyle: '#ffffff',
         lineWidth: 1
       }
     });
     
-    // Set bullet velocity - faster but still visible
-    const bulletSpeed = 8;
+    // Rotate the laser to match the firing direction
+    Matter.Body.rotate(laser, totalAngle);
+    
+    // Set laser velocity - faster but still visible
+    const laserSpeed = 10;
     const velocity = {
-      x: Math.cos(totalAngle) * bulletSpeed,
-      y: Math.sin(totalAngle) * bulletSpeed
+      x: Math.cos(totalAngle) * laserSpeed,
+      y: Math.sin(totalAngle) * laserSpeed
     };
     
-    Matter.Body.setVelocity(bullet, velocity);
+    Matter.Body.setVelocity(laser, velocity);
     
-    // Mark as bullet for collision detection
-    bullet.isBullet = true;
-    bullet.timeToLive = Date.now() + 3000; // 3 seconds from now
+    // Mark as bullet for collision detection (keeping original property name for compatibility)
+    laser.isBullet = true;
+    laser.timeToLive = Date.now() + 3000; // 3 seconds from now
     
-    return bullet;
-  }  public removeEntity(entity: Entity): Assembly[] {
+    return laser;
+  }public removeEntity(entity: Entity): Assembly[] {
     const entityIndex = this.entities.findIndex(e => e.id === entity.id);
     if (entityIndex === -1) return [this];
     

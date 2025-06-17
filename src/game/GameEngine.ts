@@ -320,13 +320,34 @@ export class GameEngine {
     ctx.globalAlpha = 1;
   }  private toggleGrid(): void {
     this.showGrid = !this.showGrid;  }  private spawnDemoShips(): void {
-    console.log('🚀 spawnDemoShips called');
-    
-    // Create player ship in center of screen
+    console.log('🚀 spawnDemoShips called');    // Create complex player ship with multiple weapons (designed to face RIGHT, 0 degrees)
     const playerShip: EntityConfig[] = [
+      // Core structure
       { type: 'Cockpit', x: 0, y: 0, rotation: 0 },
-      { type: 'Engine', x: 0, y: 32, rotation: 180 },
-      { type: 'Gun', x: 0, y: -32, rotation: 0 }
+      { type: 'Hull', x: 0, y: -32, rotation: 0 },     // Above cockpit
+      { type: 'Hull', x: 0, y: 32, rotation: 0 },      // Below cockpit
+      { type: 'Hull', x: 32, y: 0, rotation: 0 },      // Right of cockpit (front)
+      { type: 'Hull', x: -32, y: 0, rotation: 0 },     // Left of cockpit (rear)
+      
+      // Engines for propulsion (at the back - LEFT side since ship faces RIGHT)
+      { type: 'Engine', x: -64, y: -32, rotation: 180 },  // Rear upper engine (pointing left for thrust)
+      { type: 'Engine', x: -64, y: 32, rotation: 180 },   // Rear lower engine (pointing left for thrust)
+      
+      // Multiple weapon systems (all pointing RIGHT - forward direction)
+      { type: 'Gun', x: 32, y: -32, rotation: 0 },     // Upper right gun
+      { type: 'Gun', x: 32, y: 32, rotation: 0 },      // Lower right gun
+      { type: 'Gun', x: 64, y: 0, rotation: 0 },       // Front center gun
+      { type: 'Gun', x: 0, y: -64, rotation: 0 },      // Top gun
+      { type: 'Gun', x: 0, y: 64, rotation: 0 },       // Bottom gun
+      
+      // Power systems
+      { type: 'PowerCell', x: -32, y: -32, rotation: 0 },
+      { type: 'PowerCell', x: -32, y: 32, rotation: 0 },
+      
+      // Additional hull for structure
+      { type: 'Hull', x: 32, y: -64, rotation: 0 },
+      { type: 'Hull', x: 32, y: 64, rotation: 0 },
+      { type: 'Hull', x: -64, y: 0, rotation: 0 }
     ];
     
     const screenCenterX = this.render.canvas.width / 2;
@@ -336,7 +357,7 @@ export class GameEngine {
     this.assemblies.push(playerAssembly);
     Matter.World.add(this.world, playerAssembly.rootBody);
     this.playerAssembly = playerAssembly;
-    playerAssembly.isPlayerControlled = true;    // Create longer target ships with more parts for better breaking demonstration
+    playerAssembly.isPlayerControlled = true;// Create longer target ships with more parts for better breaking demonstration
     const targetShip: EntityConfig[] = [
       { type: 'Cockpit', x: 0, y: 0, rotation: 0, health: 30 },
       { type: 'Hull', x: -32, y: 0, rotation: 0, health: 25 },
