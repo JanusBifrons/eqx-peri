@@ -62,14 +62,14 @@ export class GameEngine {
         showAxes: true,
         showAngleIndicator: true,
         showIds: true // Show IDs to help debug
-      }
-    });    console.log('🖼️  Renderer created');
+      }    });    console.log('🖼️  Renderer created');
     console.log('Canvas element:', this.render.canvas);
     
     // Initialize mouse interaction
     this.setupMouseInteraction();
     this.setupEventListeners();
     this.setupCollisionDetection();
+    this.setupRenderEvents();
   }
 
   private setupEventListeners(): void {
@@ -87,12 +87,13 @@ export class GameEngine {
 
     document.addEventListener('keyup', (event) => {
       this.keys.delete(event.key.toLowerCase());
-    });
-
-    // Handle window resize
+    });    // Handle window resize
     window.addEventListener('resize', () => {
-      this.render.canvas.width = this.render.element.clientWidth;
-      this.render.canvas.height = this.render.element.clientHeight;
+      const newWidth = this.render.element.clientWidth;
+      const newHeight = this.render.element.clientHeight;
+      
+      this.render.canvas.width = newWidth;
+      this.render.canvas.height = newHeight;
     });
   }
   private setupCollisionDetection(): void {
@@ -115,7 +116,7 @@ export class GameEngine {
     Matter.World.remove(this.world, bullet);
     this.bullets = this.bullets.filter(b => b !== bullet);
       // Apply damage - more damage to make breaking easier to demonstrate
-    const destroyed = entity.takeDamage(50);    if (destroyed) {
+    const destroyed = entity.takeDamage(10);    if (destroyed) {
       // Find the assembly containing this entity
       const assembly = this.assemblies.find(a => a.entities.includes(entity));
       if (assembly) {
@@ -169,11 +170,9 @@ export class GameEngine {
     console.log('Render canvas:', this.render.canvas);
     Matter.Render.run(this.render);
     console.log('🖼️  Renderer started');
-    
-    // Start engine with runner
+      // Start engine with runner
     Matter.Runner.run(this.runner, this.engine);
-    console.log('⚙️  Engine runner started');
-      // Start game loop
+    console.log('⚙️  Engine runner started');    // Start game loop
     this.gameLoop();
     console.log('🔄 Game loop started');
     
@@ -207,14 +206,8 @@ export class GameEngine {
     if (!this.playerAssembly || this.playerAssembly.destroyed || !this.playerAssembly.hasControlCenter()) {
       this.findPlayerAssembly();
     }
-    
-    // Update camera with mouse influence
+      // Update camera with mouse influence
     this.updateCameraWithMouse();
-    
-    // Render grid if enabled
-    if (this.showGrid) {
-      this.renderGrid();
-    }
     
     // Continue loop
     requestAnimationFrame(() => this.gameLoop());
@@ -344,43 +337,107 @@ export class GameEngine {
     if (controllableAssembly) {
       this.playerAssembly = controllableAssembly;
       this.playerAssembly.isPlayerControlled = true;
-    }
-  }
-
-  private renderGrid(): void {
+  }  }  private renderGrid(): void {
+    console.log('🎯 renderGrid called!');
     const ctx = this.render.canvas.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) {
+      console.log('❌ No canvas context available');
+      return;
+    }
     
-    const bounds = this.render.bounds;
-    const startX = Math.floor(bounds.min.x / GRID_SIZE) * GRID_SIZE;
-    const endX = Math.ceil(bounds.max.x / GRID_SIZE) * GRID_SIZE;
-    const startY = Math.floor(bounds.min.y / GRID_SIZE) * GRID_SIZE;
-    const endY = Math.ceil(bounds.max.y / GRID_SIZE) * GRID_SIZE;
+    console.log('🎯 Drawing grid...');    const bounds = this.render.bounds;
     
-    ctx.strokeStyle = '#333333';
+    // Calculate zoom level based on viewport size
+    const viewportWidth = bounds.max.x - bounds.min.x;
+    const viewportHeight = bounds.max.y - bounds.min.y;
+    const rawZoomLevel = Math.min(viewportWidth, viewportHeight) / 1000;
+    
+    // Clamp zoom to discrete levels to prevent constant grid movement
+    const zoomThresholds = [0.5, 1, 2, 4, 8, 16, 32];
+    let clampedZoomLevel = zoomThresholds[0];
+    for (const threshold of zoomThresholds) {
+      if (rawZoomLevel >= threshold) {
+        clampedZoomLevel = threshold;
+      } else {
+        break;
+      }
+    }
+    
+    // Use much larger grid spacing that scales with clamped zoom levels
+    const baseMinorGridSize = GRID_SIZE * 5 * clampedZoomLevel; 
+    const baseMajorGridSize = GRID_SIZE * 15 * clampedZoomLevel;
+    
+    const majorGridSize = baseMajorGridSize;
+    const minorGridSize = baseMinorGridSize;
+    
+    const startXMajor = Math.floor(bounds.min.x / majorGridSize) * majorGridSize;
+    const endXMajor = Math.ceil(bounds.max.x / majorGridSize) * majorGridSize;
+    const startYMajor = Math.floor(bounds.min.y / majorGridSize) * majorGridSize;
+    const endYMajor = Math.ceil(bounds.max.y / majorGridSize) * majorGridSize;
+    
+    const startXMinor = Math.floor(bounds.min.x / minorGridSize) * minorGridSize;
+    const endXMinor = Math.ceil(bounds.max.x / minorGridSize) * minorGridSize;
+    const startYMinor = Math.floor(bounds.min.y / minorGridSize) * minorGridSize;
+    const endYMinor = Math.ceil(bounds.max.y / minorGridSize) * minorGridSize;
+      // Save the current canvas state
+    ctx.save();
+      // Use destination-over to draw grid behind existing content
+    ctx.globalCompositeOperation = 'destination-over';
+      // Adjust opacity based on zoom level - fade out when too zoomed out
+    const baseOpacity = Math.min(1, Math.max(0.1, 2 / clampedZoomLevel));
+    
+    // Draw minor grid lines (lighter, behind major lines)
+    ctx.strokeStyle = '#444466';
     ctx.lineWidth = 1;
-    ctx.globalAlpha = 0.3;
+    ctx.globalAlpha = baseOpacity * 0.3; // Minor lines are more subtle
     
-    // Vertical lines
-    for (let x = startX; x <= endX; x += GRID_SIZE) {
-      const screenX = x - bounds.min.x;
+    // Minor vertical lines
+    for (let x = startXMinor; x <= endXMinor; x += minorGridSize) {
+      if (x % majorGridSize !== 0) { // Skip major grid positions
+        const screenX = (x - bounds.min.x) * this.render.canvas.width / (bounds.max.x - bounds.min.x);
+        ctx.beginPath();
+        ctx.moveTo(screenX, 0);
+        ctx.lineTo(screenX, this.render.canvas.height);
+        ctx.stroke();
+      }
+    }
+    
+    // Minor horizontal lines
+    for (let y = startYMinor; y <= endYMinor; y += minorGridSize) {
+      if (y % majorGridSize !== 0) { // Skip major grid positions
+        const screenY = (y - bounds.min.y) * this.render.canvas.height / (bounds.max.y - bounds.min.y);
+        ctx.beginPath();
+        ctx.moveTo(0, screenY);
+        ctx.lineTo(this.render.canvas.width, screenY);
+        ctx.stroke();
+      }
+    }    // Draw major grid lines (more visible)
+    ctx.strokeStyle = '#666688';
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = baseOpacity * 0.6; // Major lines are more visible
+    
+    // Major vertical lines
+    for (let x = startXMajor; x <= endXMajor; x += majorGridSize) {
+      const screenX = (x - bounds.min.x) * this.render.canvas.width / (bounds.max.x - bounds.min.x);
       ctx.beginPath();
       ctx.moveTo(screenX, 0);
       ctx.lineTo(screenX, this.render.canvas.height);
       ctx.stroke();
     }
     
-    // Horizontal lines
-    for (let y = startY; y <= endY; y += GRID_SIZE) {
-      const screenY = y - bounds.min.y;
+    // Major horizontal lines
+    for (let y = startYMajor; y <= endYMajor; y += majorGridSize) {
+      const screenY = (y - bounds.min.y) * this.render.canvas.height / (bounds.max.y - bounds.min.y);
       ctx.beginPath();
       ctx.moveTo(0, screenY);
       ctx.lineTo(this.render.canvas.width, screenY);
       ctx.stroke();
     }
+      // Restore the canvas state
+    ctx.restore();
     
-    ctx.globalAlpha = 1;
-  }  private toggleGrid(): void {
+    console.log('✅ Grid rendered successfully');
+  }private toggleGrid(): void {
     this.showGrid = !this.showGrid;  }  private spawnDemoShips(): void {
     console.log('🚀 spawnDemoShips called');    // Create complex player ship with multiple weapons (designed to face RIGHT, 0 degrees)
     const playerShip: EntityConfig[] = [
@@ -616,6 +673,15 @@ export class GameEngine {
     Matter.Render.lookAt(this.render, {
       min: { x: targetX - width / 2, y: targetY - height / 2 },
       max: { x: targetX + width / 2, y: targetY + height / 2 }
+    });
+  }  private setupRenderEvents(): void {
+    console.log('🎯 Setting up render events for grid');
+    
+    // Use afterRender for now to make it visible (we'll fix layering next)
+    Matter.Events.on(this.render, 'afterRender', () => {
+      if (this.showGrid) {
+        this.renderGrid();
+      }
     });
   }
 }

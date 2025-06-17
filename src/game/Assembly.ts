@@ -117,6 +117,7 @@ export class Assembly {
     
     const laser = Matter.Bodies.rectangle(spawnX, spawnY, laserWidth, laserHeight, {
       isSensor: true, // Lasers are sensors - they pass through objects but trigger collision events
+      frictionAir: 0, // No air resistance in space
       render: {
         fillStyle: '#00ffff', // Cyan laser color
         strokeStyle: '#ffffff',
