@@ -21,20 +21,19 @@
         { "type": "Hull", "x": 0, "y": 16, "rotation": 0 },
         { "type": "PowerCell", "x": 0, "y": -16, "rotation": 0 }
       ]
-    },
-    {
+    },    {
       "name": "Heavy Fighter",
       "parts": [
         { "type": "Cockpit", "x": 0, "y": 0, "rotation": 0 },
         { "type": "Engine", "x": 0, "y": 32, "rotation": 180 },
-        { "type": "Gun", "x": -16, "y": -16, "rotation": 315 },
-        { "type": "Gun", "x": 16, "y": -16, "rotation": 45 },
+        { "type": "Gun", "x": -16, "y": -16, "rotation": 0 },
+        { "type": "Gun", "x": 16, "y": -16, "rotation": 0 },
         { "type": "Hull", "x": -16, "y": 0, "rotation": 0 },
         { "type": "Hull", "x": 16, "y": 0, "rotation": 0 },
         { "type": "Hull", "x": 0, "y": 16, "rotation": 0 },
         { "type": "PowerCell", "x": 0, "y": -16, "rotation": 0 }
       ]
-    },    {
+    },{
       "name": "Capital Dreadnought",
       "parts": [
         { "type": "LargeCockpit", "x": 0, "y": 0, "rotation": 0 },
@@ -53,9 +52,8 @@
         { "type": "HeavyHull", "x": -64, "y": -32, "rotation": 0 },
         { "type": "HeavyHull", "x": 64, "y": -32, "rotation": 0 },
         { "type": "HeavyHull", "x": -64, "y": 32, "rotation": 0 },
-        { "type": "HeavyHull", "x": 64, "y": 32, "rotation": 0 },
-        { "type": "LargeGun", "x": -64, "y": -64, "rotation": 315 },
-        { "type": "LargeGun", "x": 64, "y": -64, "rotation": 45 }
+        { "type": "HeavyHull", "x": 64, "y": 32, "rotation": 0 },        { "type": "LargeGun", "x": -64, "y": -64, "rotation": 0 },
+        { "type": "LargeGun", "x": 64, "y": -64, "rotation": 0 }
       ]
     },
     {
@@ -66,9 +64,8 @@
         { "type": "HeavyHull", "x": 0, "y": 32, "rotation": 0 },
         { "type": "HeavyHull", "x": 0, "y": -64, "rotation": 0 },
         { "type": "HeavyHull", "x": 0, "y": 64, "rotation": 0 },
-        { "type": "LargeGun", "x": 0, "y": -96, "rotation": 0 },
-        { "type": "LargeGun", "x": -32, "y": -64, "rotation": 315 },
-        { "type": "LargeGun", "x": 32, "y": -64, "rotation": 45 },
+        { "type": "LargeGun", "x": 0, "y": -96, "rotation": 0 },        { "type": "LargeGun", "x": -32, "y": -64, "rotation": 0 },
+        { "type": "LargeGun", "x": 32, "y": -64, "rotation": 0 },
         { "type": "LargeEngine", "x": 0, "y": 96, "rotation": 180 },
         { "type": "LargeEngine", "x": -32, "y": 64, "rotation": 180 },
         { "type": "LargeEngine", "x": 32, "y": 64, "rotation": 180 },
@@ -91,9 +88,8 @@
         { "type": "HeavyHull", "x": -96, "y": 0, "rotation": 0 },
         { "type": "HeavyHull", "x": 96, "y": 0, "rotation": 0 },
         { "type": "LargeGun", "x": -96, "y": -32, "rotation": 0 },
-        { "type": "LargeGun", "x": 96, "y": -32, "rotation": 0 },
-        { "type": "LargeGun", "x": -96, "y": 32, "rotation": 180 },
-        { "type": "LargeGun", "x": 96, "y": 32, "rotation": 180 },
+        { "type": "LargeGun", "x": 96, "y": -32, "rotation": 0 },        { "type": "LargeGun", "x": -96, "y": 32, "rotation": 0 },
+        { "type": "LargeGun", "x": 96, "y": 32, "rotation": 0 },
         { "type": "LargeEngine", "x": -128, "y": 0, "rotation": 270 },
         { "type": "LargeEngine", "x": 128, "y": 0, "rotation": 90 },
         { "type": "LargePowerCell", "x": -64, "y": -32, "rotation": 0 },
@@ -112,9 +108,8 @@
         { "type": "LargeCockpit", "x": 0, "y": 0, "rotation": 0 },
         { "type": "HeavyHull", "x": 0, "y": -32, "rotation": 0 },
         { "type": "HeavyHull", "x": 0, "y": 32, "rotation": 0 },
-        { "type": "LargeGun", "x": 0, "y": -64, "rotation": 0 },
-        { "type": "LargeGun", "x": -32, "y": -32, "rotation": 315 },
-        { "type": "LargeGun", "x": 32, "y": -32, "rotation": 45 },
+        { "type": "LargeGun", "x": 0, "y": -64, "rotation": 0 },        { "type": "LargeGun", "x": -32, "y": -32, "rotation": 0 },
+        { "type": "LargeGun", "x": 32, "y": -32, "rotation": 0 },
         { "type": "LargeEngine", "x": 0, "y": 64, "rotation": 180 },
         { "type": "LargePowerCell", "x": -32, "y": 0, "rotation": 0 },
         { "type": "LargePowerCell", "x": 32, "y": 0, "rotation": 0 },
@@ -129,9 +124,8 @@
         { "type": "HeavyHull", "x": -32, "y": 0, "rotation": 0 },
         { "type": "HeavyHull", "x": 32, "y": 0, "rotation": 0 },
         { "type": "HeavyHull", "x": 0, "y": -32, "rotation": 0 },
-        { "type": "HeavyHull", "x": 0, "y": 32, "rotation": 0 },
-        { "type": "LargeGun", "x": -64, "y": 0, "rotation": 270 },
-        { "type": "LargeGun", "x": 64, "y": 0, "rotation": 90 },
+        { "type": "HeavyHull", "x": 0, "y": 32, "rotation": 0 },        { "type": "LargeGun", "x": -64, "y": 0, "rotation": 0 },
+        { "type": "LargeGun", "x": 64, "y": 0, "rotation": 0 },
         { "type": "LargeGun", "x": 0, "y": -64, "rotation": 0 },
         { "type": "LargeEngine", "x": 0, "y": 64, "rotation": 180 },
         { "type": "LargeEngine", "x": -32, "y": 32, "rotation": 180 },
@@ -151,13 +145,11 @@
         { "type": "HeavyHull", "x": -32, "y": -32, "rotation": 0 },
         { "type": "HeavyHull", "x": 32, "y": -32, "rotation": 0 },
         { "type": "HeavyHull", "x": -32, "y": 32, "rotation": 0 },
-        { "type": "HeavyHull", "x": 32, "y": 32, "rotation": 0 },
-        { "type": "LargeGun", "x": -64, "y": -32, "rotation": 315 },
-        { "type": "LargeGun", "x": 64, "y": -32, "rotation": 45 },
-        { "type": "LargeGun", "x": -64, "y": 32, "rotation": 225 },
-        { "type": "LargeGun", "x": 64, "y": 32, "rotation": 135 },
+        { "type": "HeavyHull", "x": 32, "y": 32, "rotation": 0 },        { "type": "LargeGun", "x": -64, "y": -32, "rotation": 0 },
+        { "type": "LargeGun", "x": 64, "y": -32, "rotation": 0 },        { "type": "LargeGun", "x": -64, "y": 32, "rotation": 0 },
+        { "type": "LargeGun", "x": 64, "y": 32, "rotation": 0 },
         { "type": "LargeGun", "x": 0, "y": -64, "rotation": 0 },
-        { "type": "LargeGun", "x": 0, "y": 64, "rotation": 180 },
+        { "type": "LargeGun", "x": 0, "y": 64, "rotation": 0 },
         { "type": "LargeEngine", "x": -64, "y": 0, "rotation": 270 },
         { "type": "LargeEngine", "x": 64, "y": 0, "rotation": 90 },
         { "type": "LargePowerCell", "x": -32, "y": 64, "rotation": 0 },
