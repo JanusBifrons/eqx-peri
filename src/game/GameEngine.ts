@@ -15,6 +15,17 @@ export class GameEngine {
   private running: boolean = false;
   private showGrid: boolean = true;
   private runner: Matter.Runner;
+    // Mouse interaction properties
+  private mouse!: Matter.Mouse;
+  private mouseConstraint!: Matter.MouseConstraint;
+  private mousePosition: { x: number, y: number } = { x: 0, y: 0 };
+  private mouseDown: boolean = false;
+  private mouseMovementInfluence: number = 0.05; // Much more subtle mouse influence
+  private maxMouseOffset: number = 100; // Maximum distance camera can be offset by mouse
+  private zoomLevel: number = 1;
+  private minZoom: number = 0.3;
+  private maxZoom: number = 3;
+
   constructor(container: HTMLElement) {
     console.log('🎮 Creating GameEngine...');
     
@@ -22,8 +33,14 @@ export class GameEngine {
     this.engine = Matter.Engine.create();
     this.world = this.engine.world;
     this.runner = Matter.Runner.create();
-    console.log('⚙️  Matter.js engine created');    // Configure engine
+    console.log('⚙️  Matter.js engine created');    // Configure engine for space-like physics
     this.engine.world.gravity.y = 0; // No gravity in space
+    this.engine.world.gravity.x = 0; // Ensure no horizontal gravity either
+    
+    // Set global air resistance to zero for space-like physics
+    this.engine.world.bodies.forEach(body => {
+      body.frictionAir = 0; // No air resistance in space
+    });
 
     // Create renderer with debug options - matching MVP spec
     const containerWidth = container.clientWidth || 800;
@@ -49,6 +66,8 @@ export class GameEngine {
     });    console.log('🖼️  Renderer created');
     console.log('Canvas element:', this.render.canvas);
     
+    // Initialize mouse interaction
+    this.setupMouseInteraction();
     this.setupEventListeners();
     this.setupCollisionDetection();
   }
@@ -169,7 +188,6 @@ export class GameEngine {
     Matter.Runner.stop(this.runner);
     Matter.Engine.clear(this.engine);
   }
-
   private gameLoop(): void {
     if (!this.running) return;
     
@@ -190,6 +208,9 @@ export class GameEngine {
       this.findPlayerAssembly();
     }
     
+    // Update camera with mouse influence
+    this.updateCameraWithMouse();
+    
     // Render grid if enabled
     if (this.showGrid) {
       this.renderGrid();
@@ -198,14 +219,35 @@ export class GameEngine {
     // Continue loop
     requestAnimationFrame(() => this.gameLoop());
   }
-
   private handleInput(): void {
     if (!this.playerAssembly || this.playerAssembly.destroyed) return;
-      // Thrust
+    
+    // Mouse-based rotation - automatically face mouse cursor
+    if (this.mousePosition.x !== 0 || this.mousePosition.y !== 0) {
+      const playerPos = this.playerAssembly.rootBody.position;
+      const worldMouseX = this.mousePosition.x + this.render.bounds.min.x;
+      const worldMouseY = this.mousePosition.y + this.render.bounds.min.y;
+      
+      const targetAngle = Math.atan2(worldMouseY - playerPos.y, worldMouseX - playerPos.x);
+      const currentAngle = this.playerAssembly.rootBody.angle;
+      
+      // Smooth rotation towards mouse
+      let angleDiff = targetAngle - currentAngle;
+      
+      // Normalize angle difference to [-π, π]
+      while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+      while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+      
+      // Apply smooth rotation
+      const rotationSpeed = 0.1;
+      this.playerAssembly.applyTorque(angleDiff * rotationSpeed);
+    }
+    
+    // Keyboard thrust controls
     if (this.keys.has('w') || this.keys.has('arrowup')) {
       const angle = this.playerAssembly.rootBody.angle;
       const thrust = {
-        x: Math.cos(angle) * 0.003, // Increased from 0.001 to 0.003
+        x: Math.cos(angle) * 0.003,
         y: Math.sin(angle) * 0.003
       };
       this.playerAssembly.applyThrust(thrust);
@@ -215,24 +257,46 @@ export class GameEngine {
     if (this.keys.has('s') || this.keys.has('arrowdown')) {
       const angle = this.playerAssembly.rootBody.angle;
       const thrust = {
-        x: Math.cos(angle) * -0.0015, // Increased from -0.0005 to -0.0015
+        x: Math.cos(angle) * -0.0015,
         y: Math.sin(angle) * -0.0015
       };
       this.playerAssembly.applyThrust(thrust);
     }
-      // Rotation
+    
+    // Manual rotation (override mouse rotation)
     if (this.keys.has('a') || this.keys.has('arrowleft')) {
-      this.playerAssembly.applyTorque(-0.15); // Increased from -0.1 to -0.15
+      this.playerAssembly.applyTorque(-0.15);
     }
     if (this.keys.has('d') || this.keys.has('arrowright')) {
-      this.playerAssembly.applyTorque(0.15); // Increased from 0.1 to 0.15
-    }// Firing
+      this.playerAssembly.applyTorque(0.15);
+    }
+
+    // Firing (keyboard space bar)
     if (this.keys.has(' ')) {
       const newBullets = this.playerAssembly.fireWeapons();
       newBullets.forEach(bullet => {
         Matter.World.add(this.world, bullet);
         this.bullets.push(bullet);
       });
+    }
+      // Continuous firing with left mouse button held down
+    if (this.mouseDown) {
+      const now = Date.now();
+      if (now - this.playerAssembly.lastFireTime > this.playerAssembly.fireRate) {
+        // Calculate angle from player to mouse for continuous fire
+        const playerPos = this.playerAssembly.rootBody.position;
+        const worldMouseX = this.mousePosition.x + this.render.bounds.min.x;
+        const worldMouseY = this.mousePosition.y + this.render.bounds.min.y;
+        
+        const angle = Math.atan2(worldMouseY - playerPos.y, worldMouseX - playerPos.x);
+        
+        const newBullets = this.playerAssembly.fireWeapons(angle);
+        newBullets.forEach(bullet => {
+          Matter.World.add(this.world, bullet);
+          this.bullets.push(bullet);
+        });
+        this.playerAssembly.lastFireTime = now;
+      }
     }
   }
   private updateBullets(): void {
@@ -410,5 +474,148 @@ export class GameEngine {
       }
     } catch (error) {
       console.error('❌ Error spawning ship:', error);    }
+  }
+
+  private setupMouseInteraction(): void {
+    // Create mouse and mouse constraint for Matter.js
+    this.mouse = Matter.Mouse.create(this.render.canvas);
+    this.mouseConstraint = Matter.MouseConstraint.create(this.engine, {
+      mouse: this.mouse,
+      constraint: {
+        stiffness: 0.2,
+        render: { visible: false }
+      }
+    });
+    Matter.World.add(this.world, this.mouseConstraint);    // Track mouse position for camera and targeting
+    this.render.canvas.addEventListener('mousemove', (event) => {
+      const rect = this.render.canvas.getBoundingClientRect();
+      this.mousePosition = {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top
+      };
+    });
+
+    // Left mouse button - primary fire and interactions
+    this.render.canvas.addEventListener('mousedown', (event) => {
+      if (event.button === 0) { // Left mouse button
+        this.mouseDown = true;
+        this.handleLeftClick(event);
+      } else if (event.button === 2) { // Right mouse button
+        this.handleRightClick(event);
+      }
+    });
+
+    this.render.canvas.addEventListener('mouseup', (event) => {
+      if (event.button === 0) {
+        this.mouseDown = false;
+      }
+    });
+
+    // Mouse wheel for zoom
+    this.render.canvas.addEventListener('wheel', (event) => {
+      event.preventDefault();
+      this.handleMouseWheel(event);
+    });
+
+    // Disable right-click context menu
+    this.render.canvas.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+    });
+
+    // Keep mouse constraint in sync with render bounds
+    this.render.mouse = this.mouse;
+  }
+  private handleLeftClick(event: MouseEvent): void {
+    // Fire weapons towards mouse position
+    if (this.playerAssembly && !this.playerAssembly.destroyed) {
+      const rect = this.render.canvas.getBoundingClientRect();
+      const mouseX = event.clientX - rect.left + this.render.bounds.min.x;
+      const mouseY = event.clientY - rect.top + this.render.bounds.min.y;
+      
+      // Calculate angle from player to mouse
+      const playerPos = this.playerAssembly.rootBody.position;
+      const angle = Math.atan2(mouseY - playerPos.y, mouseX - playerPos.x);
+      
+      // Fire weapons in that direction using the new target angle parameter
+      const newBullets = this.playerAssembly.fireWeapons(angle);
+      newBullets.forEach(bullet => {
+        Matter.World.add(this.world, bullet);
+        this.bullets.push(bullet);
+      });
+    }
+  }
+
+  private handleRightClick(event: MouseEvent): void {
+    // Right click for alternative actions - rotate to face mouse
+    if (this.playerAssembly && !this.playerAssembly.destroyed) {
+      const rect = this.render.canvas.getBoundingClientRect();
+      const mouseX = event.clientX - rect.left + this.render.bounds.min.x;
+      const mouseY = event.clientY - rect.top + this.render.bounds.min.y;
+      
+      // Calculate angle from player to mouse
+      const playerPos = this.playerAssembly.rootBody.position;
+      const targetAngle = Math.atan2(mouseY - playerPos.y, mouseX - playerPos.x);
+      
+      // Set the rotation to face the mouse
+      Matter.Body.setAngle(this.playerAssembly.rootBody, targetAngle);
+    }
+  }
+  private handleMouseWheel(event: WheelEvent): void {
+    // Zoom in/out based on wheel direction (inverted for natural feel)
+    const zoomFactor = event.deltaY > 0 ? 0.9 : 1.1; // Wheel down = zoom out, wheel up = zoom in
+    this.zoomLevel *= zoomFactor;
+    
+    // Clamp zoom level
+    this.zoomLevel = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoomLevel));
+    
+    // Apply zoom to render bounds
+    const centerX = (this.render.bounds.min.x + this.render.bounds.max.x) / 2;
+    const centerY = (this.render.bounds.min.y + this.render.bounds.max.y) / 2;
+    
+    const width = this.render.canvas.width / this.zoomLevel;
+    const height = this.render.canvas.height / this.zoomLevel;
+    
+    Matter.Render.lookAt(this.render, {
+      min: { x: centerX - width / 2, y: centerY - height / 2 },
+      max: { x: centerX + width / 2, y: centerY + height / 2 }
+    });
+  }
+  private updateCameraWithMouse(): void {
+    if (!this.playerAssembly || this.playerAssembly.destroyed) return;
+    
+    const playerPos = this.playerAssembly.rootBody.position;
+    const canvas = this.render.canvas;
+    
+    // Get mouse position in world coordinates
+    const worldMouseX = this.mousePosition.x + this.render.bounds.min.x;
+    const worldMouseY = this.mousePosition.y + this.render.bounds.min.y;
+    
+    // Calculate mouse offset from player, but clamp it to a maximum distance
+    const rawOffsetX = (worldMouseX - playerPos.x) * this.mouseMovementInfluence;
+    const rawOffsetY = (worldMouseY - playerPos.y) * this.mouseMovementInfluence;
+    
+    // Clamp the offset to maximum distance
+    const offsetDistance = Math.sqrt(rawOffsetX * rawOffsetX + rawOffsetY * rawOffsetY);
+    let offsetX = rawOffsetX;
+    let offsetY = rawOffsetY;
+    
+    if (offsetDistance > this.maxMouseOffset) {
+      const scale = this.maxMouseOffset / offsetDistance;
+      offsetX = rawOffsetX * scale;
+      offsetY = rawOffsetY * scale;
+    }
+    
+    // Calculate target camera position
+    const targetX = playerPos.x + offsetX;
+    const targetY = playerPos.y + offsetY;
+    
+    // Apply zoom
+    const width = canvas.width / this.zoomLevel;
+    const height = canvas.height / this.zoomLevel;
+    
+    Matter.Render.lookAt(this.render, {
+      min: { x: targetX - width / 2, y: targetY - height / 2 },
+      max: { x: targetX + width / 2, y: targetY + height / 2 }
+    });
   }
 }

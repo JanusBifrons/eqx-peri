@@ -46,21 +46,26 @@ const App: React.FC = () => {
         fontFamily: 'monospace',
         color: '#ffffff',
         border: '1px solid #333'
-      }}>        <div style={{ color: '#00ff00', marginBottom: '8px', fontWeight: 'bold' }}>🚀 MODULAR SPACE GAME - BREAKING DEMO</div>
-        <div style={{ marginBottom: '6px' }}>Controls:</div>
-        <div>W - Apply Thrust</div>
-        <div>A/D - Rotate Ship</div>
-        <div>S - Reverse Thrust</div>
+      }}>        <div style={{ color: '#00ff00', marginBottom: '8px', fontWeight: 'bold' }}>🚀 MODULAR SPACE GAME - MOUSE CONTROLS</div>
+        <div style={{ marginBottom: '6px' }}>Keyboard Controls:</div>
+        <div>W/S - Forward/Reverse Thrust</div>
+        <div>A/D - Manual Rotation</div>
         <div>Space - Fire Guns</div>
-        <div style={{ marginTop: '8px', marginBottom: '6px' }}>Spawn:</div>
-        <div>1 - Add Random Ship</div>
         <div>G - Toggle Grid</div>
+        <div>1 - Add Random Ship</div>
+        
+        <div style={{ marginTop: '8px', marginBottom: '6px', color: '#00ccff' }}>Mouse Controls:</div>
+        <div style={{ color: '#cccccc' }}>Move Mouse - Rotate ship to face cursor</div>
+        <div style={{ color: '#cccccc' }}>Left Click - Fire at cursor</div>
+        <div style={{ color: '#cccccc' }}>Hold Left Click - Continuous fire</div>
+        <div style={{ color: '#cccccc' }}>Right Click - Instant rotate to cursor</div>
+        <div style={{ color: '#cccccc' }}>Mouse Wheel - Zoom in/out</div>
+        
         <div style={{ marginTop: '8px', color: '#ffff00', fontSize: '12px' }}>
+          • Mouse automatically aims your ship<br/>
+          • Camera follows player with mouse influence<br/>
           • Shoot at ships to break them apart<br/>
-          • Parts split into new ships when destroyed<br/>
-          • Each fragment becomes independent<br/>
-          • Cockpit required for control
-          • Matter.js physics + debug rendering
+          • Each fragment becomes independent
         </div>
       </div>
     </div>

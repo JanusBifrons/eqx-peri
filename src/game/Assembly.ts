@@ -4,10 +4,12 @@ import { EntityConfig, GRID_SIZE, Vector2 } from '../types/GameTypes';
 
 export class Assembly {
   public id: string;
-  public rootBody: Matter.Body;  public entities: Entity[] = [];
-  public isPlayerControlled: boolean = false;  public destroyed: boolean = false;
-  private lastFireTime: number = 0;
-  private fireRate: number = 500; // 500ms between shots = 2 shots per second
+  public rootBody: Matter.Body;
+  public entities: Entity[] = [];
+  public isPlayerControlled: boolean = false;
+  public destroyed: boolean = false;
+  public lastFireTime: number = 0;
+  public fireRate: number = 500; // 500ms between shots = 2 shots per second
   constructor(entityConfigs: EntityConfig[], position: Vector2 = { x: 0, y: 0 }) {
     this.id = Math.random().toString(36).substr(2, 9);
     
@@ -15,7 +17,9 @@ export class Assembly {
     this.entities = entityConfigs.map(config => new Entity(config));    // Create root body
     this.rootBody = Matter.Body.create({
       parts: this.entities.map(e => e.body),
-      isStatic: false
+      isStatic: false,
+      frictionAir: 0, // No air resistance in space
+      friction: 0.001 // Minimal friction for surface contact
     });
 
     // Set position
@@ -69,7 +73,7 @@ export class Assembly {
     const targetAngularVelocity = torque * 0.1;
     
     Matter.Body.setAngularVelocity(this.rootBody, targetAngularVelocity);
-  }  public fireWeapons(): Matter.Body[] {
+  }  public fireWeapons(targetAngle?: number): Matter.Body[] {
     if (this.destroyed) return [];
     
     const currentTime = Date.now();
@@ -83,7 +87,7 @@ export class Assembly {
     const lasers: Matter.Body[] = [];
     
     weapons.forEach(weapon => {
-      const laser = this.createLaser(weapon);
+      const laser = this.createLaser(weapon, targetAngle);
       if (laser) {
         lasers.push(laser);
       }
@@ -91,24 +95,27 @@ export class Assembly {
     
     // Update last fire time to current time
     this.lastFireTime = currentTime;
-      return lasers;
-  }
-  private createLaser(weapon: Entity): Matter.Body | null {
+    
+    return lasers;
+  }  private createLaser(weapon: Entity, targetAngle?: number): Matter.Body | null {
     // Calculate laser spawn position and direction
     const weaponWorldPos = weapon.body.position;
     const assemblyAngle = this.rootBody.angle;
     const weaponLocalAngle = weapon.rotation * Math.PI / 180;
-    const totalAngle = assemblyAngle + weaponLocalAngle;
+    
+    // Use target angle if provided, otherwise use weapon's natural direction
+    const firingAngle = targetAngle !== undefined ? targetAngle : assemblyAngle + weaponLocalAngle;
     
     // Spawn laser further in front of weapon to avoid self-collision
     const spawnDistance = 40;
-    const spawnX = weaponWorldPos.x + Math.cos(totalAngle) * spawnDistance;
-    const spawnY = weaponWorldPos.y + Math.sin(totalAngle) * spawnDistance;
+    const spawnX = weaponWorldPos.x + Math.cos(firingAngle) * spawnDistance;
+    const spawnY = weaponWorldPos.y + Math.sin(firingAngle) * spawnDistance;
     
     // Create rectangular laser body - longer and thinner for laser appearance
     const laserWidth = 20; // Length of the laser
     const laserHeight = 4; // Thickness of the laser
-      const laser = Matter.Bodies.rectangle(spawnX, spawnY, laserWidth, laserHeight, {
+    
+    const laser = Matter.Bodies.rectangle(spawnX, spawnY, laserWidth, laserHeight, {
       isSensor: true, // Lasers are sensors - they pass through objects but trigger collision events
       render: {
         fillStyle: '#00ffff', // Cyan laser color
@@ -118,16 +125,15 @@ export class Assembly {
     });
     
     // Rotate the laser to match the firing direction
-    Matter.Body.rotate(laser, totalAngle);
+    Matter.Body.rotate(laser, firingAngle);
     
-    // Set laser velocity - faster but still visible
+    // Set laser velocity using the firing angle
     const laserSpeed = 10;
     const velocity = {
-      x: Math.cos(totalAngle) * laserSpeed,
-      y: Math.sin(totalAngle) * laserSpeed
+      x: Math.cos(firingAngle) * laserSpeed,
+      y: Math.sin(firingAngle) * laserSpeed
     };
-    
-    Matter.Body.setVelocity(laser, velocity);
+      Matter.Body.setVelocity(laser, velocity);
     
     // Mark as bullet for collision detection (keeping original property name for compatibility)
     laser.isBullet = true;

@@ -21,9 +21,7 @@ export class Entity {
     }
     
     this.maxHealth = config.maxHealth || definition.defaultHealth;
-    this.health = config.health || this.maxHealth;
-
-    // Create Matter.js body
+    this.health = config.health || this.maxHealth;    // Create Matter.js body
     this.body = Matter.Bodies.rectangle(
       config.x, 
       config.y, 
@@ -31,6 +29,8 @@ export class Entity {
       definition.height,
       {
         mass: definition.mass,
+        frictionAir: 0, // No air resistance in space
+        friction: 0.001, // Minimal friction for surface contact
         render: {
           fillStyle: definition.color,
           strokeStyle: '#ffffff',
