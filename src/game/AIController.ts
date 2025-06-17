@@ -107,12 +107,12 @@ export class AIController {
 
         this.state.target = closestEnemy;
         this.state.isEngaging = closestDistance < this.engagementRange;
-    }
-
-    private getEnemyAssemblies(allAssemblies: Assembly[]): Assembly[] {
+    } private getEnemyAssemblies(allAssemblies: Assembly[]): Assembly[] {
         return allAssemblies.filter(assembly => {
-            if (!assembly.aiController || assembly === this.assembly || assembly.destroyed) return false;
-            return assembly.aiController.team !== this.team;
+            if (assembly === this.assembly || assembly.destroyed) return false;
+            // Convert AITeam to numeric team for comparison
+            const myNumericTeam = this.team === AITeam.PLAYER ? 0 : 1;
+            return assembly.getTeam() !== myNumericTeam;
         });
     }
 

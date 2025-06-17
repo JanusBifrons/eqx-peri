@@ -5,38 +5,6 @@ import { EntityConfig, EntityType } from '../types/GameTypes';
  */
 export class ShipDesigner {
   private static readonly GRID_UNIT = 16; // Base grid unit in pixels
-
-  /**
-   * Get the grid size for a block type
-   */
-  private static getBlockGridSize(type: EntityType): number {
-    switch (type) {
-      case 'Cockpit':
-      case 'Engine':
-      case 'Gun':
-      case 'Hull':
-      case 'PowerCell':
-        return 1; // 1x1 blocks
-      
-      case 'LargeCockpit':
-      case 'LargeEngine':
-      case 'LargeGun':
-      case 'HeavyHull':
-      case 'LargePowerCell':
-        return 2; // 2x2 blocks
-      
-      case 'CapitalCore':
-      case 'CapitalEngine':
-      case 'CapitalWeapon':
-      case 'MegaHull':
-      case 'PowerReactor':
-        return 4; // 4x4 blocks
-      
-      default:
-        return 1;
-    }
-  }
-
   /**
    * Convert grid coordinates to world coordinates
    */

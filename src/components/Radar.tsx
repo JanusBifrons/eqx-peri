@@ -1,165 +1,439 @@
-import React, { useEffect, useRef, useState } from 'react';
-
-interface RadarBlip {
-    x: number;
-    y: number;
-    team: number;
-    isPlayer: boolean;
-    id: string;
-}
+import React, { useEffect, useState } from 'react';
+import {
+    Paper,
+    Table,
+    TableBody,
+    TableCell,
+    TableContainer,
+    TableHead,
+    TableRow,
+    Typography,
+    Box,
+    Chip,
+    Button,
+    Divider
+} from '@mui/material';
+import {
+    MyLocation,
+    PersonPinCircle,
+    RadioButtonUnchecked,
+    SocialDistance,
+    GpsFixed
+} from '@mui/icons-material';
+import { styled } from '@mui/material/styles';
+import { GameEngine } from '../game/GameEngine';
 
 interface RadarProps {
-    gameEngine: any;
+    gameEngine: GameEngine | null;
 }
 
-const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
-    const canvasRef = useRef<HTMLCanvasElement>(null);
-    const [radarData, setRadarData] = useState<RadarBlip[]>([]);
-    const radarSize = 200;
-    const radarRange = 100000; useEffect(() => {
-        const updateRadar = () => {
-            console.log('📡 Radar update - gameEngine:', !!gameEngine);
+const CompactPaper = styled(Paper)(() => ({
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 280,
+    maxHeight: '60vh',
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    border: '1px solid #333',
+    '& .MuiTableCell-root': {
+        padding: '4px 8px',
+        fontSize: '0.75rem',
+        color: '#ffffff',
+        borderColor: '#333'
+    },
+    '& .MuiTableHead-root .MuiTableCell-root': {
+        backgroundColor: 'rgba(0, 50, 100, 0.3)',
+        fontWeight: 600
+    }
+}));
 
-            if (gameEngine && typeof gameEngine.getRadarData === 'function') {
-                try {
-                    const data = gameEngine.getRadarData();
-                    console.log('📡 Radar received data:', data?.length || 0, 'blips');
-                    console.log('📡 Raw radar data:', data);
-                    setRadarData(data || []);
-                } catch (error) {
-                    console.error('📡 Radar update failed:', error);
-                    setRadarData([]);
+const RadarDot = styled('div')<{ team: string; isPlayer: boolean; isSelected: boolean }>(({ team, isPlayer, isSelected }) => ({
+    width: 8,
+    height: 8,
+    borderRadius: '50%',
+    backgroundColor: isPlayer ? '#00ff00' : (team === 'player' ? '#0088ff' : '#ff4444'),
+    border: isSelected ? '2px solid #ffff00' : 'none',
+    margin: '0 auto'
+}));
+
+const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
+    const [radarData, setRadarData] = useState<any[]>([]);
+    const [selectedShip, setSelectedShip] = useState<any>(null);
+    const [activeCommand, setActiveCommand] = useState<string | null>(null);
+    const [commandTarget, setCommandTarget] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!gameEngine) return;
+
+        const updateRadar = () => {
+            try {
+                const data = gameEngine.getRadarData();
+                const playerShip = data.find(ship => ship.isPlayer);
+
+                if (playerShip) {
+                    // Calculate distances and sort by distance
+                    const shipsWithDistance = data.map(ship => ({
+                        ...ship,
+                        distance: Math.sqrt(
+                            Math.pow(ship.x - playerShip.x, 2) +
+                            Math.pow(ship.y - playerShip.y, 2)
+                        )
+                    })).sort((a, b) => a.distance - b.distance);
+
+                    setRadarData(shipsWithDistance);
+                } else {
+                    setRadarData(data);
                 }
-            } else {
-                console.log('📡 GameEngine not ready or missing getRadarData method');
-                setRadarData([]);
+
+                // Update selected ship info
+                const selected = gameEngine.getSelectedAssembly();
+                if (selected) {
+                    const selectedData = data.find(ship => ship.id === selected.id);
+                    setSelectedShip(selectedData);
+                } else {
+                    setSelectedShip(null);
+                }
+            } catch (error) {
+                console.error('Radar update error:', error);
             }
         };
 
-        // Update more frequently to catch data sooner
-        const interval = setInterval(updateRadar, 500);
-        updateRadar();
+        const interval = setInterval(updateRadar, 100);
         return () => clearInterval(interval);
-    }, [gameEngine]);
-
-    useEffect(() => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-
-        ctx.clearRect(0, 0, radarSize, radarSize);
-        ctx.fillStyle = 'rgba(0, 30, 0, 0.9)';
-        ctx.fillRect(0, 0, radarSize, radarSize);
-
-        ctx.strokeStyle = '#00ff00';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(1, 1, radarSize - 2, radarSize - 2);
-
-        const center = radarSize / 2;
-        ctx.strokeStyle = 'rgba(0, 255, 0, 0.3)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(center, 0);
-        ctx.lineTo(center, radarSize);
-        ctx.moveTo(0, center);
-        ctx.lineTo(radarSize, center);
-        ctx.stroke();
-
-        ctx.fillStyle = '#ffffff';
-        ctx.font = '10px monospace';
-        ctx.fillText(`Engine: ${gameEngine ? 'OK' : 'NULL'}`, 5, 15);
-        ctx.fillText(`Blips: ${radarData.length}`, 5, 25);
-
-        if (radarData.length === 0) {
-            ctx.fillStyle = '#ff0000';
-            ctx.fillText('NO DATA', center - 25, center);
-            return;
+    }, [gameEngine]); const handleTurnToFace = (ship: any) => {
+        if (gameEngine && ship) {
+            gameEngine.turnPlayerToFaceTarget(ship.x, ship.y);
         }
+    }; const handleFollow = (ship: any) => {
+        if (gameEngine && ship) {
+            console.log('🎯 Follow command for:', ship.shipName || ship.id);
+            gameEngine.setPlayerCommand('follow', ship.id);
+            setActiveCommand('follow');
+            setCommandTarget(ship.id);
+        }
+    };
 
-        const playerBlip = radarData.find(blip => blip.isPlayer);
-        const centerBlip = playerBlip || radarData[0];
+    const handleOrbit = (ship: any) => {
+        if (gameEngine && ship) {
+            console.log('🌀 Orbit command for:', ship.shipName || ship.id);
+            gameEngine.setPlayerCommand('orbit', ship.id);
+            setActiveCommand('orbit');
+            setCommandTarget(ship.id);
+        }
+    };
 
-        radarData.forEach((blip) => {
-            const relX = centerBlip ? blip.x - centerBlip.x : blip.x;
-            const relY = centerBlip ? blip.y - centerBlip.y : blip.y;
+    const handleKeepDistance = (ship: any) => {
+        if (gameEngine && ship) {
+            console.log('📏 Keep distance command for:', ship.shipName || ship.id);
+            gameEngine.setPlayerCommand('keepDistance', ship.id);
+            setActiveCommand('keepDistance');
+            setCommandTarget(ship.id);
+        }
+    }; const handleLockOn = (ship: any) => {
+        if (gameEngine && ship) {
+            console.log('🔒 Lock on command for:', ship.shipName || ship.id);
+            gameEngine.setPlayerCommand('lockOn', ship.id);
+            setActiveCommand('lockOn');
+            setCommandTarget(ship.id);
+        }
+    }; const isCommandActive = (command: string, ship: any) => {
+        return activeCommand === command && commandTarget === ship.id;
+    };
 
-            const radarX = center + (relX / radarRange) * (radarSize * 0.4);
-            const radarY = center + (relY / radarRange) * (radarSize * 0.4);
+    const handleClearCommand = () => {
+        if (gameEngine) {
+            console.log('🚫 Clearing player command');
+            gameEngine.setPlayerCommand('stop');
+            setActiveCommand(null);
+            setCommandTarget(null);
+        }
+    }; const handleShipSelect = (ship: any) => {
+        console.log('📡 Radar: Selecting ship', ship.shipName || ship.id);
 
-            if (radarX >= 5 && radarX <= radarSize - 5 && radarY >= 5 && radarY <= radarSize - 5) {
-                ctx.beginPath();
+        // Update local state immediately
+        setSelectedShip(ship);
+        console.log('📡 Radar: Local state updated to:', ship.shipName || ship.id);
 
-                if (blip.isPlayer) {
-                    const pulse = Math.sin(Date.now() / 200) * 0.3 + 0.7;
-                    ctx.arc(radarX, radarY, 6, 0, Math.PI * 2);
-                    ctx.fillStyle = `rgba(0, 255, 255, ${pulse})`;
-                    ctx.fill();
-                    ctx.strokeStyle = '#ffffff';
-                    ctx.lineWidth = 2;
-                    ctx.stroke();
-                } else {
-                    ctx.arc(radarX, radarY, 4, 0, Math.PI * 2);
-                    ctx.fillStyle = blip.team === 0 ? '#0066ff' : '#ff0000';
-                    ctx.fill();
-                }
-            }
-        });
+        // Select the assembly in the GameEngine
+        if (gameEngine) {
+            console.log('📡 Radar: Calling gameEngine.selectAssemblyById with:', ship.id);
+            gameEngine.selectAssemblyById(ship.id);
 
-        const sweepAngle = (Date.now() / 1000) % (Math.PI * 2);
-        ctx.strokeStyle = 'rgba(0, 255, 0, 0.6)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(center, center);
-        ctx.lineTo(
-            center + Math.cos(sweepAngle) * (radarSize * 0.4),
-            center + Math.sin(sweepAngle) * (radarSize * 0.4)
-        );
-        ctx.stroke();
-
-    }, [radarData, radarSize, radarRange]);
+            // Verify the selection was set
+            setTimeout(() => {
+                const selected = gameEngine.getSelectedAssembly();
+                console.log('📡 Radar: Selection verification - selected assembly:', selected?.shipName || 'none');
+            }, 10);
+        } else {
+            console.error('📡 Radar: GameEngine is null!');
+        }
+    };
 
     return (
-        <div style={{
-            position: 'absolute',
-            top: 10,
-            right: 10,
-            background: 'rgba(0, 0, 0, 0.9)',
-            border: '2px solid #00ff00',
-            borderRadius: '8px',
-            padding: '10px',
-            zIndex: 10000
-        }}>
-            <div style={{
-                color: '#00ff00',
-                fontSize: '12px',
-                fontFamily: 'monospace',
-                marginBottom: '5px',
-                textAlign: 'center',
-                fontWeight: 'bold'
-            }}>
-                ◉ RADAR ◉
-            </div>
-            <canvas
-                ref={canvasRef}
-                width={radarSize}
-                height={radarSize}
-                style={{ border: '1px solid #00ff00' }}
-            />
-            <div style={{
-                color: '#00ff00',
-                fontSize: '10px',
-                fontFamily: 'monospace',
-                marginTop: '5px',
-                textAlign: 'center',
-                lineHeight: '1.2'
-            }}>
-                <div style={{ color: '#0066ff' }}>🔵 BLUE TEAM</div>
-                <div style={{ color: '#ff0000' }}>🔴 RED TEAM</div>
-                <div style={{ color: '#00ffff' }}>⭐ YOU</div>
-            </div>
-        </div>
+        <CompactPaper elevation={3}>
+            <Box sx={{ p: 1 }}>
+                <Typography variant="h6" sx={{ color: '#00ff00', fontSize: '0.9rem', mb: 1 }}>
+                    📡 RADAR
+                </Typography>
+
+                {/* Radar Visual */}
+                <Box sx={{
+                    width: '100%',
+                    height: 120,
+                    backgroundColor: 'rgba(0, 20, 0, 0.3)',
+                    border: '1px solid #004400',
+                    borderRadius: 1,
+                    position: 'relative',
+                    mb: 1
+                }}>
+                    {radarData.map((ship) => {
+                        const playerShip = radarData.find(s => s.isPlayer);
+                        if (!playerShip) return null;
+
+                        // Scale positions to fit radar display
+                        const scale = 0.02;
+                        const centerX = 140;
+                        const centerY = 60;
+                        const x = centerX + (ship.x - playerShip.x) * scale;
+                        const y = centerY + (ship.y - playerShip.y) * scale;
+
+                        // Keep dots within bounds
+                        const clampedX = Math.max(8, Math.min(272, x));
+                        const clampedY = Math.max(8, Math.min(112, y));
+
+                        return (
+                            <RadarDot
+                                key={ship.id}
+                                team={ship.team}
+                                isPlayer={ship.isPlayer}
+                                isSelected={selectedShip?.id === ship.id}
+                                style={{
+                                    position: 'absolute',
+                                    left: clampedX - 4,
+                                    top: clampedY - 4
+                                }}
+                            />
+                        );
+                    })}
+                </Box>
+
+                <Divider sx={{ borderColor: '#333', mb: 1 }} />
+
+                {/* Sector Objects Table */}
+                <Typography variant="subtitle2" sx={{ color: '#00ccff', fontSize: '0.8rem', mb: 1 }}>
+                    Sector Objects
+                </Typography>                <TableContainer sx={{ maxHeight: '25vh', overflow: 'auto' }}>
+                    <Table size="small" stickyHeader>
+                        <TableHead>
+                            <TableRow>
+                                <TableCell>Name</TableCell>
+                                <TableCell align="right">Dist</TableCell>
+                                <TableCell align="center">Type</TableCell>
+                            </TableRow>
+                        </TableHead>
+                        <TableBody>                            {radarData.slice(0, 8).map((ship) => (
+                            <TableRow
+                                key={ship.id}
+                                hover
+                                onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    handleShipSelect(ship);
+                                }}
+                                sx={{
+                                    cursor: 'pointer',
+                                    '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.05)' }
+                                }}
+                            >
+                                <TableCell>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                        <RadarDot
+                                            team={ship.team}
+                                            isPlayer={ship.isPlayer}
+                                            isSelected={selectedShip?.id === ship.id}
+                                        />
+                                        <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
+                                            {ship.shipName || `Ship-${ship.id.slice(-4)}`}
+                                        </Typography>
+                                    </Box>
+                                </TableCell>
+                                <TableCell align="right">
+                                    <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
+                                        {ship.distance ? Math.round(ship.distance) : 0}
+                                    </Typography>
+                                </TableCell>
+                                <TableCell align="center">
+                                    <Chip
+                                        label={ship.isPlayer ? 'PLR' : 'AI'}
+                                        size="small"
+                                        variant="outlined"
+                                        sx={{
+                                            height: 16,
+                                            fontSize: '0.6rem',
+                                            color: ship.isPlayer ? '#00ff00' : '#ff4444',
+                                            borderColor: ship.isPlayer ? '#00ff00' : '#ff4444'
+                                        }}
+                                    />
+                                </TableCell>
+                            </TableRow>
+                        ))}
+                        </TableBody>
+                    </Table>
+                </TableContainer>                {/* Selected Ship Info */}
+                {selectedShip && (
+                    <>
+                        <Divider sx={{ borderColor: '#333', my: 1 }} />
+                        <Typography variant="subtitle2" sx={{ color: '#ffff00', fontSize: '0.8rem', mb: 1 }}>
+                            Selected: {selectedShip.shipName || `Ship-${selectedShip.id.slice(-4)}`}
+                        </Typography>
+
+                        {/* Active Command Indicator */}
+                        {activeCommand && commandTarget === selectedShip.id && (
+                            <Box sx={{
+                                mb: 1,
+                                p: 0.5,
+                                backgroundColor: 'rgba(0, 255, 0, 0.1)',
+                                border: '1px solid #00ff00',
+                                borderRadius: 1
+                            }}>
+                                <Typography variant="caption" sx={{
+                                    fontSize: '0.7rem',
+                                    color: '#00ff00',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 0.5
+                                }}>
+                                    🎯 Active: {activeCommand.toUpperCase()}
+                                    <Button
+                                        size="small"
+                                        onClick={handleClearCommand}
+                                        sx={{
+                                            minWidth: 'auto',
+                                            fontSize: '0.6rem',
+                                            color: '#ff6666',
+                                            ml: 'auto',
+                                            p: 0.25
+                                        }}
+                                    >
+                                        ✕ Clear
+                                    </Button>
+                                </Typography>
+                            </Box>
+                        )}
+
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                            <Typography variant="caption" sx={{ fontSize: '0.7rem', color: '#ccc' }}>
+                                Team: {selectedShip.team} | Type: {selectedShip.shipType}
+                            </Typography>
+                            <Typography variant="caption" sx={{ fontSize: '0.7rem', color: '#ccc' }}>
+                                Distance: {selectedShip.distance ? Math.round(selectedShip.distance) : 0}
+                            </Typography>                            {!selectedShip.isPlayer && (
+                                <Box sx={{
+                                    mt: 0.5,
+                                    display: 'grid',
+                                    gridTemplateColumns: '1fr 1fr',
+                                    gap: 0.5
+                                }}>                                    <Button
+                                    size="small"
+                                    variant="outlined"
+                                    onClick={() => handleTurnToFace(selectedShip)}
+                                    startIcon={<MyLocation sx={{ fontSize: '12px !important' }} />}
+                                    sx={{
+                                        fontSize: '0.65rem',
+                                        color: '#00ccff',
+                                        borderColor: '#00ccff',
+                                        minHeight: 24,
+                                        '&:hover': {
+                                            borderColor: '#00aadd',
+                                            backgroundColor: 'rgba(0, 200, 255, 0.1)'
+                                        }
+                                    }}
+                                >
+                                        Turn To
+                                    </Button>                                    <Button
+                                        size="small"
+                                        variant={isCommandActive('follow', selectedShip) ? 'contained' : 'outlined'}
+                                        onClick={() => handleFollow(selectedShip)}
+                                        startIcon={<PersonPinCircle sx={{ fontSize: '12px !important' }} />}
+                                        sx={{
+                                            fontSize: '0.65rem',
+                                            color: isCommandActive('follow', selectedShip) ? '#000' : '#00ff88',
+                                            borderColor: '#00ff88',
+                                            backgroundColor: isCommandActive('follow', selectedShip) ? '#00ff88' : 'transparent',
+                                            minHeight: 24,
+                                            '&:hover': {
+                                                borderColor: '#00dd77',
+                                                backgroundColor: isCommandActive('follow', selectedShip) ? '#00dd77' : 'rgba(0, 255, 136, 0.1)'
+                                            }
+                                        }}
+                                    >
+                                        Follow
+                                    </Button>
+                                    <Button
+                                        size="small"
+                                        variant={isCommandActive('orbit', selectedShip) ? 'contained' : 'outlined'}
+                                        onClick={() => handleOrbit(selectedShip)}
+                                        startIcon={<RadioButtonUnchecked sx={{ fontSize: '12px !important' }} />}
+                                        sx={{
+                                            fontSize: '0.65rem',
+                                            color: isCommandActive('orbit', selectedShip) ? '#000' : '#ffaa00',
+                                            borderColor: '#ffaa00',
+                                            backgroundColor: isCommandActive('orbit', selectedShip) ? '#ffaa00' : 'transparent',
+                                            minHeight: 24,
+                                            '&:hover': {
+                                                borderColor: '#dd8800',
+                                                backgroundColor: isCommandActive('orbit', selectedShip) ? '#dd8800' : 'rgba(255, 170, 0, 0.1)'
+                                            }
+                                        }}
+                                    >
+                                        Orbit
+                                    </Button>
+                                    <Button
+                                        size="small"
+                                        variant={isCommandActive('keepDistance', selectedShip) ? 'contained' : 'outlined'}
+                                        onClick={() => handleKeepDistance(selectedShip)}
+                                        startIcon={<SocialDistance sx={{ fontSize: '12px !important' }} />}
+                                        sx={{
+                                            fontSize: '0.65rem',
+                                            color: isCommandActive('keepDistance', selectedShip) ? '#000' : '#ff6600',
+                                            borderColor: '#ff6600',
+                                            backgroundColor: isCommandActive('keepDistance', selectedShip) ? '#ff6600' : 'transparent',
+                                            minHeight: 24,
+                                            '&:hover': {
+                                                borderColor: '#dd4400',
+                                                backgroundColor: isCommandActive('keepDistance', selectedShip) ? '#dd4400' : 'rgba(255, 102, 0, 0.1)'
+                                            }
+                                        }}
+                                    >
+                                        Keep Dist.
+                                    </Button>
+                                    <Button
+                                        size="small"
+                                        variant={isCommandActive('lockOn', selectedShip) ? 'contained' : 'outlined'}
+                                        onClick={() => handleLockOn(selectedShip)}
+                                        startIcon={<GpsFixed sx={{ fontSize: '12px !important' }} />}
+                                        sx={{
+                                            fontSize: '0.65rem',
+                                            color: isCommandActive('lockOn', selectedShip) ? '#000' : '#ff4444',
+                                            borderColor: '#ff4444',
+                                            backgroundColor: isCommandActive('lockOn', selectedShip) ? '#ff4444' : 'transparent',
+                                            minHeight: 24,
+                                            gridColumn: '1 / -1', // Span both columns
+                                            '&:hover': {
+                                                borderColor: '#dd2222',
+                                                backgroundColor: isCommandActive('lockOn', selectedShip) ? '#dd2222' : 'rgba(255, 68, 68, 0.1)'
+                                            }
+                                        }}
+                                    >
+                                        Lock On Target
+                                    </Button>
+                                </Box>
+                            )}
+                        </Box>
+                    </>
+                )}
+            </Box>
+        </CompactPaper>
     );
 };
 

@@ -6,7 +6,9 @@ import { areEntitiesAdjacent } from './BlockSystem';
 export class Assembly {
   public id: string;
   public rootBody: Matter.Body;
-  public entities: Entity[] = []; public isPlayerControlled: boolean = false;
+  public entities: Entity[] = [];
+  public shipName: string = 'Unknown Ship'; // Ship name for display
+  public isPlayerControlled: boolean = false;
   public destroyed: boolean = false;
   public lastFireTime: number = 0;
   public fireRate: number = 300; // 300ms between shots = 3.3 shots per second (faster firing)
@@ -424,6 +426,11 @@ export class Assembly {
         }
       }
     });
+  }
+
+  // Set ship name for display
+  public setShipName(name: string): void {
+    this.shipName = name;
   }
 }
 

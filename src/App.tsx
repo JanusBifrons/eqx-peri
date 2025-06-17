@@ -1,6 +1,50 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { GameEngine } from './game/GameEngine';
 import Radar from './components/Radar';
+import {
+  Paper,
+  Typography,
+  Box,
+  Chip,
+  Divider,
+  ThemeProvider,
+  createTheme
+} from '@mui/material';
+
+// Create a dark theme for the space game
+const darkTheme = createTheme({
+  palette: {
+    mode: 'dark',
+    primary: {
+      main: '#00ccff',
+    },
+    secondary: {
+      main: '#00ff00',
+    },
+    background: {
+      default: '#001122',
+      paper: 'rgba(0, 0, 0, 0.85)',
+    },
+    text: {
+      primary: '#ffffff',
+      secondary: '#cccccc',
+    },
+  },
+  typography: {
+    fontFamily: 'monospace',
+    fontSize: 12,
+  },
+  components: {
+    MuiPaper: {
+      styleOverrides: {
+        root: {
+          border: '1px solid #333',
+          backgroundColor: 'rgba(0, 0, 0, 0.85)',
+        },
+      },
+    },
+  },
+});
 
 const App: React.FC = () => {
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -33,49 +77,108 @@ const App: React.FC = () => {
       }
     };
   }, []); return (
-    <div style={{ width: '100vw', height: '100vh', position: 'relative', backgroundColor: '#001122' }}>
-      <div ref={canvasRef} style={{
-        width: '100%',
-        height: '100%',
-        border: '2px solid #333'
-      }} />      {/* Controls Panel */}
+    <ThemeProvider theme={darkTheme}>
       <div style={{
-        position: 'absolute',
-        top: 10,
-        left: 10,
-        background: 'rgba(0,0,0,0.8)',
-        padding: '15px',
-        borderRadius: '8px',
-        fontSize: '14px',
-        fontFamily: 'monospace',
-        color: '#ffffff',
-        border: '1px solid #333'
+        width: '100vw',
+        height: '100vh',
+        position: 'relative',
+        backgroundColor: '#001122',
+        overflow: 'hidden' // Prevent any potential scrollbars
       }}>
-        <div style={{ color: '#00ff00', marginBottom: '8px', fontWeight: 'bold' }}>🚀 AI BATTLE SPACE GAME - TEAM COMBAT</div>
-        <div style={{ marginBottom: '6px' }}>Keyboard Controls:</div>
-        <div>W/S - Forward/Reverse Thrust</div>
-        <div>A/D - Manual Rotation</div>
-        <div>Space - Fire Guns</div>
-        <div>R - Restart Battle</div>
-        <div>G - Toggle Grid</div>
-        <div>1 - Add Random Ship</div>
+        <div ref={canvasRef} style={{
+          width: '100%',
+          height: '100%',
+          border: '2px solid #333'
+        }} />
 
-        <div style={{ marginTop: '8px', marginBottom: '6px', color: '#00ccff' }}>Mouse Controls:</div>
-        <div style={{ color: '#cccccc' }}>Move Mouse - Rotate ship to face cursor</div>
-        <div style={{ color: '#cccccc' }}>Left Click - Fire at cursor</div>
-        <div style={{ color: '#cccccc' }}>Hold Left Click - Continuous fire</div>
-        <div style={{ color: '#cccccc' }}>Right Click - Instant rotate to cursor</div>
-        <div style={{ color: '#cccccc' }}>Mouse Wheel - Zoom in/out</div>
-        <div style={{ marginTop: '8px', color: '#ffff00', fontSize: '12px' }}>
-          • You are on the blue team (left side)<br />
-          • AI controls red team ships (right side)<br />
-          • AI ships will hunt and attack enemies<br />
-          • Ships break apart when damaged<br />
-          • Press R to restart the battle
-        </div>
-      </div>      {/* Radar Component - Always visible */}
-      <Radar gameEngine={gameEngine} />
-    </div>
+        {/* Compact Controls Panel */}
+        <Paper
+          elevation={3}
+          sx={{
+            position: 'absolute',
+            top: 10,
+            left: 10,
+            maxWidth: 300,
+            p: 1.5,
+            borderRadius: 2,
+          }}
+        >
+          <Box sx={{ mb: 1 }}>
+            <Typography
+              variant="h6"
+              sx={{
+                color: 'secondary.main',
+                fontSize: '0.9rem',
+                fontWeight: 'bold',
+                mb: 0.5
+              }}
+            >
+              🚀 AI BATTLE SPACE
+            </Typography>
+            <Chip
+              label="TEAM COMBAT"
+              size="small"
+              color="primary"
+              variant="outlined"
+              sx={{ fontSize: '0.65rem', height: 18 }}
+            />
+          </Box>          <Divider sx={{ my: 1 }} />
+
+          <Box sx={{ display: 'flex', gap: 2 }}>
+            <Box sx={{ flex: 1 }}>
+              <Typography variant="subtitle2" sx={{ color: 'primary.main', fontSize: '0.75rem', mb: 0.5 }}>
+                Keyboard
+              </Typography>
+              <Box sx={{ fontSize: '0.7rem', lineHeight: 1.2 }}>
+                <div>W/S - Thrust</div>
+                <div>A/D - Rotate</div>
+                <div>Space - Fire</div>
+                <div>R - Restart</div>
+                <div>G - Grid</div>
+                <div>1 - Add Ship</div>
+              </Box>
+            </Box>
+
+            <Box sx={{ flex: 1 }}>
+              <Typography variant="subtitle2" sx={{ color: 'primary.main', fontSize: '0.75rem', mb: 0.5 }}>
+                Mouse
+              </Typography>
+              <Box sx={{ fontSize: '0.7rem', lineHeight: 1.2, color: 'text.secondary' }}>
+                <div>Move - Aim</div>
+                <div>L.Click - Fire</div>
+                <div>Hold - Auto-fire</div>
+                <div>R.Click - Snap turn</div>
+                <div>Wheel - Zoom</div>
+              </Box>
+            </Box>
+          </Box>
+
+          <Divider sx={{ my: 1 }} />
+
+          <Box sx={{ fontSize: '0.7rem', color: '#ffff00', lineHeight: 1.3 }}>
+            <div>• <Chip label="Blue" size="small" sx={{
+              backgroundColor: '#0088ff',
+              color: 'white',
+              fontSize: '0.6rem',
+              height: 16,
+              mr: 0.5
+            }} /> Your team (left side)</div>
+            <div>• <Chip label="Red" size="small" sx={{
+              backgroundColor: '#ff4444',
+              color: 'white',
+              fontSize: '0.6rem',
+              height: 16,
+              mr: 0.5
+            }} /> AI team (right side)</div>
+            <div style={{ marginTop: 4 }}>• AI ships hunt and attack enemies</div>
+            <div>• Ships break apart when damaged</div>
+          </Box>
+        </Paper>
+
+        {/* Radar Component - Always visible */}
+        <Radar gameEngine={gameEngine} />
+      </div>
+    </ThemeProvider>
   );
 };
 

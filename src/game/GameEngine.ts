@@ -17,14 +17,19 @@ export class GameEngine {
   private keys: Set<string> = new Set();
   private running: boolean = false;
   private showGrid: boolean = true;
-  private runner: Matter.Runner;
-  // Mouse interaction properties
+  private runner: Matter.Runner;  // Mouse interaction properties
   private mouse!: Matter.Mouse;
-  private mouseConstraint!: Matter.MouseConstraint; private mousePosition: { x: number, y: number } = { x: 0, y: 0 };
+  private mouseConstraint!: Matter.MouseConstraint;
+  private mousePosition: { x: number, y: number } = { x: 0, y: 0 };
   private mouseDown: boolean = false;
   private mouseMovementInfluence: number = 0.05; // Much more subtle mouse influence
-  private maxMouseOffset: number = 100; // Maximum distance camera can be offset by mouse
-  private zoomLevel: number = 1.5; // Start zoomed in to see ships clearly
+  private maxMouseOffset: number = 100; // Maximum distance camera can be offset by mouse  // Ship selection and highlighting
+  private selectedAssembly: Assembly | null = null;
+  private hoveredAssembly: Assembly | null = null;
+  // Player command system
+  private playerCommand: string | null = null;
+  private playerCommandTarget: Assembly | null = null;
+  private zoomLevel: number = 1.5; // Will be calculated based on window size
   private minZoom: number = 0.1; // Allow zooming out much further
   private maxZoom: number = 4; // Allow zooming in more
   private lastFrameTime: number = 0;
@@ -52,6 +57,9 @@ export class GameEngine {
 
     console.log(`📐 Container dimensions: ${containerWidth}x${containerHeight}`);
 
+    // Calculate appropriate default zoom based on window size
+    this.calculateDefaultZoom(containerWidth, containerHeight);
+
     this.render = Matter.Render.create({
       element: container,
       engine: this.engine, options: {
@@ -74,6 +82,50 @@ export class GameEngine {
     this.setupEventListeners();
     this.setupCollisionDetection();
     this.setupRenderEvents();
+  }
+
+  private calculateDefaultZoom(containerWidth: number, containerHeight: number): void {
+    // Base zoom calculation - larger windows should zoom out more to show more battlefield
+    const minDimension = Math.min(containerWidth, containerHeight);
+    const maxDimension = Math.max(containerWidth, containerHeight);
+
+    // Calculate base zoom - smaller windows get closer zoom, larger windows get further zoom
+    let baseZoom = 1.5; // Default for small screens
+
+    if (minDimension >= 800) {
+      // Large screens - zoom out more to show more of the battlefield
+      const sizeMultiplier = Math.min(minDimension / 800, 2.5); // Cap at 2.5x multiplier
+      baseZoom = 1.5 / sizeMultiplier; // Inverse relationship - larger screen = smaller zoom = more zoomed out
+    } else if (minDimension >= 600) {
+      // Medium screens - moderate zoom out
+      const sizeMultiplier = minDimension / 600;
+      baseZoom = 1.5 / (1 + (sizeMultiplier - 1) * 0.5);
+    }
+
+    // Adjust for very wide screens (ultrawide monitors) - zoom out even more
+    const aspectRatio = maxDimension / minDimension;
+    if (aspectRatio > 1.8) {
+      const wideScreenMultiplier = Math.min(aspectRatio / 1.8, 1.5);
+      baseZoom = baseZoom / wideScreenMultiplier;
+    }
+
+    // Ensure the calculated zoom is within bounds
+    this.zoomLevel = Math.max(this.minZoom, Math.min(this.maxZoom, baseZoom));
+
+    console.log(`🔍 Calculated default zoom: ${this.zoomLevel.toFixed(2)} for ${containerWidth}x${containerHeight}`);
+  }
+
+  private setInitialCameraView(): void {
+    // Set camera to center (0,0) with the calculated zoom level
+    const width = this.render.canvas.width / this.zoomLevel;
+    const height = this.render.canvas.height / this.zoomLevel;
+
+    Matter.Render.lookAt(this.render, {
+      min: { x: -width / 2, y: -height / 2 },
+      max: { x: width / 2, y: height / 2 }
+    });
+
+    console.log(`📷 Initial camera view set with zoom ${this.zoomLevel.toFixed(2)}`);
   }
 
   private setupEventListeners(): void {
@@ -226,17 +278,19 @@ export class GameEngine {
     console.log('🚀 Starting GameEngine...');
     if (this.running) return;
 
-    this.running = true;
-
-    // Start renderer
+    this.running = true;    // Start renderer
     console.log('🖼️  About to start renderer...');
     console.log('Render object:', this.render);
     console.log('Render canvas:', this.render.canvas);
     Matter.Render.run(this.render);
     console.log('🖼️  Renderer started');
+
+    // Apply initial zoom and center camera
+    this.setInitialCameraView();
+
     // Start engine with runner
     Matter.Runner.run(this.runner, this.engine);
-    console.log('⚙️  Engine runner started');    // Start game loop
+    console.log('⚙️  Engine runner started');// Start game loop
     this.gameLoop();
     console.log('🔄 Game loop started');
     // Spawn ships to demonstrate team-based AI combat
@@ -378,6 +432,17 @@ export class GameEngine {
 
     destroyedAssemblies.forEach(assembly => {
       Matter.World.remove(this.world, assembly.rootBody);
+
+      // Clear selection if the selected assembly is being destroyed
+      if (this.selectedAssembly === assembly) {
+        this.selectedAssembly = null;
+        console.log('🎯 Cleared selection of destroyed assembly');
+      }
+
+      // Clear hover if the hovered assembly is being destroyed
+      if (this.hoveredAssembly === assembly) {
+        this.hoveredAssembly = null;
+      }
     });
 
     this.assemblies = this.assemblies.filter(a => !a.destroyed && a.entities.length > 0);
@@ -526,8 +591,7 @@ export class GameEngine {
         stiffness: 0.2,
         render: { visible: false }
       }
-    });
-    // Add event listener to filter dragging - only allow debris objects (cockpitless assemblies)
+    });    // Add event listener to filter dragging - only allow debris objects (cockpitless assemblies)
     Matter.Events.on(this.mouseConstraint, 'startdrag', (event: any) => {
       const body = event.body;
       const assembly = this.getAssemblyFromBody(body);
@@ -536,31 +600,54 @@ export class GameEngine {
         // This assembly has a cockpit, prevent dragging by removing the constraint
         this.mouseConstraint.constraint.bodyB = null;
       }
-    });
+    });    // Use DOM events instead of Matter.js events for better coordinate control
+    /* Matter.js mouse events - disabled due to coordinate issues
+    Matter.Events.on(this.mouseConstraint, 'mousedown', (event: any) => {
+      console.log('🖱️ Matter.js mouse down detected');
+      const mousePosition = event.mouse.position;
+      console.log('🖱️ Raw mouse position:', mousePosition.x, mousePosition.y);
+      
+      // Convert screen coordinates to world coordinates
+      const worldX = mousePosition.x + this.render.bounds.min.x;
+      const worldY = mousePosition.y + this.render.bounds.min.y;
+      console.log('🖱️ World coordinates:', worldX, worldY);
+      console.log('🖱️ Render bounds:', this.render.bounds.min.x, this.render.bounds.min.y);
 
-    Matter.World.add(this.world, this.mouseConstraint);// Track mouse position for camera and targeting
+      // Handle selection with proper world coordinates
+      this.handleWorldClick(worldX, worldY);
+    });
+    */
+
+    Matter.World.add(this.world, this.mouseConstraint);    // Track mouse position for camera and targeting
     this.render.canvas.addEventListener('mousemove', (event) => {
       const rect = this.render.canvas.getBoundingClientRect();
       this.mousePosition = {
         x: event.clientX - rect.left,
         y: event.clientY - rect.top
       };
-    });
 
-    // Left mouse button - primary fire and interactions
+      // Update hovered assembly
+      const hoveredAssembly = this.getAssemblyAtPosition(this.mousePosition.x, this.mousePosition.y);
+      this.setHoveredAssembly(hoveredAssembly);
+    });    // Left mouse button - primary fire and interactions (selection handled by Matter.js events)
     this.render.canvas.addEventListener('mousedown', (event) => {
+      console.log('🖱️ DOM Mouse down detected, button:', event.button);
       if (event.button === 0) { // Left mouse button
         this.mouseDown = true;
-        this.handleLeftClick(event);
+        // Selection is now handled by Matter.js events above
+        // this.handleLeftClick(event);
       } else if (event.button === 2) { // Right mouse button
         this.handleRightClick(event);
       }
-    });
-
-    this.render.canvas.addEventListener('mouseup', (event) => {
+    }); this.render.canvas.addEventListener('mouseup', (event) => {
       if (event.button === 0) {
         this.mouseDown = false;
       }
+    });
+
+    // Add a simple click event for testing
+    this.render.canvas.addEventListener('click', (event) => {
+      console.log('🖱️ Simple click event detected at:', event.clientX, event.clientY);
     });
 
     // Mouse wheel for zoom
@@ -574,17 +661,28 @@ export class GameEngine {
       event.preventDefault();
     });
 
-    // Keep mouse constraint in sync with render bounds
-    this.render.mouse = this.mouse;
-  } private handleLeftClick(_event: MouseEvent): void {
-    // Fire weapons in the direction the ship is facing
-    if (this.playerAssembly && !this.playerAssembly.destroyed) {
-      // Fire weapons in ship's current direction (no mouse aiming)
-      const newBullets = this.playerAssembly.fireWeapons();
-      newBullets.forEach(bullet => {
-        Matter.World.add(this.world, bullet);
-        this.bullets.push(bullet);
-      });
+    // Keep mouse constraint in sync with render bounds    this.render.mouse = this.mouse;
+  }
+
+  private handleWorldClick(worldX: number, worldY: number): void {
+    console.log('🖱️ World click at:', worldX, worldY);
+
+    // Find assembly at this world position
+    const clickedAssembly = this.getAssemblyAtWorldPosition(worldX, worldY);
+
+    console.log('🖱️ Clicked assembly:', clickedAssembly?.shipName || 'none');
+
+    if (clickedAssembly && clickedAssembly !== this.playerAssembly) {
+      // Select the clicked ship
+      console.log('🎯 Selecting clicked assembly:', clickedAssembly.shipName);
+      this.selectAssembly(clickedAssembly);
+    } else if (clickedAssembly === this.playerAssembly) {
+      // Clicked on player ship - don't clear selection, but also don't select it
+      console.log('🖱️ Clicked on player ship - no action');
+    } else {
+      // Clear selection if clicking empty space
+      console.log('🖱️ Clicked empty space - clearing selection');
+      this.selectAssembly(null);
     }
   }
 
@@ -668,6 +766,8 @@ export class GameEngine {
         this.renderGrid();
       }
       this.renderConnectionPoints();
+      this.renderShipHighlights();
+      this.executePlayerCommands(); // Execute player commands each frame
     });
   }
   /**
@@ -832,6 +932,94 @@ export class GameEngine {
     });
   }
 
+  private renderShipHighlights(): void {
+    const ctx = this.render.canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.save();
+    const bounds = this.render.bounds;
+
+    // Render hover bounding box
+    if (this.hoveredAssembly && !this.hoveredAssembly.destroyed) {
+      this.renderAssemblyBoundingBox(ctx, this.hoveredAssembly, bounds, {
+        color: '#ffff00',
+        alpha: 0.3,
+        lineWidth: 2,
+        dashPattern: [5, 5]
+      });
+    }
+
+    // Render selected assembly highlight
+    if (this.selectedAssembly && !this.selectedAssembly.destroyed) {
+      this.renderAssemblyBoundingBox(ctx, this.selectedAssembly, bounds, {
+        color: '#00ffff',
+        alpha: 0.6,
+        lineWidth: 3,
+        dashPattern: []
+      });
+
+      // Add pulsing effect for selected ship
+      const pulse = Math.sin(Date.now() / 300) * 0.3 + 0.7;
+      this.renderAssemblyBoundingBox(ctx, this.selectedAssembly, bounds, {
+        color: '#ffffff',
+        alpha: pulse * 0.2,
+        lineWidth: 1,
+        dashPattern: []
+      });
+    }
+
+    ctx.restore();
+  }
+
+  private renderAssemblyBoundingBox(
+    ctx: CanvasRenderingContext2D,
+    assembly: Assembly,
+    bounds: Matter.Bounds,
+    style: { color: string; alpha: number; lineWidth: number; dashPattern: number[] }
+  ): void {
+    if (assembly.entities.length === 0) return;
+
+    // Calculate assembly bounding box
+    let minX = Infinity, minY = Infinity;
+    let maxX = -Infinity, maxY = -Infinity;
+
+    assembly.entities.forEach(entity => {
+      if (entity.destroyed) return;
+      const entityBounds = entity.body.bounds;
+      minX = Math.min(minX, entityBounds.min.x);
+      minY = Math.min(minY, entityBounds.min.y);
+      maxX = Math.max(maxX, entityBounds.max.x);
+      maxY = Math.max(maxY, entityBounds.max.y);
+    });
+
+    // Add padding
+    const padding = 20;
+    minX -= padding;
+    minY -= padding;
+    maxX += padding;
+    maxY += padding;
+
+    // Convert to screen coordinates
+    const screenMinX = (minX - bounds.min.x) * this.render.canvas.width / (bounds.max.x - bounds.min.x);
+    const screenMinY = (minY - bounds.min.y) * this.render.canvas.height / (bounds.max.y - bounds.min.y);
+    const screenMaxX = (maxX - bounds.min.x) * this.render.canvas.width / (bounds.max.x - bounds.min.x);
+    const screenMaxY = (maxY - bounds.min.y) * this.render.canvas.height / (bounds.max.y - bounds.min.y);
+
+    // Draw bounding box
+    ctx.globalAlpha = style.alpha;
+    ctx.strokeStyle = style.color;
+    ctx.lineWidth = style.lineWidth;
+    ctx.setLineDash(style.dashPattern);
+
+    ctx.beginPath();
+    ctx.rect(screenMinX, screenMinY, screenMaxX - screenMinX, screenMaxY - screenMinY);
+    ctx.stroke();
+
+    ctx.globalAlpha = 1.0;
+    ctx.setLineDash([]);
+  }
+
+  // ...existing code...
   public initializeBattle(): void {
     console.log('🚀 Initializing team-based AI battle...');
 
@@ -856,11 +1044,14 @@ export class GameEngine {
       const angle = (i / count) * Math.PI * 2;
       const radius = 1500; // 10x larger radius
       const x = centerX + Math.cos(angle) * radius + (Math.random() - 0.5) * 1000; // 10x more random spread
-      const y = centerY + Math.sin(angle) * radius + (Math.random() - 0.5) * 1000;
-
-      // Pick a random ship
+      const y = centerY + Math.sin(angle) * radius + (Math.random() - 0.5) * 1000;      // Pick a random ship
       const randomShip = ships[Math.floor(Math.random() * ships.length)];
-      const assembly = new Assembly(randomShip.parts as EntityConfig[], { x, y });      // Set team
+      const assembly = new Assembly(randomShip.parts as EntityConfig[], { x, y });
+
+      // Set ship name for radar display
+      assembly.setShipName(randomShip.name);
+
+      // Set team
       assembly.setTeam(team); // This now also applies team colors
 
       // Add to world and our list
@@ -891,7 +1082,9 @@ export class GameEngine {
       y: assembly.rootBody.position.y,
       team: assembly.team,
       isPlayer: assembly.isPlayerControlled,
-      id: assembly.id
+      id: assembly.id,
+      shipName: assembly.shipName,
+      shipType: assembly.isPlayerControlled ? 'Player Ship' : 'AI Ship'
     }));
 
     console.log('📡 Returning radar data:', radarData.length, 'entries');
@@ -900,5 +1093,368 @@ export class GameEngine {
     }
 
     return radarData;
+  }
+  // Ship selection methods
+  private getAssemblyAtPosition(x: number, y: number): Assembly | null {
+    // Convert screen coordinates to world coordinates
+    const worldX = x + this.render.bounds.min.x;
+    const worldY = y + this.render.bounds.min.y;
+
+    // console.log('🔍 Looking for assembly at screen:', x, y, 'world:', worldX, worldY);
+
+    // Find assembly at this position
+    for (const assembly of this.assemblies) {
+      if (assembly.destroyed) continue;
+
+      // Check if world position is within assembly bounds
+      for (const entity of assembly.entities) {
+        const bounds = entity.body.bounds;
+        if (worldX >= bounds.min.x && worldX <= bounds.max.x &&
+          worldY >= bounds.min.y && worldY <= bounds.max.y) {
+          // console.log('🔍 Found assembly:', assembly.shipName, 'at bounds:', bounds);
+          return assembly;
+        }
+      }
+    }
+    // console.log('🔍 No assembly found at position');
+    return null;
+  } private getAssemblyAtWorldPosition(worldX: number, worldY: number): Assembly | null {
+    console.log('🔍 Looking for assembly at world position:', worldX, worldY);
+
+    // Find assembly at this world position
+    for (const assembly of this.assemblies) {
+      if (assembly.destroyed) continue;
+
+      // Check if world position is within assembly bounds
+      for (const entity of assembly.entities) {
+        const bounds = entity.body.bounds;
+        if (worldX >= bounds.min.x && worldX <= bounds.max.x &&
+          worldY >= bounds.min.y && worldY <= bounds.max.y) {
+          console.log('🔍 Found assembly:', assembly.shipName, 'at bounds:', bounds);
+          return assembly;
+        }
+      }
+    }
+
+    console.log('🔍 No assembly found at world position');
+    return null;
+  }
+
+  private selectAssembly(assembly: Assembly | null): void {
+    if (this.selectedAssembly !== assembly) {
+      const previousSelection = this.selectedAssembly?.shipName || 'none';
+      this.selectedAssembly = assembly;
+      const newSelection = assembly?.shipName || 'none';
+
+      console.log(`🎯 Selection changed from "${previousSelection}" to "${newSelection}"`);
+
+      if (assembly) {
+        console.log('🎯 Selected assembly details:');
+        console.log('   - ID:', assembly.id);
+        console.log('   - Ship name:', assembly.shipName);
+        console.log('   - Entities count:', assembly.entities.length);
+        console.log('   - Destroyed:', assembly.destroyed);
+        console.log('   - Team:', assembly.team);
+        console.log('   - Is player controlled:', assembly.isPlayerControlled);
+      }
+    }
+  }
+
+  private setHoveredAssembly(assembly: Assembly | null): void {
+    this.hoveredAssembly = assembly;
+  }
+
+  public getSelectedAssembly(): Assembly | null {
+    // Add extra logging to debug selection issues
+    if (this.selectedAssembly) {
+      // Check if the selected assembly still exists in our assemblies array
+      const stillExists = this.assemblies.includes(this.selectedAssembly);
+      if (!stillExists) {
+        console.log('⚠️ Selected assembly no longer exists in assemblies array!');
+        this.selectedAssembly = null;
+        return null;
+      }
+
+      // Check if the selected assembly is destroyed
+      if (this.selectedAssembly.destroyed) {
+        console.log('⚠️ Selected assembly is marked as destroyed!');
+        this.selectedAssembly = null;
+        return null;
+      }
+    }
+
+    return this.selectedAssembly;
+  }
+
+  public getHoveredAssembly(): Assembly | null {
+    return this.hoveredAssembly;
+  }
+
+  public turnPlayerToFaceTarget(targetX: number, targetY: number): void {
+    if (!this.playerAssembly || this.playerAssembly.destroyed) return;
+
+    const playerX = this.playerAssembly.rootBody.position.x;
+    const playerY = this.playerAssembly.rootBody.position.y;
+
+    const angle = Math.atan2(targetY - playerY, targetX - playerX);
+    Matter.Body.setAngle(this.playerAssembly.rootBody, angle);
+
+    console.log('🎯 Player ship turned to face target');
+  }
+
+  public selectAssemblyById(id: string): void {
+    console.log('🎯 GameEngine: Selecting assembly by ID:', id);
+    const assembly = this.assemblies.find(a => a.id === id);
+    if (assembly) {
+      this.selectAssembly(assembly);
+      console.log('🎯 GameEngine: Successfully selected assembly:', assembly.shipName);
+    } else {
+      console.log('🎯 GameEngine: Assembly not found with ID:', id);
+      this.selectAssembly(null);
+    }
+  }
+  public setPlayerCommand(command: string, targetId?: string): void {
+    console.log(`🎮 Player command: ${command}${targetId ? ` on target ${targetId}` : ''}`);
+
+    // Store the current player command for the AI/control system
+    if (this.playerAssembly && !this.playerAssembly.destroyed) {
+      this.playerCommand = command;
+
+      // Find the target assembly if targetId is provided
+      if (targetId) {
+        this.playerCommandTarget = this.assemblies.find(a => a.id === targetId) || null;
+        if (!this.playerCommandTarget) {
+          console.log('❌ Target assembly not found:', targetId);
+          return;
+        }
+      } else {
+        this.playerCommandTarget = null;
+      }
+
+      // Handle the command
+      switch (command) {
+        case 'follow':
+          console.log('📍 Setting player to follow target:', this.playerCommandTarget?.shipName);
+          break;
+        case 'orbit':
+          console.log('🌀 Setting player to orbit target:', this.playerCommandTarget?.shipName);
+          break;
+        case 'keepDistance':
+          console.log('📏 Setting player to maintain distance from target:', this.playerCommandTarget?.shipName);
+          break;
+        case 'lockOn':
+          console.log('🔒 Setting player to lock onto target:', this.playerCommandTarget?.shipName);
+          break;
+        case 'stop':
+          console.log('🛑 Clearing all player commands');
+          this.playerCommand = null;
+          this.playerCommandTarget = null;
+          break;
+        default:
+          console.log('❓ Unknown command:', command);
+      }
+    } else {
+      console.log('❌ No player assembly available for command');
+    }
+  }
+
+  private executePlayerCommands(): void {
+    if (!this.playerAssembly || this.playerAssembly.destroyed || !this.playerCommand || !this.playerCommandTarget) {
+      return;
+    }
+
+    // Check if target still exists and isn't destroyed
+    if (this.playerCommandTarget.destroyed || !this.assemblies.includes(this.playerCommandTarget)) {
+      console.log('🚫 Player command target no longer available, clearing command');
+      this.playerCommand = null;
+      this.playerCommandTarget = null;
+      return;
+    }
+
+    const playerPos = this.playerAssembly.rootBody.position;
+    const targetPos = this.playerCommandTarget.rootBody.position;
+    const distance = Math.sqrt(
+      Math.pow(targetPos.x - playerPos.x, 2) +
+      Math.pow(targetPos.y - playerPos.y, 2)
+    );
+
+    switch (this.playerCommand) {
+      case 'follow':
+        this.executeFollowCommand(playerPos, targetPos, distance);
+        break;
+      case 'orbit':
+        this.executeOrbitCommand(playerPos, targetPos, distance);
+        break;
+      case 'keepDistance':
+        this.executeKeepDistanceCommand(playerPos, targetPos, distance);
+        break;
+      case 'lockOn':
+        this.executeLockOnCommand(playerPos, targetPos, distance);
+        break;
+    }
+  }
+  private executeFollowCommand(playerPos: Matter.Vector, targetPos: Matter.Vector, distance: number): void {
+    const followDistance = 150; // Desired following distance
+    const approachThreshold = 30; // How close before we start slowing down
+
+    if (distance > followDistance + approachThreshold) {
+      // Calculate direction to target
+      const dirX = (targetPos.x - playerPos.x) / distance;
+      const dirY = (targetPos.y - playerPos.y) / distance;
+
+      // Calculate thrust intensity based on distance
+      const distanceRatio = Math.min(1, (distance - followDistance) / 300);
+      const thrustPower = 0.5 + (distanceRatio * 0.5); // 0.5 to 1.0 thrust power
+
+      // Apply thrust using the ship's proper propulsion system
+      const thrustInput = {
+        x: dirX * thrustPower,
+        y: dirY * thrustPower
+      };
+
+      this.playerAssembly!.applyThrust(thrustInput);
+
+      // Calculate desired facing angle (toward target)
+      const targetAngle = Math.atan2(targetPos.y - playerPos.y, targetPos.x - playerPos.x);
+      const currentAngle = this.playerAssembly!.rootBody.angle;
+      let angleDiff = targetAngle - currentAngle;
+
+      // Normalize angle difference
+      while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+      while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+
+      // Apply torque using the ship's proper rotation system
+      if (Math.abs(angleDiff) > 0.1) {
+        const torquePower = Math.min(1, Math.abs(angleDiff) * 2);
+        const torque = Math.sign(angleDiff) * torquePower * 0.8;
+        this.playerAssembly!.applyTorque(torque);
+      }
+    } else if (distance < followDistance - approachThreshold) {
+      // Too close, back away gently
+      const dirX = (playerPos.x - targetPos.x) / distance;
+      const dirY = (playerPos.y - targetPos.y) / distance;
+
+      const thrustInput = {
+        x: dirX * 0.3, // Gentle reverse thrust
+        y: dirY * 0.3
+      };
+
+      this.playerAssembly!.applyThrust(thrustInput);
+    }
+    // If we're in the sweet spot (followDistance ± approachThreshold), don't thrust
+  }
+  private executeOrbitCommand(playerPos: Matter.Vector, targetPos: Matter.Vector, distance: number): void {
+    const orbitDistance = 200; // Desired orbit distance
+    const orbitSpeed = 0.015; // Orbit angular speed
+
+    // Calculate angle from target to player
+    const currentAngle = Math.atan2(playerPos.y - targetPos.y, playerPos.x - targetPos.x);
+
+    // Calculate desired orbit position (slightly ahead for forward motion)
+    const desiredAngle = currentAngle + orbitSpeed;
+    const desiredX = targetPos.x + Math.cos(desiredAngle) * orbitDistance;
+    const desiredY = targetPos.y + Math.sin(desiredAngle) * orbitDistance;
+
+    // Calculate thrust direction toward desired position
+    const toDesiredX = desiredX - playerPos.x;
+    const toDesiredY = desiredY - playerPos.y;
+    const toDesiredDist = Math.sqrt(toDesiredX * toDesiredX + toDesiredY * toDesiredY);
+
+    if (toDesiredDist > 0) {
+      // Use ship's thruster system for orbit movement
+      const thrustPower = Math.min(0.8, toDesiredDist / 100); // Scale thrust by distance to desired position
+      const thrustInput = {
+        x: (toDesiredX / toDesiredDist) * thrustPower,
+        y: (toDesiredY / toDesiredDist) * thrustPower
+      };
+      this.playerAssembly!.applyThrust(thrustInput);
+    }
+
+    // Calculate orbital movement direction and face that way
+    const orbitTangentAngle = desiredAngle + Math.PI / 2;
+    const currentAngle2 = this.playerAssembly!.rootBody.angle;
+    let angleDiff = orbitTangentAngle - currentAngle2;
+
+    // Normalize angle difference
+    while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+    while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+
+    // Apply torque to face orbital direction
+    if (Math.abs(angleDiff) > 0.1) {
+      const torque = Math.sign(angleDiff) * Math.min(0.8, Math.abs(angleDiff) * 2);
+      this.playerAssembly!.applyTorque(torque);
+    }
+  }
+  private executeKeepDistanceCommand(playerPos: Matter.Vector, targetPos: Matter.Vector, distance: number): void {
+    const keepDistance = 300; // Desired distance to maintain
+    const tolerance = 50; // Distance tolerance
+
+    if (distance < keepDistance - tolerance) {
+      // Too close, move away using thrusters
+      const dirX = (playerPos.x - targetPos.x) / distance;
+      const dirY = (playerPos.y - targetPos.y) / distance;
+      const thrustPower = Math.min(0.7, (keepDistance - distance) / keepDistance);
+
+      const thrustInput = {
+        x: dirX * thrustPower,
+        y: dirY * thrustPower
+      };
+      this.playerAssembly!.applyThrust(thrustInput);
+
+    } else if (distance > keepDistance + tolerance) {
+      // Too far, move closer using thrusters
+      const dirX = (targetPos.x - playerPos.x) / distance;
+      const dirY = (targetPos.y - playerPos.y) / distance;
+      const thrustPower = Math.min(0.7, (distance - keepDistance) / keepDistance);
+
+      const thrustInput = {
+        x: dirX * thrustPower,
+        y: dirY * thrustPower
+      };
+      this.playerAssembly!.applyThrust(thrustInput);
+    }
+
+    // Always face the target using proper torque system
+    const targetAngle = Math.atan2(targetPos.y - playerPos.y, targetPos.x - playerPos.x);
+    const currentAngle = this.playerAssembly!.rootBody.angle;
+    let angleDiff = targetAngle - currentAngle;
+
+    // Normalize angle difference
+    while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+    while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+
+    // Apply torque to face target
+    if (Math.abs(angleDiff) > 0.1) {
+      const torque = Math.sign(angleDiff) * Math.min(0.8, Math.abs(angleDiff) * 2);
+      this.playerAssembly!.applyTorque(torque);
+    }
+  }
+  private executeLockOnCommand(playerPos: Matter.Vector, targetPos: Matter.Vector, distance: number): void {
+    // Lock on keeps the player facing the target and potentially moves closer
+    const targetAngle = Math.atan2(targetPos.y - playerPos.y, targetPos.x - playerPos.x);
+    const currentAngle = this.playerAssembly!.rootBody.angle;
+    let angleDiff = targetAngle - currentAngle;
+
+    // Normalize angle difference
+    while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+    while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+
+    // Apply torque to face target
+    if (Math.abs(angleDiff) > 0.05) { // More precise aiming for lock on
+      const torque = Math.sign(angleDiff) * Math.min(1.0, Math.abs(angleDiff) * 3);
+      this.playerAssembly!.applyTorque(torque);
+    }
+
+    // Move closer if very far using proper thrusters
+    if (distance > 400) {
+      const dirX = (targetPos.x - playerPos.x) / distance;
+      const dirY = (targetPos.y - playerPos.y) / distance;
+
+      const thrustInput = {
+        x: dirX * 0.4, // Moderate approach speed
+        y: dirY * 0.4
+      };
+      this.playerAssembly!.applyThrust(thrustInput);
+    }
   }
 }
