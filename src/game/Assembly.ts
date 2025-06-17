@@ -12,10 +12,9 @@ export class Assembly {
     
     // Create entities
     this.entities = entityConfigs.map(config => new Entity(config));
-    
-    // Create root body
+      // Create root body
     this.rootBody = Matter.Body.create({
-      parts: [Matter.Bodies.rectangle(0, 0, 1, 1), ...this.entities.map(e => e.body)],
+      parts: this.entities.map(e => e.body),
       isStatic: false
     });
 
@@ -31,7 +30,7 @@ export class Assembly {
     // Check if we still have a control center
     const hasControlCenter = this.entities.some(e => e.isControlCenter());
     
-    // Remove destroyed entities - this will trigger recreateAssembliesFromScratch if needed
+    // Remove destroyed entities and rebuild if needed
     const activeEntities = this.entities.filter(e => !e.destroyed);
     
     if (activeEntities.length !== this.entities.length) {
@@ -141,74 +140,29 @@ export class Assembly {
     
     // Mark this assembly as destroyed so it gets cleaned up properly
     this.destroyed = true;
-    
-    // Find connected components from remaining entities
+      // Find connected components from remaining entities
     const components = this.findConnectedComponents();
-    console.log(`🔍 Found ${components.length} connected components from ${this.entities.length} remaining entities`);
     
     // Create completely new assemblies for each component
     const newAssemblies: Assembly[] = [];
     
-    components.forEach((component, index) => {
+    components.forEach((component) => {
       const newAssembly = this.createNewAssemblyFromComponent(
         component, 
         currentPosition, 
         currentVelocity, 
         currentAngularVelocity
       );
-      
-      // Transfer player control to first assembly with a cockpit
+        // Transfer player control to first assembly with a cockpit
       if (wasPlayerControlled && newAssembly.hasControlCenter() && !newAssemblies.some(a => a.isPlayerControlled)) {
         newAssembly.isPlayerControlled = true;
-        console.log(`👤 Player control transferred to new assembly ${index}`);
       }
       
       newAssemblies.push(newAssembly);
-      console.log(`  Component ${index}: ${component.length} parts at (${newAssembly.rootBody.position.x}, ${newAssembly.rootBody.position.y})`);
-    });
-    
+    });    
     return newAssemblies;
   }
-  private recreateAssembliesFromScratch(velocity: Vector2, angularVelocity: number, position: Vector2): Assembly[] {
-    if (this.entities.length <= 1) {
-      // Single entity or empty - just recreate this assembly
-      this.createFreshBody();
-      Matter.Body.setVelocity(this.rootBody, velocity);
-      Matter.Body.setAngularVelocity(this.rootBody, angularVelocity);
-      return [this];
-    }
-    
-    // Find connected components
-    const components = this.findConnectedComponents();
-    
-    if (components.length <= 1) {
-      // Still connected - recreate as single assembly
-      this.createFreshBody();
-      Matter.Body.setVelocity(this.rootBody, velocity);
-      Matter.Body.setAngularVelocity(this.rootBody, angularVelocity);
-      return [this];
-    }
-    
-    // Split into multiple assemblies - each gets a completely new body
-    const newAssemblies: Assembly[] = [];
-    
-    components.forEach((component, index) => {
-      if (index === 0) {
-        // Keep first component in this assembly
-        this.entities = component;
-        this.createFreshBody();
-        Matter.Body.setVelocity(this.rootBody, velocity);
-        Matter.Body.setAngularVelocity(this.rootBody, angularVelocity);
-        newAssemblies.push(this);
-      } else {
-        // Create completely new assembly for this component
-        const newAssembly = this.createNewAssemblyFromComponent(component, position, velocity, angularVelocity);
-        newAssemblies.push(newAssembly);
-      }
-    });
-    
-    return newAssemblies;
-  }
+  
   private createFreshBody(): void {
     // Store the current position before recreating
     const currentPosition = this.rootBody ? this.rootBody.position : { x: 0, y: 0 };
@@ -229,10 +183,9 @@ export class Assembly {
     });
     
     this.entities = newEntities;
-    
-    // Create new root body
+      // Create new root body
     this.rootBody = Matter.Body.create({
-      parts: [Matter.Bodies.rectangle(0, 0, 1, 1), ...this.entities.map(e => e.body)],
+      parts: this.entities.map(e => e.body),
       isStatic: false
     });
     
