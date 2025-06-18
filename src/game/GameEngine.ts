@@ -1,4 +1,5 @@
 import * as Matter from 'matter-js';
+import Stats from 'stats.js';
 import { Assembly } from './Assembly';
 import { Entity } from './Entity';
 import { EntityConfig, GRID_SIZE } from '../types/GameTypes';
@@ -39,6 +40,9 @@ export class GameEngine {
   private baseZoomLevel: number = 0.2; // Start closer so speed-based zoom out is more noticeable
   private speedBasedZoomEnabled: boolean = true;
   private zoomSmoothingFactor: number = 0.02; // Smooth transitions
+
+  // Stats.js for FPS monitoring
+  private stats: Stats;
 
   constructor(container: HTMLElement) {
     console.log('🎮 Creating GameEngine...');
@@ -90,6 +94,15 @@ export class GameEngine {
       }
     }); console.log('🖼️  Renderer created');
     console.log('Canvas element:', this.render.canvas);
+
+    // Initialize Stats.js for FPS monitoring
+    this.stats = new Stats();
+    this.stats.showPanel(0); // 0: fps, 1: ms, 2: mb, 3+: custom
+    this.stats.dom.style.position = 'absolute';
+    this.stats.dom.style.right = '10px';
+    this.stats.dom.style.top = '10px';
+    this.stats.dom.style.zIndex = '1000';
+    container.appendChild(this.stats.dom);
 
     // Initialize mouse interaction
     this.setupMouseInteraction();
@@ -766,6 +779,11 @@ export class GameEngine {
   } private setupRenderEvents(): void {
     console.log('🎯 Setting up render events for grid and connection points');
 
+    // Start stats monitoring before each render
+    Matter.Events.on(this.render, 'beforeRender', () => {
+      this.stats.begin();
+    });
+
     // Use afterRender for grid and connection points
     Matter.Events.on(this.render, 'afterRender', () => {
       if (this.showGrid) {
@@ -774,6 +792,9 @@ export class GameEngine {
       this.renderConnectionPoints();
       this.renderShipHighlights();
       this.executePlayerCommands(); // Execute player commands each frame
+
+      // End stats monitoring after each render
+      this.stats.end();
     });
   }
   /**
