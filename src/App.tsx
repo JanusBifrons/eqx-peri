@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { GameEngine } from './game/GameEngine';
 import Radar from './components/Radar';
 import StatusHUD from './components/StatusHUD';
+import ShipSelection from './components/ShipSelection';
+import PartsInfo from './components/PartsInfo';
 import {
   Paper,
   Typography,
@@ -50,27 +52,65 @@ const darkTheme = createTheme({
 const App: React.FC = () => {
   const canvasRef = useRef<HTMLDivElement>(null);
   const gameEngineRef = useRef<GameEngine | null>(null);
-  const [gameEngine, setGameEngine] = useState<GameEngine | null>(null); useEffect(() => {
+  const [gameEngine, setGameEngine] = useState<GameEngine | null>(null);
+  // Game state management
+  const [, setGameState] = useState<'ship-selection' | 'playing' | 'respawn'>('ship-selection');
+  const [, setSelectedShipIndex] = useState<number | null>(null);
+  const [showShipSelection, setShowShipSelection] = useState(true); const [playerDestroyed, setPlayerDestroyed] = useState(false);
+
+  // Handle ship selection
+  const handleShipSelect = (shipIndex: number) => {
+    setSelectedShipIndex(shipIndex);
+    setShowShipSelection(false);
+    setGameState('playing');
+    setPlayerDestroyed(false);
+
+    // Start the game with the selected ship
+    startGameWithShip(shipIndex);
+  };
+
+  const handleRespawn = (shipIndex: number) => {
+    setSelectedShipIndex(shipIndex);
+    setShowShipSelection(false);
+    setGameState('playing');
+    setPlayerDestroyed(false);
+
+    // Respawn with new ship
+    if (gameEngineRef.current) {
+      gameEngineRef.current.spawnPlayerShip(shipIndex);
+    }
+  };
+
+  const startGameWithShip = (shipIndex: number) => {
+    if (canvasRef.current && !gameEngineRef.current) {
+      console.log('🚀 Creating GameEngine with selected ship...');
+      gameEngineRef.current = new GameEngine(canvasRef.current);
+      setGameEngine(gameEngineRef.current);
+
+      // Set the selected ship index before starting
+      gameEngineRef.current.setPlayerShipIndex(shipIndex);
+
+      console.log('▶️  Starting GameEngine...');
+      gameEngineRef.current.start();
+      console.log('✅ GameEngine started with ship', shipIndex);
+
+      // Set up player destruction callback
+      gameEngineRef.current.onPlayerDestroyed = () => {
+        setPlayerDestroyed(true);
+        setGameState('respawn');
+        setShowShipSelection(true);
+      };
+    }
+  };
+
+  useEffect(() => {
     console.log('🎮 App useEffect triggered');
     console.log('Canvas ref current:', canvasRef.current);
 
-    // Add a small delay to ensure DOM is ready
-    const timer = setTimeout(() => {
-      if (canvasRef.current && !gameEngineRef.current) {
-        console.log('🚀 Creating GameEngine...');
-        console.log('Container dimensions:', canvasRef.current.clientWidth, 'x', canvasRef.current.clientHeight);
-        gameEngineRef.current = new GameEngine(canvasRef.current);
-        setGameEngine(gameEngineRef.current);
-        console.log('▶️  Starting GameEngine...');
-        gameEngineRef.current.start();
-        console.log('✅ GameEngine started');
-      } else {
-        console.log('❌ Canvas ref not available or GameEngine already exists');
-      }
-    }, 100);
+    // Don't auto-start the game anymore - wait for ship selection
+    // The game will start when a ship is selected
 
     return () => {
-      clearTimeout(timer);
       if (gameEngineRef.current) {
         console.log('🛑 Stopping GameEngine...');
         gameEngineRef.current.stop();
@@ -129,11 +169,11 @@ const App: React.FC = () => {
             <Box sx={{ flex: 1 }}>
               <Typography variant="subtitle2" sx={{ color: 'primary.main', fontSize: '0.75rem', mb: 0.5 }}>
                 Keyboard
-              </Typography>
-              <Box sx={{ fontSize: '0.7rem', lineHeight: 1.2 }}>
+              </Typography>              <Box sx={{ fontSize: '0.7rem', lineHeight: 1.2 }}>
                 <div>W/S - Thrust</div>
                 <div>A/D - Rotate</div>
                 <div>Space - Fire</div>
+                <div style={{ color: '#ff4444', fontWeight: 'bold' }}>E - Eject (60%+ damage)</div>
                 <div>R - Restart</div>
                 <div>G - Grid</div>
                 <div>1 - Add Ship</div>
@@ -152,9 +192,14 @@ const App: React.FC = () => {
                 <div>Wheel - Zoom</div>
               </Box>
             </Box>
-          </Box>
+          </Box>          <Divider sx={{ my: 1 }} />
 
-          <Divider sx={{ my: 1 }} />
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+            <Typography variant="subtitle2" sx={{ color: 'primary.main', fontSize: '0.75rem' }}>
+              Information
+            </Typography>
+            <PartsInfo />
+          </Box>
 
           <Box sx={{ fontSize: '0.7rem', color: '#ffff00', lineHeight: 1.3 }}>
             <div>• <Chip label="Blue" size="small" sx={{
@@ -173,8 +218,19 @@ const App: React.FC = () => {
             }} /> AI team (right side)</div>
             <div style={{ marginTop: 4 }}>• AI ships hunt and attack enemies</div>
             <div>• Ships break apart when damaged</div>
+            <div style={{ marginTop: 4 }}>• <strong style={{ color: '#00ff00' }}>Cockpit: Bright Green</strong> - 10x health for survival</div>
           </Box>
-        </Paper>        {/* Radar Component - Always visible */}
+        </Paper>
+
+        {/* Ship Selection Dialog */}
+        <ShipSelection
+          open={showShipSelection}
+          onShipSelect={playerDestroyed ? handleRespawn : handleShipSelect}
+          onClose={() => { }} // Don't allow closing without selection
+          title={playerDestroyed ? "Your Ship Was Destroyed - Select New Ship" : "Select Your Ship"}
+        />
+
+        {/* Radar Component - Always visible */}
         <Radar gameEngine={gameEngine} />
 
         {/* Status HUD - Always visible at bottom */}

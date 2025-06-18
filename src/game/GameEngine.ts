@@ -44,6 +44,10 @@ export class GameEngine {
   // Stats.js for FPS monitoring
   private stats: Stats;
 
+  // Ship selection and player destruction callback
+  public onPlayerDestroyed?: () => void;
+  private selectedPlayerShipIndex: number = 0;
+
   constructor(container: HTMLElement) {
     console.log('🎮 Creating GameEngine...');
 
@@ -169,7 +173,7 @@ export class GameEngine {
   private setupEventListeners(): void {
     // Keyboard input
     document.addEventListener('keydown', (event) => {
-      this.keys.add(event.key.toLowerCase());        // Handle special keys
+      this.keys.add(event.key.toLowerCase());      // Handle special keys
       switch (event.key.toLowerCase()) {
         case '1':
           this.spawnShip(Math.random() * 400 - 200, Math.random() * 400 - 200, false);
@@ -177,9 +181,13 @@ export class GameEngine {
         case 'r':
           this.initializeBattle(); // Restart battle
           break;
-
         case 'g':
           this.toggleGrid();
+          break;
+        case 'e':
+          if (this.canPlayerEject()) {
+            this.ejectPlayer();
+          }
           break;
       }
     });
@@ -408,11 +416,17 @@ export class GameEngine {
     this.updateBullets();
 
     // Clean up destroyed assemblies
-    this.cleanupDestroyedAssemblies();
-
-    // Find player assembly if we don't have one
+    this.cleanupDestroyedAssemblies();    // Check if player is destroyed and call callback
     if (!this.playerAssembly || this.playerAssembly.destroyed || !this.playerAssembly.hasControlCenter()) {
-      this.findPlayerAssembly();
+      const wasPlayerDestroyed = this.playerAssembly?.destroyed || (this.playerAssembly && !this.playerAssembly.hasControlCenter());
+
+      if (wasPlayerDestroyed && this.onPlayerDestroyed) {
+        console.log('💀 Player destroyed - calling destruction callback');
+        this.playerAssembly = null;
+        this.onPlayerDestroyed();
+      } else {
+        this.findPlayerAssembly();
+      }
     }
 
     // Update camera with mouse influence
@@ -1126,14 +1140,20 @@ export class GameEngine {
       const angle = (i / count) * Math.PI * 2;
       const radius = 200; // Much smaller radius for closer combat
       const x = centerX + Math.cos(angle) * radius + (Math.random() - 0.5) * 150; // Less random spread
-      const y = centerY + Math.sin(angle) * radius + (Math.random() - 0.5) * 150;
+      const y = centerY + Math.sin(angle) * radius + (Math.random() - 0.5) * 150;      // Pick a ship - use selected ship for player, random for others
+      let selectedShip;
+      if (hasPlayer && !playerAssigned) {
+        // Use the selected ship for the player
+        selectedShip = ships[this.selectedPlayerShipIndex] || ships[0];
+      } else {
+        // Pick a random ship for AI
+        selectedShip = ships[Math.floor(Math.random() * ships.length)];
+      }
 
-      // Pick a random ship
-      const randomShip = ships[Math.floor(Math.random() * ships.length)];
-      const assembly = new Assembly(randomShip.parts as EntityConfig[], { x, y });
+      const assembly = new Assembly(selectedShip.parts as EntityConfig[], { x, y });
 
       // Set ship name for radar display
-      assembly.setShipName(randomShip.name);
+      assembly.setShipName(selectedShip.name);
 
       // Set team
       assembly.setTeam(team); // This now also applies team colors
@@ -1148,26 +1168,25 @@ export class GameEngine {
         this.flightController = new FlightController(assembly); // Initialize advanced flight control
         this.controllerManager.createPlayerController(assembly);
         playerAssigned = true;
-        console.log(`👤 Player assigned to ${randomShip.name} on team ${team} with flight controller`);
+        console.log(`👤 Player assigned to ${selectedShip.name} on team ${team} with flight controller`);
       } else {
         // Create AI controller
         const aiController = this.controllerManager.createAIController(assembly);
         aiController.setAggressionLevel(0.8 + Math.random() * 0.4); // Vary aggression
-        console.log(`🤖 AI ${randomShip.name} spawned on team ${team}`);
+        console.log(`🤖 AI ${selectedShip.name} spawned on team ${team}`);
       }
     }
   }  // Method to get radar data for the UI
   public getRadarData() {
-    console.log('📡 getRadarData called, assemblies count:', this.assemblies.length);
-
-    const radarData = this.assemblies.map(assembly => ({
+    console.log('📡 getRadarData called, assemblies count:', this.assemblies.length); const radarData = this.assemblies.map(assembly => ({
       x: assembly.rootBody.position.x,
       y: assembly.rootBody.position.y,
       team: assembly.team,
       isPlayer: assembly.isPlayerControlled,
       id: assembly.id,
       shipName: assembly.shipName,
-      shipType: assembly.isPlayerControlled ? 'Player Ship' : 'AI Ship'
+      shipType: assembly.isPlayerControlled ? 'Player Ship' : 'AI Ship',
+      isDebris: assembly.entities.length === 1 && !assembly.hasControlCenter() // Single part without cockpit = debris
     }));
 
     console.log('📡 Returning radar data:', radarData.length, 'entries');
@@ -1541,5 +1560,90 @@ export class GameEngine {
 
   public getPlayerCommand(): string | null {
     return this.playerCommand;
+  }
+
+  public setPlayerShipIndex(shipIndex: number): void {
+    this.selectedPlayerShipIndex = shipIndex;
+  }
+
+  public spawnPlayerShip(shipIndex: number): void {
+    this.selectedPlayerShipIndex = shipIndex;
+
+    // Clear existing player
+    if (this.playerAssembly) {
+      const index = this.assemblies.findIndex(a => a === this.playerAssembly);
+      if (index !== -1) {
+        Matter.World.remove(this.world, this.playerAssembly.rootBody);
+        this.assemblies.splice(index, 1);
+      }
+      this.playerAssembly = null;
+    }
+
+    // Spawn new player ship
+    const ships = shipsData.ships;
+    const selectedShip = ships[shipIndex];
+
+    if (selectedShip) {
+      // Spawn player on the left side
+      const assembly = new Assembly(selectedShip.parts as EntityConfig[], { x: -800, y: 0 });
+      assembly.setShipName(selectedShip.name);
+      assembly.setTeam(0); // Blue team
+      assembly.isPlayerControlled = true;
+
+      this.playerAssembly = assembly;
+      this.assemblies.push(assembly);
+      Matter.World.add(this.world, assembly.rootBody);
+
+      // Set up controllers
+      this.flightController = new FlightController(assembly);
+      this.controllerManager.createPlayerController(assembly);
+
+      console.log(`👤 Player respawned with ship: ${selectedShip.name}`);
+    }
+  }
+
+  public canPlayerEject(): boolean {
+    return this.playerAssembly ? this.playerAssembly.canEject() : false;
+  }
+
+  public getPlayerDamagePercentage(): number {
+    return this.playerAssembly ? this.playerAssembly.getDamagePercentage() : 0;
+  }
+
+  public ejectPlayer(): void {
+    if (!this.playerAssembly || !this.playerAssembly.canEject()) {
+      console.warn('⚠️ Cannot eject - conditions not met');
+      return;
+    }
+
+    console.log('🚀 Player ejecting!');
+
+    // Remove current player assembly from world
+    const playerIndex = this.assemblies.findIndex(a => a === this.playerAssembly);
+    if (playerIndex !== -1) {
+      Matter.World.remove(this.world, this.playerAssembly!.rootBody);
+      this.assemblies.splice(playerIndex, 1);
+    }
+
+    // Perform ejection
+    const newAssemblies = this.playerAssembly!.ejectNonControlParts();
+
+    // Add all new assemblies to world and our list
+    newAssemblies.forEach(assembly => {
+      this.assemblies.push(assembly);
+      Matter.World.add(this.world, assembly.rootBody);
+    });
+
+    // The first assembly should be the cockpit with player control
+    const cockpitAssembly = newAssemblies.find(a => a.isPlayerControlled);
+    if (cockpitAssembly) {
+      this.playerAssembly = cockpitAssembly;
+      this.flightController = new FlightController(cockpitAssembly);
+      this.controllerManager.createPlayerController(cockpitAssembly);
+      console.log('👤 Player control transferred to ejected cockpit');
+    } else {
+      console.warn('⚠️ No cockpit assembly found after ejection');
+      this.playerAssembly = null;
+    }
   }
 }

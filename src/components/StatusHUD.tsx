@@ -5,7 +5,9 @@ import {
     Box,
     LinearProgress,
     Chip,
-    Divider
+    Divider,
+    Button,
+    Fade
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import { GameEngine } from '../game/GameEngine';
@@ -81,18 +83,18 @@ const StatusHUD: React.FC<StatusHUDProps> = ({ gameEngine }) => {
 
                 const body = playerAssembly.rootBody;
                 const velocity = body.velocity;
-                const speed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
-
-                // Calculate health percentage
+                const speed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y);                // Calculate health percentage
                 const totalEntities = playerAssembly.entities.length;
                 const healthyEntities = playerAssembly.entities.filter((e: any) => !e.destroyed).length;
                 const healthPercent = totalEntities > 0 ? (healthyEntities / totalEntities) * 100 : 0;
 
+                // Get damage percentage and eject capability
+                const damagePercent = gameEngine.getPlayerDamagePercentage();
+                const canEject = gameEngine.canPlayerEject();
+
                 // Get active command info
                 const selectedAssembly = gameEngine.getSelectedAssembly();
-                const currentCommand = gameEngine.getPlayerCommand();
-
-                setPlayerStatus({
+                const currentCommand = gameEngine.getPlayerCommand(); setPlayerStatus({
                     position: {
                         x: Math.round(body.position.x),
                         y: Math.round(body.position.y)
@@ -100,6 +102,8 @@ const StatusHUD: React.FC<StatusHUDProps> = ({ gameEngine }) => {
                     speed: Math.round(speed * 10) / 10, // Round to 1 decimal
                     angle: Math.round((body.angle * 180 / Math.PI) % 360), // Convert to degrees
                     health: Math.round(healthPercent),
+                    damagePercent: Math.round(damagePercent),
+                    canEject: canEject,
                     healthyBlocks: healthyEntities,
                     totalBlocks: totalEntities,
                     targetName: selectedAssembly ? (selectedAssembly.shipName || `Ship-${selectedAssembly.id.slice(-4)}`) : null,
@@ -191,9 +195,44 @@ const StatusHUD: React.FC<StatusHUDProps> = ({ gameEngine }) => {
                 <Typography sx={{ fontSize: '0.6rem', color: '#666' }}>
                     {playerStatus.angle}° heading
                 </Typography>
-            </StatusSection>
+            </StatusSection>            <Divider orientation="vertical" sx={{ height: 50, borderColor: '#333' }} />
 
-            <Divider orientation="vertical" sx={{ height: 50, borderColor: '#333' }} />
+            {/* Eject Section - Only shown when damage is high */}
+            {playerStatus.canEject && (
+                <Fade in={true}>
+                    <StatusSection sx={{ minWidth: 100 }}>
+                        <Typography className="status-label" sx={{ color: '#ff4444' }}>
+                            DAMAGE: {playerStatus.damagePercent}%
+                        </Typography>
+                        <Button
+                            variant="contained"
+                            size="small"
+                            onClick={() => gameEngine?.ejectPlayer()}
+                            sx={{
+                                backgroundColor: '#ff4444',
+                                color: '#ffffff',
+                                fontSize: '0.7rem',
+                                fontWeight: 'bold',
+                                minWidth: 80,
+                                height: 24,
+                                animation: 'pulse 1.5s infinite',
+                                '@keyframes pulse': {
+                                    '0%': { backgroundColor: '#ff4444' },
+                                    '50%': { backgroundColor: '#ff6666' },
+                                    '100%': { backgroundColor: '#ff4444' }
+                                },
+                                '&:hover': {
+                                    backgroundColor: '#ff6666'
+                                }
+                            }}
+                        >
+                            🚀 EJECT
+                        </Button>
+                    </StatusSection>
+                </Fade>
+            )}
+
+            {playerStatus.canEject && <Divider orientation="vertical" sx={{ height: 50, borderColor: '#333' }} />}
 
             {/* Target/Command Section */}
             <StatusSection sx={{ minWidth: 120 }}>

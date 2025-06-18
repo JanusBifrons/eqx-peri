@@ -51,14 +51,26 @@ const CompactPaper = styled(Paper)(() => ({
     }
 }));
 
-const RadarDot = styled('div')<{ team: string; isPlayer: boolean; isSelected: boolean }>(({ team, isPlayer, isSelected }) => ({
-    width: 8,
-    height: 8,
-    borderRadius: '50%',
-    backgroundColor: isPlayer ? '#00ff00' : (team === 'player' ? '#0088ff' : '#ff4444'),
-    border: isSelected ? '2px solid #ffff00' : 'none',
-    margin: '0 auto'
-}));
+const RadarDot = styled('div')<{ team: number; isPlayer: boolean; isSelected: boolean; isDebris: boolean }>(({ team, isPlayer, isSelected, isDebris }) => {
+    // Color logic: Blue for friendly (team 0), Red for enemy (team 1), Green for player, Gray for debris
+    const getColor = () => {
+        if (isDebris) return '#888888'; // Gray for debris
+        if (isPlayer) return '#00ff00'; // Bright green for player
+        if (team === 0) return '#0088ff'; // Blue for friendly team
+        if (team === 1) return '#ff4444'; // Red for enemy team
+        return '#ffffff'; // White fallback
+    };
+
+    return {
+        width: isDebris ? 4 : 8, // Smaller dots for debris
+        height: isDebris ? 4 : 8,
+        borderRadius: isDebris ? '50%' : '2px', // Circles for debris, squares for ships
+        backgroundColor: getColor(),
+        border: isSelected ? '2px solid #ffff00' : (isPlayer ? '1px solid #ffffff' : 'none'),
+        margin: '0 auto',
+        boxShadow: isPlayer ? '0 0 4px #00ff00' : 'none' // Glow effect for player
+    };
+});
 
 const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
     const [radarData, setRadarData] = useState<any[]>([]);
@@ -264,7 +276,29 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
                             AUTO
                         </Button>
                     </Box>
-                </Box>{/* Radar Visual */}
+                </Box>
+
+                {/* Radar Legend */}
+                <Box sx={{ mb: 1, display: 'flex', justifyContent: 'space-around', alignItems: 'center' }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Box sx={{ width: 8, height: 8, backgroundColor: '#00ff00', borderRadius: '2px', boxShadow: '0 0 2px #00ff00' }} />
+                        <Typography variant="caption" sx={{ fontSize: '0.6rem', color: '#00ff00' }}>YOU</Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Box sx={{ width: 8, height: 8, backgroundColor: '#0088ff', borderRadius: '2px' }} />
+                        <Typography variant="caption" sx={{ fontSize: '0.6rem', color: '#0088ff' }}>ALLY</Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Box sx={{ width: 8, height: 8, backgroundColor: '#ff4444', borderRadius: '2px' }} />
+                        <Typography variant="caption" sx={{ fontSize: '0.6rem', color: '#ff4444' }}>ENEMY</Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Box sx={{ width: 4, height: 4, backgroundColor: '#888888', borderRadius: '50%' }} />
+                        <Typography variant="caption" sx={{ fontSize: '0.6rem', color: '#888888' }}>DEBRIS</Typography>
+                    </Box>
+                </Box>
+
+                {/* Radar Visual */}
                 <Box sx={{
                     width: '100%',
                     height: 120,
@@ -299,18 +333,17 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
 
                         // Keep dots within bounds
                         const clampedX = Math.max(8, Math.min(272, x));
-                        const clampedY = Math.max(8, Math.min(112, y));
-
-                        return (
+                        const clampedY = Math.max(8, Math.min(112, y)); return (
                             <RadarDot
                                 key={ship.id}
                                 team={ship.team}
                                 isPlayer={ship.isPlayer}
                                 isSelected={selectedShip?.id === ship.id}
+                                isDebris={ship.isDebris || false}
                                 style={{
                                     position: 'absolute',
-                                    left: clampedX - 4,
-                                    top: clampedY - 4
+                                    left: clampedX - (ship.isDebris ? 2 : 4), // Adjust positioning for smaller debris dots
+                                    top: clampedY - (ship.isDebris ? 2 : 4)
                                 }}
                             />
                         );
@@ -347,14 +380,13 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
                                     }}
                                 >
                                     <TableCell>
-                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                            <RadarDot
-                                                team={ship.team}
-                                                isPlayer={ship.isPlayer}
-                                                isSelected={selectedShip?.id === ship.id}
-                                            />
-                                            <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
-                                                {ship.shipName || `Ship-${ship.id.slice(-4)}`}
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>                                            <RadarDot
+                                            team={ship.team}
+                                            isPlayer={ship.isPlayer}
+                                            isSelected={selectedShip?.id === ship.id}
+                                            isDebris={ship.isDebris || false}
+                                        />                                            <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
+                                                {ship.isDebris ? 'Debris' : (ship.shipName || `Ship-${ship.id.slice(-4)}`)}
                                             </Typography>
                                         </Box>
                                     </TableCell>
@@ -362,20 +394,27 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
                                         <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
                                             {ship.distance ? Math.round(ship.distance) : 0}
                                         </Typography>
-                                    </TableCell>
-                                    <TableCell align="center">
+                                    </TableCell>                                    <TableCell align="center">
                                         <Chip
-                                            label={ship.isPlayer ? 'PLR' : 'AI'}
+                                            label={
+                                                ship.isDebris ? 'DBR' :
+                                                    ship.isPlayer ? 'PLR' :
+                                                        ship.team === 0 ? 'ALLY' : 'ENMY'
+                                            }
                                             size="small"
                                             variant="outlined"
                                             sx={{
                                                 height: 16,
                                                 fontSize: '0.6rem',
-                                                color: ship.isPlayer ? '#00ff00' : '#ff4444',
-                                                borderColor: ship.isPlayer ? '#00ff00' : '#ff4444'
+                                                color: ship.isDebris ? '#888888' :
+                                                    ship.isPlayer ? '#00ff00' :
+                                                        ship.team === 0 ? '#0088ff' : '#ff4444',
+                                                borderColor: ship.isDebris ? '#888888' :
+                                                    ship.isPlayer ? '#00ff00' :
+                                                        ship.team === 0 ? '#0088ff' : '#ff4444'
                                             }}
                                         />
-                                    </TableCell>                            </TableRow>
+                                    </TableCell></TableRow>
                             ))}
                         </TableBody>
                     </Table>

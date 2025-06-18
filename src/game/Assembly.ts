@@ -515,6 +515,90 @@ export class Assembly {
   public setShipName(name: string): void {
     this.shipName = name;
   }
+  public getDamagePercentage(): number {
+    const totalMaxHealth = this.entities.reduce((sum, e) => sum + e.maxHealth, 0);
+    const currentHealth = this.entities.reduce((sum, e) => sum + e.health, 0);
+    return totalMaxHealth > 0 ? (1 - (currentHealth / totalMaxHealth)) * 100 : 0;
+  }
+
+  public canEject(): boolean {
+    // Can eject if there's a control center and damage is above 60%
+    return this.hasControlCenter() && this.getDamagePercentage() >= 60;
+  }
+  public ejectNonControlParts(): Assembly[] {
+    console.log('🚀 EJECTING! Separating non-control parts from assembly');
+
+    const controlCenter = this.getControlCenter();
+    if (!controlCenter) {
+      console.warn('⚠️ Cannot eject - no control center found');
+      return [];
+    }
+
+    // Separate entities into cockpit and non-cockpit
+    const ejectEntities = this.entities.filter(e => !e.isControlCenter());
+
+    console.log(`🚀 Ejecting ${ejectEntities.length} non-control parts, keeping cockpit`);
+
+    // Create new assemblies for ejected parts (each part becomes its own debris)
+    const newAssemblies: Assembly[] = [];
+
+    ejectEntities.forEach(entity => {
+      // Create individual debris assemblies for each ejected part
+      const debrisConfig: EntityConfig = {
+        type: entity.type,
+        x: entity.body.position.x,
+        y: entity.body.position.y,
+        rotation: (entity.body.angle * 180) / Math.PI,
+        health: entity.health,
+        maxHealth: entity.maxHealth
+      };
+
+      const debrisAssembly = new Assembly([debrisConfig], entity.body.position);
+      debrisAssembly.setTeam(this.team);
+
+      // Add some random velocity to make it look like an explosion
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 2 + Math.random() * 4; // Random speed between 2-6
+      Matter.Body.setVelocity(debrisAssembly.rootBody, {
+        x: Math.cos(angle) * speed,
+        y: Math.sin(angle) * speed
+      });
+
+      // Add some random spin
+      Matter.Body.setAngularVelocity(debrisAssembly.rootBody, (Math.random() - 0.5) * 0.2);
+
+      newAssemblies.push(debrisAssembly);
+    });
+
+    // Create new cockpit-only assembly
+    const cockpitConfig: EntityConfig = {
+      type: controlCenter.type,
+      x: controlCenter.body.position.x,
+      y: controlCenter.body.position.y,
+      rotation: (controlCenter.body.angle * 180) / Math.PI,
+      health: controlCenter.health,
+      maxHealth: controlCenter.maxHealth
+    };
+
+    const cockpitAssembly = new Assembly([cockpitConfig], controlCenter.body.position);
+    cockpitAssembly.setTeam(this.team);
+    cockpitAssembly.isPlayerControlled = this.isPlayerControlled;
+    cockpitAssembly.setShipName(`${this.shipName} (Cockpit)`);
+
+    // Preserve the original velocity but reduce it slightly
+    const originalVel = this.rootBody.velocity;
+    Matter.Body.setVelocity(cockpitAssembly.rootBody, {
+      x: originalVel.x * 0.8,
+      y: originalVel.y * 0.8
+    });
+
+    // Mark this assembly as destroyed
+    this.destroyed = true;
+
+    console.log(`🚀 Ejection complete: 1 cockpit assembly + ${newAssemblies.length} debris pieces`);
+
+    return [cockpitAssembly, ...newAssemblies];
+  }
 }
 
 // Extend Matter.js Body type to include our assembly reference
