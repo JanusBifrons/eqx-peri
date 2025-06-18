@@ -8,6 +8,7 @@ import shipsData from '../data/ships.json';
 import { ControllerManager } from './ControllerManager';
 import { FlightController } from './FlightController';
 import { ControlInput } from './Controller';
+import { ToastSystem } from './ToastSystem';
 
 export class GameEngine {
   private engine: Matter.Engine;
@@ -43,10 +44,12 @@ export class GameEngine {
 
   // Stats.js for FPS monitoring
   private stats: Stats;
-
   // Ship selection and player destruction callback
   public onPlayerDestroyed?: () => void;
   private selectedPlayerShipIndex: number = 0;
+
+  // Toast system for game events
+  private toastSystem: ToastSystem;
 
   constructor(container: HTMLElement) {
     console.log('🎮 Creating GameEngine...');
@@ -109,9 +112,7 @@ export class GameEngine {
         showIds: false // Hide IDs for cleaner look
       }
     }); console.log('🖼️  Renderer created');
-    console.log('Canvas element:', this.render.canvas);
-
-    // Initialize Stats.js for FPS monitoring
+    console.log('Canvas element:', this.render.canvas);    // Initialize Stats.js for FPS monitoring
     this.stats = new Stats();
     this.stats.showPanel(0); // 0: fps, 1: ms, 2: mb, 3+: custom
     this.stats.dom.style.position = 'absolute';
@@ -119,6 +120,9 @@ export class GameEngine {
     this.stats.dom.style.top = '10px';
     this.stats.dom.style.zIndex = '1000';
     container.appendChild(this.stats.dom);
+
+    // Initialize toast system
+    this.toastSystem = new ToastSystem(container);
 
     // Initialize mouse interaction
     this.setupMouseInteraction();
@@ -188,6 +192,15 @@ export class GameEngine {
           if (this.canPlayerEject()) {
             this.ejectPlayer();
           }
+          break;
+        case 't':
+          this.selectNearestEnemy();
+          break;
+        case 'y':
+          this.clearAllTargets();
+          break;
+        case 'u':
+          this.cycleTargets();
           break;
       }
     });
@@ -296,7 +309,7 @@ export class GameEngine {
         if (damageB > 0) entityB.takeDamage(damageB);
       }
     }
-  } private handleBulletHit(bullet: Matter.Body, entity: Entity): void {
+  }  private handleBulletHit(bullet: Matter.Body, entity: Entity): void {
     // Check for self-hit prevention
     const sourceAssemblyId = (bullet as any).sourceAssemblyId;
     if (sourceAssemblyId) {
@@ -306,6 +319,13 @@ export class GameEngine {
         // This is a self-hit, ignore it
         console.log('🛡️ Self-hit prevented');
         return;
+      }
+
+      // Track who hit this assembly for kill attribution
+      if (hitAssembly) {
+        const sourceAssembly = this.assemblies.find(a => a.id === sourceAssemblyId);
+        hitAssembly.lastHitByAssemblyId = sourceAssemblyId;
+        hitAssembly.lastHitByPlayer = sourceAssembly?.isPlayerControlled || false;
       }
     }
 
@@ -319,7 +339,7 @@ export class GameEngine {
     }
 
     // Apply damage - more damage to make breaking easier
-    const destroyed = entity.takeDamage(10); if (destroyed) {
+    const destroyed = entity.takeDamage(10);if (destroyed) {
       // Find the assembly containing this entity
       const assembly = this.assemblies.find(a => a.entities.includes(entity));
       if (assembly) {
@@ -340,21 +360,19 @@ export class GameEngine {
           // Add all new assemblies to physics world
           newAssemblies.forEach((newAssembly, index) => {
             console.log(`  Assembly ${index}: ${newAssembly.entities.length} parts`);
-            Matter.World.add(this.world, newAssembly.rootBody);
-
-            // If this was the player assembly, reassign player control
+            Matter.World.add(this.world, newAssembly.rootBody);            // If this was the player assembly, reassign player control
             if (assembly.isPlayerControlled && newAssembly.isPlayerControlled) {
               this.playerAssembly = newAssembly;
+              this.toastSystem.showWarning(`⚠️ Ship damaged! Control transferred to ${newAssembly.shipName}`);
               console.log('👤 Player control transferred to new assembly');
             }
-          });
-
-          // If original was player assembly but no new assembly has control, find one
+          });          // If original was player assembly but no new assembly has control, find one
           if (assembly.isPlayerControlled && !this.playerAssembly) {
             const newPlayerAssembly = newAssemblies.find(a => a.hasControlCenter());
             if (newPlayerAssembly) {
               this.playerAssembly = newPlayerAssembly;
               newPlayerAssembly.isPlayerControlled = true;
+              this.toastSystem.showSuccess(`✅ Control established with ${newPlayerAssembly.shipName}`);
               console.log('👤 Player control assigned to assembly with cockpit');
             }
           }
@@ -473,11 +491,24 @@ export class GameEngine {
     }
     if (this.keys.has('d') || this.keys.has('arrowright')) {
       input.torque = 1.0; // Increased from 0.15 to 1.0 (6.7x stronger)
-    }
-
-    // Firing
+    }    // Firing
+    let isManuallyFiring = false;
     if (this.keys.has(' ') || this.mouseDown) {
       input.fire = true;
+      isManuallyFiring = true;
+    }
+    
+    // Auto-fire at primary target if not manually firing
+    if (!isManuallyFiring && this.playerAssembly.primaryTarget && !this.playerAssembly.primaryTarget.destroyed) {
+      const targetPosition = this.playerAssembly.primaryTarget.rootBody.position;
+      // Check if any weapon can aim at the target
+      const canAimAtTarget = this.playerAssembly.entities.some(entity => 
+        entity.canFire() && this.playerAssembly!.canWeaponAimAtTarget(entity, targetPosition)
+      );
+      
+      if (canAimAtTarget) {
+        input.fire = true;
+      }
     }
     // Send input to player controller
     this.controllerManager.setPlayerInput(input);
@@ -513,12 +544,24 @@ export class GameEngine {
       Matter.World.remove(this.world, bullet);
       this.bullets = this.bullets.filter(b => b !== bullet);
     });
-  }
-
-  private cleanupDestroyedAssemblies(): void {
+  }  private cleanupDestroyedAssemblies(): void {
     const destroyedAssemblies = this.assemblies.filter(a => a.destroyed || a.entities.length === 0);
 
     destroyedAssemblies.forEach(assembly => {
+      // Show toast notification for destroyed ships
+      if (assembly.lastHitByPlayer) {
+        // Player got the kill
+        this.toastSystem.showKill("You", assembly.shipName);
+      } else if (assembly.lastHitByAssemblyId) {
+        // Find the assembly that got the kill
+        const killerAssembly = this.assemblies.find(a => a.id === assembly.lastHitByAssemblyId);
+        const killerName = killerAssembly ? killerAssembly.shipName : "Unknown";
+        this.toastSystem.showKill(killerName, assembly.shipName);
+      } else {
+        // Unknown cause of death
+        this.toastSystem.showKill("Unknown", assembly.shipName);
+      }
+      
       Matter.World.remove(this.world, assembly.rootBody);
 
       // Clear selection if the selected assembly is being destroyed
@@ -730,11 +773,10 @@ export class GameEngine {
       if (event.button === 0) {
         this.mouseDown = false;
       }
-    });
-
-    // Add a simple click event for testing
+    });    // Add click event for target selection
     this.render.canvas.addEventListener('click', (event) => {
-      console.log('🖱️ Simple click event detected at:', event.clientX, event.clientY);
+      console.log('🖱️ Click event detected at:', event.clientX, event.clientY);
+      this.handleCanvasClick(event);
     });
 
     // Mouse wheel for zoom
@@ -771,21 +813,11 @@ export class GameEngine {
     }
   }
   */
-
-  private handleRightClick(event: MouseEvent): void {
-    // Right click for alternative actions - rotate to face mouse
-    if (this.playerAssembly && !this.playerAssembly.destroyed) {
-      const rect = this.render.canvas.getBoundingClientRect();
-      const mouseX = event.clientX - rect.left + this.render.bounds.min.x;
-      const mouseY = event.clientY - rect.top + this.render.bounds.min.y;
-
-      // Calculate angle from player to mouse
-      const playerPos = this.playerAssembly.rootBody.position;
-      const targetAngle = Math.atan2(mouseY - playerPos.y, mouseX - playerPos.x);
-
-      // Set the rotation to face the mouse
-      Matter.Body.setAngle(this.playerAssembly.rootBody, targetAngle);
-    }
+  private handleRightClick(_event: MouseEvent): void {
+    // Right click for targeting - handled by handleCanvasClick now
+    // This method is called by the mousedown event handler, but targeting
+    // is now handled in handleCanvasClick which is called by the click event
+    console.log('🖱️ Right click detected - targeting handled by click event');
   }
   private handleMouseWheel(event: WheelEvent): void {
     // Zoom in/out based on wheel direction (inverted for natural feel)
@@ -1025,13 +1057,68 @@ export class GameEngine {
       ctx.globalAlpha = 1.0;
     });
   }
-
   private renderShipHighlights(): void {
     const ctx = this.render.canvas.getContext('2d');
     if (!ctx) return;
 
     ctx.save();
     const bounds = this.render.bounds;
+
+    // Render weapon aiming arcs for player ship
+    if (this.playerAssembly && !this.playerAssembly.destroyed) {
+      const weapons = this.playerAssembly.entities.filter(entity => entity.canFire());
+      
+      weapons.forEach(weapon => {
+        const weaponPos = weapon.body.position;
+        const weaponAngle = weapon.body.angle + (weapon.rotation * Math.PI / 180);
+        
+        // Convert weapon position to screen coordinates
+        const screenX = (weaponPos.x - bounds.min.x) * this.render.canvas.width / (bounds.max.x - bounds.min.x);
+        const screenY = (weaponPos.y - bounds.min.y) * this.render.canvas.height / (bounds.max.y - bounds.min.y);
+        
+        // Define aiming arc parameters
+        const arcRange = 300; // Range of the aiming arc in world units
+        const arcAngle = Math.PI / 6; // 30 degrees total arc (15 degrees each side)
+        const arcColor = '#ff444440'; // Semi-transparent red
+        const arcLineColor = '#ff4444';
+        
+        // Convert range to screen units
+        const screenRange = arcRange * this.render.canvas.width / (bounds.max.x - bounds.min.x);
+        
+        // Draw the aiming arc
+        ctx.strokeStyle = arcLineColor;
+        ctx.fillStyle = arcColor;
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.4;
+        
+        // Draw the filled arc sector
+        ctx.beginPath();
+        ctx.moveTo(screenX, screenY);
+        ctx.arc(screenX, screenY, screenRange, weaponAngle - arcAngle / 2, weaponAngle + arcAngle / 2);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Draw the arc outline
+        ctx.globalAlpha = 0.6;
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, screenRange, weaponAngle - arcAngle / 2, weaponAngle + arcAngle / 2);
+        ctx.stroke();
+        
+        // Draw the center line (weapon facing direction)
+        ctx.globalAlpha = 0.8;
+        ctx.strokeStyle = '#ffff00';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(screenX, screenY);
+        const centerLineEndX = screenX + Math.cos(weaponAngle) * screenRange;
+        const centerLineEndY = screenY + Math.sin(weaponAngle) * screenRange;
+        ctx.lineTo(centerLineEndX, centerLineEndY);
+        ctx.stroke();
+        
+        // Reset alpha
+        ctx.globalAlpha = 1.0;
+      });
+    }
 
     // Render hover bounding box
     if (this.hoveredAssembly && !this.hoveredAssembly.destroyed) {
@@ -1041,9 +1128,7 @@ export class GameEngine {
         lineWidth: 2,
         dashPattern: [5, 5]
       });
-    }
-
-    // Render selected assembly highlight
+    }    // Render selected assembly highlight
     if (this.selectedAssembly && !this.selectedAssembly.destroyed) {
       this.renderAssemblyBoundingBox(ctx, this.selectedAssembly, bounds, {
         color: '#00ffff',
@@ -1059,6 +1144,40 @@ export class GameEngine {
         alpha: pulse * 0.2,
         lineWidth: 1,
         dashPattern: []
+      });
+    }
+
+    // Render locked targets for player ship
+    if (this.playerAssembly && !this.playerAssembly.destroyed) {
+      const lockedTargets = this.getLockedTargets(this.playerAssembly);
+      
+      lockedTargets.forEach(target => {
+        if (target.destroyed) return;
+        
+        // Determine target color based on team
+        const isEnemy = target.team !== this.playerAssembly!.team;
+        const targetColor = isEnemy ? '#ff4444' : '#44ff44'; // Red for enemies, green for allies
+        
+        // Draw target square
+        this.renderTargetSquare(ctx, target, bounds, targetColor);
+          // If this is the primary target, add extra highlighting
+        if (this.playerAssembly!.primaryTarget?.id === target.id) {
+          this.renderAssemblyBoundingBox(ctx, target, bounds, {
+            color: targetColor,
+            alpha: 0.8,
+            lineWidth: 4,
+            dashPattern: [10, 5]
+          });
+          
+          // Add pulsing primary target indicator
+          const primaryPulse = Math.sin(Date.now() / 200) * 0.4 + 0.6;
+          this.renderAssemblyBoundingBox(ctx, target, bounds, {
+            color: '#ffffff',
+            alpha: primaryPulse * 0.3,
+            lineWidth: 2,
+            dashPattern: []
+          });
+        }
       });
     }
 
@@ -1110,18 +1229,20 @@ export class GameEngine {
     ctx.stroke();
 
     ctx.globalAlpha = 1.0;
-    ctx.setLineDash([]);
-  }
+    ctx.setLineDash([]);  }
 
-  // ...existing code...
   public initializeBattle(): void {
     console.log('🚀 Initializing team-based AI battle...');
 
     // Clear existing assemblies
     this.assemblies.forEach(assembly => {
       Matter.World.remove(this.world, assembly.rootBody);
-    }); this.assemblies = [];
+    }); 
+    this.assemblies = [];
     this.playerAssembly = null;
+
+    // Show battle start notification
+    this.toastSystem.showGameEvent("🚀 Battle Initialized!");
 
     // Spawn player team (Team 0) - Blue team close left
     this.spawnTeam(0, -800, 0, 4, true); // Much closer - only 800 units left
@@ -1130,6 +1251,7 @@ export class GameEngine {
     this.spawnTeam(1, 800, 0, 4, false); // Much closer - only 800 units right
 
     console.log('⚔️ Battle initialized with player and AI teams!');
+    this.toastSystem.showSuccess("Teams deployed - engage!");
   }
   private spawnTeam(team: number, centerX: number, centerY: number, count: number, hasPlayer: boolean): void {
     const ships = shipsData.ships;
@@ -1632,16 +1754,16 @@ export class GameEngine {
     newAssemblies.forEach(assembly => {
       this.assemblies.push(assembly);
       Matter.World.add(this.world, assembly.rootBody);
-    });
-
-    // The first assembly should be the cockpit with player control
+    });    // The first assembly should be the cockpit with player control
     const cockpitAssembly = newAssemblies.find(a => a.isPlayerControlled);
     if (cockpitAssembly) {
       this.playerAssembly = cockpitAssembly;
       this.flightController = new FlightController(cockpitAssembly);
       this.controllerManager.createPlayerController(cockpitAssembly);
+      this.toastSystem.showWarning("🚀 Emergency ejection! Cockpit separated");
       console.log('👤 Player control transferred to ejected cockpit');
     } else {
+      this.toastSystem.showError("💀 Critical failure! No cockpit available");
       console.warn('⚠️ No cockpit assembly found after ejection');
       this.playerAssembly = null;
     }
@@ -1703,5 +1825,194 @@ export class GameEngine {
         console.log(`🔍 Regular ship: ${selectedShip.name} - using normal zoom`);
       }
     }
+  }
+
+  private handleCanvasClick(event: MouseEvent): void {
+    const rect = this.render.canvas.getBoundingClientRect();
+    const screenX = event.clientX - rect.left;
+    const screenY = event.clientY - rect.top;
+    
+    // Convert screen coordinates to world coordinates
+    const worldX = screenX + this.render.bounds.min.x;
+    const worldY = screenY + this.render.bounds.min.y;
+    
+    // Find assembly at click position
+    const clickedAssembly = this.getAssemblyAtPosition(screenX, screenY);
+    
+    if (clickedAssembly && clickedAssembly !== this.playerAssembly) {
+      // Right-click or Ctrl+click for targeting
+      if (event.button === 2 || event.ctrlKey) {
+        this.handleTargetClick(clickedAssembly);
+      } else {
+        // Left-click for selection
+        this.selectAssembly(clickedAssembly);
+      }
+    } else if (clickedAssembly === this.playerAssembly) {
+      // Clicked on player ship - clear selection
+      this.selectAssembly(null);
+    } else {
+      // Clicked empty space
+      if (this.playerAssembly) {
+        // Set cursor position for weapon aiming
+        this.mousePosition = { x: screenX, y: screenY };
+        this.playerAssembly.cursorPosition = { x: worldX, y: worldY };
+      }
+      this.selectAssembly(null);
+    }
+  }
+  private handleTargetClick(assembly: Assembly): void {
+    if (!this.playerAssembly || this.playerAssembly.destroyed) return;
+    
+    // Toggle target lock
+    if (this.playerAssembly.isTargetLocked(assembly)) {
+      this.playerAssembly.unlockTarget(assembly);
+      this.toastSystem.showGameEvent(`🔓 Unlocked: ${assembly.shipName}`);
+    } else {
+      this.playerAssembly.lockTarget(assembly);
+      this.toastSystem.showSuccess(`🔒 Locked: ${assembly.shipName}`);
+      
+      // Set as primary target if it's the first lock
+      if (this.playerAssembly.primaryTarget === null) {
+        this.playerAssembly.setPrimaryTarget(assembly);
+        this.toastSystem.showSuccess(`🎯 Primary target: ${assembly.shipName}`);
+      }
+    }
+  }
+
+  public getLockedTargets(assembly: Assembly): Assembly[] {
+    const lockedIds = Array.from(assembly.lockedTargets);
+    return this.assemblies.filter(a => lockedIds.includes(a.id) && !a.destroyed);
+  }
+
+  private renderTargetSquare(
+    ctx: CanvasRenderingContext2D,
+    target: Assembly,
+    bounds: Matter.Bounds,
+    color: string
+  ): void {
+    if (target.entities.length === 0) return;
+
+    // Calculate center position of the target
+    const centerPos = target.rootBody.position;
+    
+    // Convert to screen coordinates
+    const screenX = (centerPos.x - bounds.min.x) * this.render.canvas.width / (bounds.max.x - bounds.min.x);
+    const screenY = (centerPos.y - bounds.min.y) * this.render.canvas.height / (bounds.max.y - bounds.min.y);
+    
+    // Draw targeting square
+    const squareSize = 20;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.8;
+    
+    // Draw square
+    ctx.beginPath();
+    ctx.rect(screenX - squareSize/2, screenY - squareSize/2, squareSize, squareSize);
+    ctx.stroke();
+    
+    // Draw corner brackets for targeting feel
+    const bracketSize = 8;
+    const bracketOffset = squareSize/2 + 2;
+    
+    ctx.lineWidth = 3;
+    
+    // Top-left bracket
+    ctx.beginPath();
+    ctx.moveTo(screenX - bracketOffset, screenY - bracketOffset + bracketSize);
+    ctx.lineTo(screenX - bracketOffset, screenY - bracketOffset);
+    ctx.lineTo(screenX - bracketOffset + bracketSize, screenY - bracketOffset);
+    ctx.stroke();
+    
+    // Top-right bracket
+    ctx.beginPath();
+    ctx.moveTo(screenX + bracketOffset - bracketSize, screenY - bracketOffset);
+    ctx.lineTo(screenX + bracketOffset, screenY - bracketOffset);
+    ctx.lineTo(screenX + bracketOffset, screenY - bracketOffset + bracketSize);
+    ctx.stroke();
+    
+    // Bottom-left bracket
+    ctx.beginPath();
+    ctx.moveTo(screenX - bracketOffset, screenY + bracketOffset - bracketSize);
+    ctx.lineTo(screenX - bracketOffset, screenY + bracketOffset);
+    ctx.lineTo(screenX - bracketOffset + bracketSize, screenY + bracketOffset);
+    ctx.stroke();
+    
+    // Bottom-right bracket
+    ctx.beginPath();
+    ctx.moveTo(screenX + bracketOffset - bracketSize, screenY + bracketOffset);
+    ctx.lineTo(screenX + bracketOffset, screenY + bracketOffset);
+    ctx.lineTo(screenX + bracketOffset, screenY + bracketOffset - bracketSize);
+    ctx.stroke();
+    
+    // Add target name text
+    ctx.fillStyle = color;
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(target.shipName, screenX, screenY + bracketOffset + 15);
+    
+    ctx.globalAlpha = 1.0;
+  }
+  private selectNearestEnemy(): void {
+    if (!this.playerAssembly || this.playerAssembly.destroyed) return;
+    
+    const playerPos = this.playerAssembly.rootBody.position;
+    let nearestEnemy: Assembly | null = null;
+    let nearestDistance = Infinity;
+    
+    this.assemblies.forEach(assembly => {
+      if (assembly.destroyed || assembly === this.playerAssembly || assembly.team === this.playerAssembly!.team) return;
+      
+      const distance = Math.sqrt(
+        Math.pow(assembly.rootBody.position.x - playerPos.x, 2) +
+        Math.pow(assembly.rootBody.position.y - playerPos.y, 2)
+      );
+      
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestEnemy = assembly;
+      }
+    });    if (nearestEnemy) {
+      this.playerAssembly.setPrimaryTarget(nearestEnemy);
+      this.toastSystem.showSuccess(`🎯 Targeting: ${(nearestEnemy as Assembly).shipName}`);
+      console.log(`🎯 Selected nearest enemy: ${(nearestEnemy as Assembly).shipName} (${nearestDistance.toFixed(0)} units away)`);
+    } else {
+      this.toastSystem.showWarning("🎯 No enemies in range");
+      console.log('🎯 No enemies found to target');
+    }
+  }
+  private clearAllTargets(): void {
+    if (!this.playerAssembly || this.playerAssembly.destroyed) return;
+    
+    // Clear all locked targets
+    const lockedTargets = this.getLockedTargets(this.playerAssembly);
+    lockedTargets.forEach(target => {
+      this.playerAssembly!.unlockTarget(target);
+    });
+    
+    this.playerAssembly.setPrimaryTarget(null);
+    this.toastSystem.showGameEvent("🎯 All targets cleared");
+    console.log('🎯 Cleared all targets');
+  }
+
+  private cycleTargets(): void {
+    if (!this.playerAssembly || this.playerAssembly.destroyed) return;
+    
+    const lockedTargets = this.getLockedTargets(this.playerAssembly);
+    if (lockedTargets.length === 0) {
+      this.selectNearestEnemy();
+      return;
+    }
+    
+    // Find current primary target index
+    const currentIndex = this.playerAssembly.primaryTarget 
+      ? lockedTargets.findIndex(t => t.id === this.playerAssembly!.primaryTarget!.id)
+      : -1;
+    
+    // Select next target in the list
+    const nextIndex = (currentIndex + 1) % lockedTargets.length;
+    const nextTarget = lockedTargets[nextIndex];
+    
+    this.playerAssembly.setPrimaryTarget(nextTarget);
+    console.log(`🎯 Cycled to target: ${nextTarget.shipName}`);
   }
 }

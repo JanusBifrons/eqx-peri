@@ -12,7 +12,14 @@ export class Assembly {
   public destroyed: boolean = false;
   public lastFireTime: number = 0;
   public fireRate: number = 300; // 300ms between shots = 3.3 shots per second (faster firing)
-  public team: number = 0; // Team assignment for combat
+  public team: number = 0; // Team assignment for combat  // Targeting system properties
+  public lockedTargets: Set<string> = new Set(); // IDs of locked assemblies
+  public primaryTarget: Assembly | null = null; // Current primary target for auto-firing
+  public cursorPosition: Vector2 | null = null; // Mouse cursor position for weapon aiming
+
+  // Kill tracking properties
+  public lastHitByPlayer: boolean = false; // Was last hit by player
+  public lastHitByAssemblyId: string | null = null; // ID of assembly that last hit this one
 
   constructor(entityConfigs: EntityConfig[], position: Vector2 = { x: 0, y: 0 }) {
     this.id = Math.random().toString(36).substr(2, 9);
@@ -141,7 +148,7 @@ export class Assembly {
       (desiredAngularVelocity - currentAngularVelocity) * dampening;
 
     Matter.Body.setAngularVelocity(this.rootBody, newAngularVelocity);
-  } public fireWeapons(targetAngle?: number): Matter.Body[] {
+  }  public fireWeapons(targetAngle?: number, targetPosition?: Vector2): Matter.Body[] {
     if (this.destroyed) return [];
 
     const currentTime = Date.now();
@@ -158,7 +165,27 @@ export class Assembly {
       // Trigger visual firing effect
       weapon.triggerWeaponFire();
 
-      const laser = this.createLaser(weapon, targetAngle);
+      // Calculate weapon-specific aiming angle with priority:
+      // 1. Primary target if available and in arc
+      // 2. Cursor position if available and in arc
+      // 3. Specified target position if available and in arc
+      // 4. Target angle or weapon natural direction
+      let weaponTargetAngle = targetAngle;
+      let aimingTarget: Vector2 | null = null;
+
+      if (this.primaryTarget && !this.primaryTarget.destroyed) {
+        aimingTarget = this.primaryTarget.rootBody.position;
+      } else if (this.cursorPosition) {
+        aimingTarget = this.cursorPosition;
+      } else if (targetPosition) {
+        aimingTarget = targetPosition;
+      }
+
+      if (aimingTarget && this.canWeaponAimAtTarget(weapon, aimingTarget)) {
+        weaponTargetAngle = this.calculateWeaponAimAngle(weapon, aimingTarget);
+      }
+
+      const laser = this.createLaser(weapon, weaponTargetAngle);
       if (laser) {
         lasers.push(laser);
       }
@@ -168,14 +195,72 @@ export class Assembly {
     this.lastFireTime = currentTime;
 
     return lasers;
-  } private createLaser(weapon: Entity, targetAngle?: number): Matter.Body | null {
+  }
+
+  public canWeaponAimAtTarget(weapon: Entity, targetPosition: Vector2): boolean {
+    const weaponAngle = this.calculateWeaponAimAngle(weapon, targetPosition);
+    const weaponNaturalAngle = this.rootBody.angle + (weapon.rotation * Math.PI / 180);
+    
+    // Normalize angle difference
+    let angleDiff = weaponAngle - weaponNaturalAngle;
+    while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+    while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+
+    // Check if target is within weapon's aiming arc
+    const aimingArc = this.getWeaponAimingArc(weapon.type);
+    return Math.abs(angleDiff) <= aimingArc / 2;
+  }
+
+  private calculateWeaponAimAngle(weapon: Entity, targetPosition: Vector2): number {
+    const weaponWorldPos = weapon.body.position;
+    return Math.atan2(
+      targetPosition.y - weaponWorldPos.y,
+      targetPosition.x - weaponWorldPos.x
+    );
+  }
+
+  private getWeaponAimingArc(weaponType: string): number {
+    // Return aiming arc in radians
+    switch (weaponType) {
+      case 'Gun':
+      case 'Cockpit':
+        return Math.PI / 6; // 30 degrees total arc (15 degrees each side)
+      case 'LargeGun':
+      case 'LargeCockpit':
+        return Math.PI / 4; // 45 degrees total arc
+      case 'CapitalWeapon':
+      case 'CapitalCore':
+        return Math.PI / 3; // 60 degrees total arc
+      default:
+        return Math.PI / 6; // Default 30 degrees
+    }
+  }  private createLaser(weapon: Entity, targetAngle?: number): Matter.Body | null {
     // Calculate laser spawn position and direction
     const weaponWorldPos = weapon.body.position;
     const assemblyAngle = this.rootBody.angle;
     const weaponLocalAngle = weapon.rotation * Math.PI / 180;
 
-    // Use target angle if provided, otherwise use weapon's natural direction
-    const firingAngle = targetAngle !== undefined ? targetAngle : assemblyAngle + weaponLocalAngle;
+    let firingAngle: number;
+    
+    if (targetAngle !== undefined) {
+      // Use target angle but apply aiming arc constraints
+      const weaponNaturalAngle = assemblyAngle + weaponLocalAngle;
+      let angleDiff = targetAngle - weaponNaturalAngle;
+      
+      // Normalize angle difference
+      while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+      while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+      
+      // Clamp angle difference to weapon's aiming arc
+      const aimingArc = this.getWeaponAimingArc(weapon.type);
+      const maxAngleDiff = aimingArc / 2;
+      angleDiff = Math.max(-maxAngleDiff, Math.min(maxAngleDiff, angleDiff));
+      
+      firingAngle = weaponNaturalAngle + angleDiff;
+    } else {
+      // Use weapon's natural direction
+      firingAngle = assemblyAngle + weaponLocalAngle;
+    }
 
     // Configure laser properties - much slower speeds with length matching speed to prevent tunneling
     let laserSpeed = 50; // Much slower speed
@@ -212,7 +297,9 @@ export class Assembly {
 
     // Spawn laser much closer to the weapon for accurate positioning
     const spawnX = weaponWorldPos.x + Math.cos(firingAngle) * spawnDistance;
-    const spawnY = weaponWorldPos.y + Math.sin(firingAngle) * spawnDistance;// Create rectangular laser body
+    const spawnY = weaponWorldPos.y + Math.sin(firingAngle) * spawnDistance;
+
+    // Create rectangular laser body
     const laser = Matter.Bodies.rectangle(spawnX, spawnY, laserWidth, laserHeight, {
       isSensor: true, // Lasers are sensors - they pass through objects but trigger collision events
       frictionAir: 0, // No air resistance in space
@@ -228,14 +315,18 @@ export class Assembly {
     });
 
     // Rotate the laser to match the firing direction
-    Matter.Body.rotate(laser, firingAngle);    // Set laser velocity using the firing angle, inheriting ship's velocity
+    Matter.Body.rotate(laser, firingAngle);
+
+    // Set laser velocity using the firing angle, inheriting ship's velocity
     const shipVelocity = this.rootBody.velocity;
     const velocity = {
       x: Math.cos(firingAngle) * laserSpeed + shipVelocity.x,
       y: Math.sin(firingAngle) * laserSpeed + shipVelocity.y
     };
 
-    Matter.Body.setVelocity(laser, velocity);    // Mark as bullet for collision detection and store the source assembly ID
+    Matter.Body.setVelocity(laser, velocity);
+
+    // Mark as bullet for collision detection and store the source assembly ID
     laser.isBullet = true;
     laser.timeToLive = Date.now() + 8000; // 8 seconds for slower lasers
     (laser as any).sourceAssemblyId = this.id; // Store which assembly fired this laser
@@ -598,6 +689,80 @@ export class Assembly {
     console.log(`🚀 Ejection complete: 1 cockpit assembly + ${newAssemblies.length} debris pieces`);
 
     return [cockpitAssembly, ...newAssemblies];
+  }
+  public getShipBounds(): { minX: number, minY: number, maxX: number, maxY: number, width: number, height: number } {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    this.entities.forEach(entity => {
+      const def = ENTITY_DEFINITIONS[entity.type];
+      const halfWidth = def.width / 2;
+      const halfHeight = def.height / 2;
+
+      // Get entity position relative to assembly root
+      const entityX = entity.body.position.x;
+      const entityY = entity.body.position.y;
+
+      minX = Math.min(minX, entityX - halfWidth);
+      minY = Math.min(minY, entityY - halfHeight);
+      maxX = Math.max(maxX, entityX + halfWidth);
+      maxY = Math.max(maxY, entityY + halfHeight);
+    });
+
+    const width = maxX - minX;
+    const height = maxY - minY;
+
+    return { minX, minY, maxX, maxY, width, height };
+  }
+
+  public getShipRadius(): number {
+    const bounds = this.getShipBounds();
+    // Return the radius as half the diagonal of the bounding box
+    return Math.sqrt(bounds.width * bounds.width + bounds.height * bounds.height) / 2;
+  }
+
+  public lockTarget(target: Assembly): void {
+    this.lockedTargets.add(target.id);
+    console.log(`🔒 ${this.shipName} locked onto ${target.shipName}`);
+  }
+
+  public unlockTarget(target: Assembly): void {
+    this.lockedTargets.delete(target.id);
+    if (this.primaryTarget?.id === target.id) {
+      this.primaryTarget = null;
+    }
+    console.log(`🔓 ${this.shipName} unlocked ${target.shipName}`);
+  }
+
+  public setPrimaryTarget(target: Assembly | null): void {
+    this.primaryTarget = target;
+    if (target) {
+      this.lockTarget(target);
+      console.log(`🎯 ${this.shipName} set primary target: ${target.shipName}`);
+    } else {
+      console.log(`🎯 ${this.shipName} cleared primary target`);
+    }
+  }
+
+  public isTargetLocked(target: Assembly): boolean {
+    return this.lockedTargets.has(target.id);
+  }
+  public getLockedTargets(): Assembly[] {
+    // This method will be called by GameEngine which should provide the current assemblies
+    // For now, return empty array - GameEngine will handle the mapping
+    return [];
+  }
+
+  // Auto-fire at primary target if weapons can aim at it
+  public autoFireAtPrimaryTarget(): Matter.Body[] {
+    if (!this.primaryTarget || this.primaryTarget.destroyed) {
+      return [];
+    }
+
+    const targetPosition = this.primaryTarget.rootBody.position;
+    return this.fireWeapons(undefined, targetPosition);
   }
 }
 

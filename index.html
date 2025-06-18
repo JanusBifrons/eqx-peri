@@ -4,8 +4,7 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>EQX Peri - Modular Space Game</title>
-    <style>
+    <title>EQX Peri - Modular Space Game</title>    <style>
       body {
         margin: 0;
         padding: 0;
@@ -13,6 +12,23 @@
         font-family: 'Courier New', monospace;
         color: #fff;
         overflow: hidden;
+      }
+      
+      @keyframes pulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.05); }
+        100% { transform: scale(1); }
+      }
+      
+      @keyframes slideInRight {
+        from {
+          transform: translateX(100%);
+          opacity: 0;
+        }
+        to {
+          transform: translateX(0);
+          opacity: 1;
+        }
       }
     </style>
   </head>
