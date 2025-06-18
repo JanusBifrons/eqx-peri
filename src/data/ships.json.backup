@@ -63,8 +63,6 @@
     },
     {
       "name": "Wide Fighter",
-      "category": "Fighter",
-      "size": "small",
       "parts": [
         {
           "type": "Engine",
@@ -152,7 +150,9 @@
           "health": 80,
           "maxHealth": 80
         }
-      ]
+      ],
+      "category": "Fighter",
+      "size": "small"
     },
     {
       "name": "Long Cruiser",
@@ -450,7 +450,9 @@
           "health": 80,
           "maxHealth": 80
         }
-      ]
+      ],
+      "category": "Fighter",
+      "size": "small"
     },
     {
       "name": "Titan Dreadnought",

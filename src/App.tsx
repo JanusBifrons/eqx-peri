@@ -57,7 +57,6 @@ const App: React.FC = () => {
   const [, setGameState] = useState<'ship-selection' | 'playing' | 'respawn'>('ship-selection');
   const [, setSelectedShipIndex] = useState<number | null>(null);
   const [showShipSelection, setShowShipSelection] = useState(true); const [playerDestroyed, setPlayerDestroyed] = useState(false);
-
   // Handle ship selection
   const handleShipSelect = (shipIndex: number) => {
     setSelectedShipIndex(shipIndex);
@@ -75,12 +74,12 @@ const App: React.FC = () => {
     setGameState('playing');
     setPlayerDestroyed(false);
 
-    // Respawn with new ship
+    // Respawn with new ship and apply auto-zoom
     if (gameEngineRef.current) {
+      gameEngineRef.current.setAutoZoomForShip(shipIndex);
       gameEngineRef.current.spawnPlayerShip(shipIndex);
     }
   };
-
   const startGameWithShip = (shipIndex: number) => {
     if (canvasRef.current && !gameEngineRef.current) {
       console.log('🚀 Creating GameEngine with selected ship...');
@@ -89,6 +88,9 @@ const App: React.FC = () => {
 
       // Set the selected ship index before starting
       gameEngineRef.current.setPlayerShipIndex(shipIndex);
+
+      // Apply auto-zoom for large ships
+      gameEngineRef.current.setAutoZoomForShip(shipIndex);
 
       console.log('▶️  Starting GameEngine...');
       gameEngineRef.current.start();

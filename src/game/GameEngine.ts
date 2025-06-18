@@ -2,7 +2,7 @@ import * as Matter from 'matter-js';
 import Stats from 'stats.js';
 import { Assembly } from './Assembly';
 import { Entity } from './Entity';
-import { EntityConfig, GRID_SIZE } from '../types/GameTypes';
+import { EntityConfig, GRID_SIZE, ENTITY_DEFINITIONS, EntityType } from '../types/GameTypes';
 import { getBlockDefinition, BLOCK_SIZE } from './BlockSystem';
 import shipsData from '../data/ships.json';
 import { ControllerManager } from './ControllerManager';
@@ -1644,6 +1644,64 @@ export class GameEngine {
     } else {
       console.warn('⚠️ No cockpit assembly found after ejection');
       this.playerAssembly = null;
+    }
+  }
+
+  // Auto-zoom functionality for large ships
+  public setAutoZoomForShip(shipIndex: number): void {
+    const ships = shipsData.ships;
+    const selectedShip = ships[shipIndex];
+
+    if (selectedShip) {
+      // Calculate ship size
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      let totalVolume = 0;
+      selectedShip.parts.forEach(part => {
+        const def = ENTITY_DEFINITIONS[part.type as EntityType];
+        if (def) {
+          const halfWidth = def.width / 2;
+          const halfHeight = def.height / 2;
+
+          minX = Math.min(minX, part.x - halfWidth);
+          minY = Math.min(minY, part.y - halfHeight);
+          maxX = Math.max(maxX, part.x + halfWidth);
+          maxY = Math.max(maxY, part.y + halfHeight);
+
+          totalVolume += def.width * def.height;
+        }
+      });
+
+      const shipWidth = maxX - minX;
+      const shipHeight = maxY - minY;
+      const shipArea = shipWidth * shipHeight;
+
+      // Determine if this is a large ship that needs auto-zoom
+      const isLargeShip = shipArea > 10000 || totalVolume > 50000;
+
+      if (isLargeShip) {
+        // Calculate appropriate zoom level for large ships
+        const containerWidth = this.render.canvas.width;
+        const containerHeight = this.render.canvas.height;
+
+        // Calculate zoom to fit ship with some padding
+        const paddingFactor = 1.5; // 50% padding around ship
+        const zoomForWidth = containerWidth / (shipWidth * paddingFactor);
+        const zoomForHeight = containerHeight / (shipHeight * paddingFactor);
+        const suggestedZoom = Math.min(zoomForWidth, zoomForHeight);
+
+        // Clamp to reasonable bounds and make it even more zoomed out for large ships
+        const largeShipZoom = Math.max(this.minZoom, Math.min(suggestedZoom * 0.6, this.baseZoomLevel * 0.5));
+
+        console.log(`🔍 Large ship detected: ${selectedShip.name}`);
+        console.log(`🔍 Ship dimensions: ${shipWidth.toFixed(0)} x ${shipHeight.toFixed(0)} (area: ${shipArea.toFixed(0)})`);
+        console.log(`🔍 Setting auto-zoom to: ${largeShipZoom.toFixed(3)} (was: ${this.baseZoomLevel.toFixed(3)})`);
+
+        // Adjust base zoom level for this large ship
+        this.baseZoomLevel = largeShipZoom;
+        this.zoomLevel = largeShipZoom;
+      } else {
+        console.log(`🔍 Regular ship: ${selectedShip.name} - using normal zoom`);
+      }
     }
   }
 }
