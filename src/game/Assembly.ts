@@ -11,26 +11,42 @@ export class Assembly {
   public isPlayerControlled: boolean = false;
   public destroyed: boolean = false;
   public lastFireTime: number = 0;
-  public fireRate: number = 300; // 300ms between shots = 3.3 shots per second (faster firing)
-  public team: number = 0; // Team assignment for combat
+  public fireRate: number = 300; // 300ms between shots = 3.3 shots per second (faster firing)  public team: number = 0; // Team assignment for combat
+
   constructor(entityConfigs: EntityConfig[], position: Vector2 = { x: 0, y: 0 }) {
     this.id = Math.random().toString(36).substr(2, 9);
 
     // Create entities
-    this.entities = entityConfigs.map(config => new Entity(config));    // Create root body
+    this.entities = entityConfigs.map(config => new Entity(config));
+
+    // Calculate expected total mass
+    const expectedTotalMass = this.entities.reduce((sum, e) => sum + e.body.mass, 0);
+    console.log(`🏗️ Creating Assembly with ${this.entities.length} parts, expected total mass: ${expectedTotalMass}`);
+    this.entities.forEach(e => console.log(`  - ${e.type}: mass ${e.body.mass}`));
+
+    // Create root body with realistic physics settings
     this.rootBody = Matter.Body.create({
       parts: this.entities.map(e => e.body),
       isStatic: false,
-      frictionAir: 0, // No air resistance in space
-      friction: 0 // No friction in space
+      frictionAir: 0.01, // Very small air resistance to dampen spinning
+      friction: 0, // No surface friction in space
+      restitution: 0.2 // Low bounce for realistic space debris
     });
+
+    // Debug: Check if Matter.js calculated the mass correctly
+    console.log(`🏗️ Matter.js calculated root body mass: ${this.rootBody.mass} (expected: ${expectedTotalMass})`);
+    if (Math.abs(this.rootBody.mass - expectedTotalMass) > 0.1) {
+      console.warn(`⚠️ Mass mismatch! Matter.js mass: ${this.rootBody.mass}, calculated: ${expectedTotalMass}`);
+    }
 
     // Set position
     Matter.Body.setPosition(this.rootBody, position);
 
     // Store reference to this assembly in the body
     this.rootBody.assembly = this;
-  } public update(): void {
+  }
+
+  public update(): void {
     if (this.destroyed) return;
 
     // Update visual effects for all entities
@@ -65,15 +81,15 @@ export class Assembly {
     if (this.destroyed) return;
 
     const engines = this.entities.filter(e => e.canProvideThrust());
-    if (engines.length === 0) return;
-
-    // Calculate thrust magnitude for visual effects
+    if (engines.length === 0) return;    // Calculate thrust magnitude for visual effects
     const thrustMagnitude = Math.sqrt(thrustInput.x * thrustInput.x + thrustInput.y * thrustInput.y);
 
-    // Debug logging
-    if (thrustMagnitude > 0) {
-      console.log(`🚀 Thrust Input: x=${thrustInput.x.toFixed(2)}, y=${thrustInput.y.toFixed(2)}, engines=${engines.length}`);
-    }    // SIMPLIFIED: Apply thrust directly in ship-local coordinates
+    // Debug logging disabled to reduce spam
+    // if (thrustMagnitude > 0) {
+    //   console.log(`🚀 Thrust Input: x=${thrustInput.x.toFixed(2)}, y=${thrustInput.y.toFixed(2)}, engines=${engines.length}`);
+    // }
+
+    // SIMPLIFIED: Apply thrust directly in ship-local coordinates
     engines.forEach((engine) => {
       // Get engine thrust values
       const engineThrust = this.getEngineThrust(engine.type);
@@ -288,12 +304,13 @@ export class Assembly {
       };
       newEntities.push(new Entity(config));
     });
-    this.entities = newEntities;    // Create new root body
+    this.entities = newEntities;    // Create new root body with realistic physics settings
     this.rootBody = Matter.Body.create({
       parts: this.entities.map(e => e.body),
       isStatic: false,
-      frictionAir: 0, // No air resistance in space
-      friction: 0 // No friction in space
+      frictionAir: 0.01, // Very small air resistance to dampen spinning
+      friction: 0, // No surface friction in space
+      restitution: 0.2 // Low bounce for realistic space debris
     });
 
     // Restore position
@@ -394,12 +411,11 @@ export class Assembly {
   } private areEntitiesConnected(entity1: Entity, entity2: Entity): boolean {
     // Use the updated adjacency function from BlockSystem that handles different block sizes
     const result = areEntitiesAdjacent(
-      { type: entity1.type, x: entity1.localOffset.x, y: entity1.localOffset.y },
-      { type: entity2.type, x: entity2.localOffset.x, y: entity2.localOffset.y }
+      { type: entity1.type, x: entity1.localOffset.x, y: entity1.localOffset.y }, { type: entity2.type, x: entity2.localOffset.x, y: entity2.localOffset.y }
     );
 
-    // Debug logging to understand connectivity
-    console.log(`🔗 Checking connection: ${entity1.type}(${entity1.localOffset.x},${entity1.localOffset.y}) -> ${entity2.type}(${entity2.localOffset.x},${entity2.localOffset.y}) = ${result}`);
+    // Debug logging disabled to reduce spam during assembly breaks
+    // console.log(`🔗 Checking connection: ${entity1.type}(${entity1.localOffset.x},${entity1.localOffset.y}) -> ${entity2.type}(${entity2.localOffset.x},${entity2.localOffset.y}) = ${result}`);
 
     return result;
   }
@@ -472,6 +488,42 @@ export class Assembly {
   // Set ship name for display
   public setShipName(name: string): void {
     this.shipName = name;
+  }
+
+  // Calculate ship dimensions for zoom purposes
+  public getShipDimensions(): { width: number, height: number } {
+    if (this.entities.length === 0) {
+      return { width: 0, height: 0 };
+    }
+
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+
+    // Calculate bounding box from entity positions
+    this.entities.forEach(entity => {
+      const entityDef = ENTITY_DEFINITIONS[entity.type];
+      const halfWidth = entityDef.width / 2;
+      const halfHeight = entityDef.height / 2;
+
+      // Use entity's local position within the assembly
+      const localX = entity.x;
+      const localY = entity.y;
+
+      minX = Math.min(minX, localX - halfWidth);
+      maxX = Math.max(maxX, localX + halfWidth);
+      minY = Math.min(minY, localY - halfHeight);
+      maxY = Math.max(maxY, localY + halfHeight);
+    });
+
+    return {
+      width: maxX - minX,
+      height: maxY - minY
+    };
+  }
+
+  public getShipSize(): number {
+    const dims = this.getShipDimensions();
+    return Math.max(dims.width, dims.height);
   }
 }
 

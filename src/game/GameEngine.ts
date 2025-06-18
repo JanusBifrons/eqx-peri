@@ -39,7 +39,7 @@ export class GameEngine {
   private flightController: FlightController | null = null; // Advanced flight control  // Zoom control properties
   private baseZoomLevel: number = 0.2; // Start closer so speed-based zoom out is more noticeable
   private speedBasedZoomEnabled: boolean = true;
-  private zoomSmoothingFactor: number = 0.02; // Smooth transitions
+  // private zoomSmoothingFactor: number = 0.02; // Smooth transitions - currently unused
 
   // Stats.js for FPS monitoring
   private stats: Stats;
@@ -55,17 +55,29 @@ export class GameEngine {
     this.engine.world.gravity.y = 0; // No gravity in space
     this.engine.world.gravity.x = 0; // Ensure no horizontal gravity either
 
+    // Configure realistic physics settings for space combat
+    this.engine.constraintIterations = 8; // Higher precision for constraints
+    this.engine.positionIterations = 8; // Higher precision for positions
+    this.engine.velocityIterations = 8; // Higher precision for velocities
+
+    // Set timing for more stable physics
+    this.engine.timing.timeScale = 1.0;
+
     // Set global friction to zero for space-like physics
     this.engine.world.bodies.forEach(body => {
-      body.frictionAir = 0; // No air resistance in space
+      body.frictionAir = 0.01; // Very small air resistance to dampen spinning debris
       body.friction = 0; // No surface friction in space
-    });
-
-    // Add event listener to ensure all new bodies have zero friction
+    });    // Add event listener to ensure all new bodies have realistic physics settings
     Matter.Events.on(this.engine, 'beforeUpdate', () => {
       this.engine.world.bodies.forEach(body => {
-        if (body.frictionAir !== 0) body.frictionAir = 0;
+        // Apply minimal air resistance to prevent infinite spinning
+        if (body.frictionAir < 0.01) body.frictionAir = 0.01;
         if (body.friction !== 0) body.friction = 0;
+
+        // Apply angular damping to spinning debris to make collisions more realistic
+        if (Math.abs(body.angularVelocity) > 0.1) {
+          Matter.Body.setAngularVelocity(body, body.angularVelocity * 0.98); // 2% angular velocity loss per frame
+        }
       });
     });
 
@@ -217,9 +229,7 @@ export class GameEngine {
         }
       });
     });
-  }
-
-  private handleEntityCollision(entityA: Entity, entityB: Entity): void {
+  } private handleEntityCollision(entityA: Entity, entityB: Entity): void {
     // Flash on impact for any entity collision
     if (!entityA.destroyed && !entityA.isFlashing) {
       entityA.triggerCollisionFlash();
@@ -228,13 +238,56 @@ export class GameEngine {
       entityB.triggerCollisionFlash();
     }
 
-    // Optional: Add some impact damage for hard collisions
-    // You can uncomment this if you want collisions to cause damage
-    // const impactForce = Math.min(entityA.body.speed + entityB.body.speed, 10);
-    // if (impactForce > 5) {
-    //   entityA.takeDamage(1);
-    //   entityB.takeDamage(1);
-    // }
+    // Debug collision physics - THIS IS THE KEY DEBUG INFO!
+    const assemblyA = this.getAssemblyFromBody(entityA.body);
+    const assemblyB = this.getAssemblyFromBody(entityB.body);
+
+    console.log('🥊 COLLISION DEBUG:');
+    console.log(`  Entity A: ${entityA.type} (individual mass: ${entityA.body.mass})`);
+    console.log(`  Entity B: ${entityB.type} (individual mass: ${entityB.body.mass})`);
+
+    if (assemblyA) {
+      const totalMassA = assemblyA.entities.reduce((sum, e) => sum + e.body.mass, 0);
+      console.log(`  Assembly A: ${assemblyA.entities.length} parts, total calculated mass: ${totalMassA}, Matter.js root body mass: ${assemblyA.rootBody.mass}`);
+      console.log(`  Assembly A velocity: ${Math.sqrt(assemblyA.rootBody.velocity.x ** 2 + assemblyA.rootBody.velocity.y ** 2).toFixed(2)}`);
+      console.log(`  Assembly A angular velocity: ${assemblyA.rootBody.angularVelocity.toFixed(3)}`);
+    }
+
+    if (assemblyB) {
+      const totalMassB = assemblyB.entities.reduce((sum, e) => sum + e.body.mass, 0);
+      console.log(`  Assembly B: ${assemblyB.entities.length} parts, total calculated mass: ${totalMassB}, Matter.js root body mass: ${assemblyB.rootBody.mass}`);
+      console.log(`  Assembly B velocity: ${Math.sqrt(assemblyB.rootBody.velocity.x ** 2 + assemblyB.rootBody.velocity.y ** 2).toFixed(2)}`);
+      console.log(`  Assembly B angular velocity: ${assemblyB.rootBody.angularVelocity.toFixed(3)}`);
+    }
+
+    // Calculate realistic collision impact based on mass and velocity differences
+    const massA = entityA.body.mass;
+    const massB = entityB.body.mass;
+    const velocityA = Matter.Vector.magnitude(entityA.body.velocity);
+    const velocityB = Matter.Vector.magnitude(entityB.body.velocity);
+
+    // Calculate relative impact force
+    const relativeVelocity = Math.abs(velocityA - velocityB);
+    const totalMass = massA + massB;
+    const massRatio = Math.min(massA, massB) / Math.max(massA, massB);
+
+    // Only cause collision damage if there's significant impact
+    // Light debris hitting heavy ships should cause minimal damage
+    if (relativeVelocity > 3 && massRatio > 0.1) { // Minimum speed and mass ratio for damage
+      const impactForce = (relativeVelocity * Math.min(massA, massB)) / 1000;
+
+      if (impactForce > 1) {
+        const damage = Math.floor(impactForce);
+        console.log(`💥 Collision damage: ${damage} (masses: ${massA}/${massB}, velocities: ${velocityA.toFixed(1)}/${velocityB.toFixed(1)})`);
+
+        // Apply damage proportional to mass ratio - lighter objects take more damage
+        const damageA = Math.floor(damage * (massB / totalMass));
+        const damageB = Math.floor(damage * (massA / totalMass));
+
+        if (damageA > 0) entityA.takeDamage(damageA);
+        if (damageB > 0) entityB.takeDamage(damageB);
+      }
+    }
   } private handleBulletHit(bullet: Matter.Body, entity: Entity): void {
     // Check for self-hit prevention
     const sourceAssemblyId = (bullet as any).sourceAssemblyId;
@@ -1053,25 +1106,29 @@ export class GameEngine {
     // Clear existing assemblies
     this.assemblies.forEach(assembly => {
       Matter.World.remove(this.world, assembly.rootBody);
-    });
-    this.assemblies = [];
-    this.playerAssembly = null;    // Spawn player team (Team 0) - Blue team MASSIVELY far left
-    this.spawnTeam(0, -40000, 0, 4, true); // Player team 10x further left
+    }); this.assemblies = [];
+    this.playerAssembly = null;
 
-    // Spawn enemy team (Team 1) - Red team MASSIVELY far right  
-    this.spawnTeam(1, 40000, 0, 4, false); // AI team 10x further right
+    // Spawn player team (Team 0) - Blue team close left
+    this.spawnTeam(0, -800, 0, 4, true); // Much closer - only 800 units left
+
+    // Spawn enemy team (Team 1) - Red team close right  
+    this.spawnTeam(1, 800, 0, 4, false); // Much closer - only 800 units right
 
     console.log('⚔️ Battle initialized with player and AI teams!');
   }
-
   private spawnTeam(team: number, centerX: number, centerY: number, count: number, hasPlayer: boolean): void {
     const ships = shipsData.ships;
-    let playerAssigned = false; for (let i = 0; i < count; i++) {
-      // Spread ships MASSIVELY around the center position (10x more spread)
+    let playerAssigned = false;
+
+    for (let i = 0; i < count; i++) {
+      // Spread ships around the center position with reasonable spacing
       const angle = (i / count) * Math.PI * 2;
-      const radius = 1500; // 10x larger radius
-      const x = centerX + Math.cos(angle) * radius + (Math.random() - 0.5) * 1000; // 10x more random spread
-      const y = centerY + Math.sin(angle) * radius + (Math.random() - 0.5) * 1000;      // Pick a random ship
+      const radius = 200; // Much smaller radius for closer combat
+      const x = centerX + Math.cos(angle) * radius + (Math.random() - 0.5) * 150; // Less random spread
+      const y = centerY + Math.sin(angle) * radius + (Math.random() - 0.5) * 150;
+
+      // Pick a random ship
       const randomShip = ships[Math.floor(Math.random() * ships.length)];
       const assembly = new Assembly(randomShip.parts as EntityConfig[], { x, y });
 
@@ -1318,13 +1375,13 @@ export class GameEngine {
         break;
     }
   } private executeFollowCommand(): void {
-    console.log('🎯 Follow command executing...', this.flightController ? 'FC OK' : 'NO FC', this.selectedAssembly ? 'Target OK' : 'NO Target');
-    if (!this.flightController || !this.selectedAssembly) return;
+    console.log('🎯 Follow command executing...', this.flightController ? 'FC OK' : 'NO FC', this.selectedAssembly ? 'Target OK' : 'NO Target'); if (!this.flightController || !this.selectedAssembly) return;
 
     // Use advanced flight controller for smooth following
     const control = this.flightController.followTarget(this.selectedAssembly, 150);
 
-    console.log('🚀 Follow control:', control.thrust.x.toFixed(3), control.thrust.y.toFixed(3), 'torque:', control.torque.toFixed(3));
+    // Debug logging disabled to reduce spam
+    // console.log('🚀 Follow control:', control.thrust.x.toFixed(3), control.thrust.y.toFixed(3), 'torque:', control.torque.toFixed(3));
 
     // Send control input to the controller manager (like player input)
     this.controllerManager.setPlayerInput(control);
@@ -1335,7 +1392,8 @@ export class GameEngine {
     // Use advanced flight controller for smooth orbital motion
     const control = this.flightController.orbitTarget(this.selectedAssembly, 200);
 
-    console.log('🚀 Orbit control:', control.thrust.x.toFixed(3), control.thrust.y.toFixed(3), 'torque:', control.torque.toFixed(3));
+    // Debug logging disabled to reduce spam
+    // console.log('🚀 Orbit control:', control.thrust.x.toFixed(3), control.thrust.y.toFixed(3), 'torque:', control.torque.toFixed(3));
 
     // Send control input to the controller manager (like player input)
     this.controllerManager.setPlayerInput(control);

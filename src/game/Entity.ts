@@ -31,15 +31,18 @@ export class Entity {
     }
 
     this.maxHealth = config.maxHealth || definition.defaultHealth;
-    this.health = config.health || this.maxHealth;    // Create Matter.js body at exact position with enhanced visual styling
+    this.health = config.health || this.maxHealth;    // Create Matter.js body at exact position with enhanced physics and visual styling
     this.body = Matter.Bodies.rectangle(
       config.x,
       config.y,
       definition.width,
       definition.height,
       {
-        mass: definition.mass, frictionAir: 0, // No air resistance in space
-        friction: 0, // No friction in space
+        mass: definition.mass,
+        frictionAir: 0.01, // Very small air resistance to dampen spinning debris
+        friction: 0, // No surface friction in space
+        restitution: 0.2, // Low bounce - space debris doesn't bounce much
+        inertia: definition.mass * (definition.width * definition.width + definition.height * definition.height) / 12, // Realistic rotational inertia
         render: {
           fillStyle: this.makeTransparent(definition.color, 0.6), // Semi-transparent background
           strokeStyle: this.brightenColor(definition.color), // Brighter border color

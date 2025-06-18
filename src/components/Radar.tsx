@@ -331,52 +331,52 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
                                 <TableCell align="center">Type</TableCell>
                             </TableRow>
                         </TableHead>
-                        <TableBody>                            {radarData.slice(0, 8).map((ship) => (
-                            <TableRow
-                                key={ship.id}
-                                hover
-                                onClick={(event) => {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    handleShipSelect(ship);
-                                }}
-                                sx={{
-                                    cursor: 'pointer',
-                                    '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.05)' }
-                                }}
-                            >
-                                <TableCell>
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                        <RadarDot
-                                            team={ship.team}
-                                            isPlayer={ship.isPlayer}
-                                            isSelected={selectedShip?.id === ship.id}
-                                        />
+                        <TableBody>
+                            {radarData.slice(0, 8).map((ship) => (
+                                <TableRow
+                                    key={ship.id}
+                                    hover
+                                    onClick={(event) => {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        handleShipSelect(ship);
+                                    }}
+                                    sx={{
+                                        cursor: 'pointer',
+                                        '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.05)' }
+                                    }}
+                                >
+                                    <TableCell>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                            <RadarDot
+                                                team={ship.team}
+                                                isPlayer={ship.isPlayer}
+                                                isSelected={selectedShip?.id === ship.id}
+                                            />
+                                            <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
+                                                {ship.shipName || `Ship-${ship.id.slice(-4)}`}
+                                            </Typography>
+                                        </Box>
+                                    </TableCell>
+                                    <TableCell align="right">
                                         <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
-                                            {ship.shipName || `Ship-${ship.id.slice(-4)}`}
+                                            {ship.distance ? Math.round(ship.distance) : 0}
                                         </Typography>
-                                    </Box>
-                                </TableCell>
-                                <TableCell align="right">
-                                    <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
-                                        {ship.distance ? Math.round(ship.distance) : 0}
-                                    </Typography>
-                                </TableCell>
-                                <TableCell align="center">
-                                    <Chip
-                                        label={ship.isPlayer ? 'PLR' : 'AI'}
-                                        size="small"
-                                        variant="outlined"
-                                        sx={{
-                                            height: 16,
-                                            fontSize: '0.6rem',
-                                            color: ship.isPlayer ? '#00ff00' : '#ff4444',
-                                            borderColor: ship.isPlayer ? '#00ff00' : '#ff4444'
-                                        }}
-                                    />
-                                </TableCell>
-                            </TableRow>
-                        ))}
+                                    </TableCell>
+                                    <TableCell align="center">
+                                        <Chip
+                                            label={ship.isPlayer ? 'PLR' : 'AI'}
+                                            size="small"
+                                            variant="outlined"
+                                            sx={{
+                                                height: 16,
+                                                fontSize: '0.6rem',
+                                                color: ship.isPlayer ? '#00ff00' : '#ff4444',
+                                                borderColor: ship.isPlayer ? '#00ff00' : '#ff4444'
+                                            }}
+                                        />
+                                    </TableCell>                            </TableRow>
+                            ))}
                         </TableBody>
                     </Table>
                 </TableContainer>                {/* Selected Ship Info */}
