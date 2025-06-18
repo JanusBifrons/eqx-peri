@@ -285,14 +285,15 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
                         borderRadius: 0.25
                     }}>
                         {(1 / currentZoom).toFixed(0)}x
-                    </Typography>
-
-                    {radarData.map((ship) => {
+                    </Typography>                    {radarData.map((ship) => {
                         const playerShip = radarData.find(s => s.isPlayer);
-                        if (!playerShip) return null;                        // Use current zoom for radar display
+                        if (!playerShip) return null;
+
+                        // Use fixed radar scale independent of game zoom
                         const centerX = 140;
                         const centerY = 60;
-                        const radarScale = currentZoom * 200; // Scale the game zoom for radar display
+                        const radarRange = 10000; // Fixed radar range in game units
+                        const radarScale = 50 / radarRange; // Fixed scale: 50 pixels = 10000 units
                         const x = centerX + (ship.x - playerShip.x) * radarScale;
                         const y = centerY + (ship.y - playerShip.y) * radarScale;
 

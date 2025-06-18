@@ -57,7 +57,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 75, // Increased from 15
     defaultHealth: 80,
     color: '#ff6600',
-    thrust: 0.1, // Increased from 0.002 to 0.1 (50x stronger)
+    thrust: 0.02, // Increased from 0.005 for better responsiveness
     canAttachTo: ['Cockpit', 'Hull', 'PowerCell'],
     attachmentPoints: [
       { x: 0, y: -1 }, // top (exhaust is bottom)

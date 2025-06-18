@@ -21,8 +21,8 @@ export class Assembly {
     this.rootBody = Matter.Body.create({
       parts: this.entities.map(e => e.body),
       isStatic: false,
-      frictionAir: 0.01, // Small air resistance to prevent runaway acceleration
-      friction: 0.001 // Minimal friction for surface contact
+      frictionAir: 0, // No air resistance in space
+      friction: 0 // No friction in space
     });
 
     // Set position
@@ -110,7 +110,7 @@ export class Assembly {
       return definition.thrust;
     }
     return 0;
-  }  public applyTorque(torqueInput: number): void {
+  } public applyTorque(torqueInput: number): void {
     if (this.destroyed) return;
 
     // Balanced rotation using Matter.js angular velocity
@@ -124,7 +124,7 @@ export class Assembly {
       (desiredAngularVelocity - currentAngularVelocity) * dampening;
 
     Matter.Body.setAngularVelocity(this.rootBody, newAngularVelocity);
-  }public fireWeapons(targetAngle?: number): Matter.Body[] {
+  } public fireWeapons(targetAngle?: number): Matter.Body[] {
     if (this.destroyed) return [];
 
     const currentTime = Date.now();
@@ -160,30 +160,35 @@ export class Assembly {
     // Use target angle if provided, otherwise use weapon's natural direction
     const firingAngle = targetAngle !== undefined ? targetAngle : assemblyAngle + weaponLocalAngle;
 
-    // Configure laser properties based on weapon type - 10x faster speeds
-    let laserWidth = 20; // Length of the laser
+    // Configure laser properties - much slower speeds with length matching speed to prevent tunneling
+    let laserSpeed = 50; // Much slower speed
     let laserHeight = 4; // Thickness of the laser
-    let laserSpeed = 250; // 10x faster than before (was 25)
-    let spawnDistance = 20; // Much closer to weapon for accurate positioning
+    let spawnDistance = 20; // Distance from weapon
     let laserColor = '#00ffff'; // Default cyan
+
+    // Calculate laser length based on speed to prevent tunneling
+    // Length should be at least as long as the distance traveled per frame at 60fps
+    const frameTime = 1 / 60; // 60fps
+    let laserWidth = Math.max(laserSpeed * frameTime * 2, 20); // At least 2 frames of travel distance
 
     switch (weapon.type) {
       case 'Gun':
-        laserSpeed = 250; // 10x faster (was 25)
-        spawnDistance = 20; // Closer to weapon (was 120)
+        laserSpeed = 50; // Much slower
+        laserWidth = Math.max(laserSpeed * frameTime * 2, 20);
+        spawnDistance = 20;
         break;
       case 'LargeGun':
-        laserWidth = 30;
+        laserSpeed = 60; // Slightly faster for large guns
+        laserWidth = Math.max(laserSpeed * frameTime * 2, 25);
         laserHeight = 6;
-        laserSpeed = 280; // 10x faster (was 28)
-        spawnDistance = 25; // Closer to weapon (was 150)
+        spawnDistance = 25;
         laserColor = '#ff6600'; // Orange for large guns
         break;
       case 'CapitalWeapon':
-        laserWidth = 50;
+        laserSpeed = 70; // Fastest but still reasonable
+        laserWidth = Math.max(laserSpeed * frameTime * 2, 30);
         laserHeight = 10;
-        laserSpeed = 300; // 10x faster (was 30)
-        spawnDistance = 30; // Closer to weapon (was 200)
+        spawnDistance = 30;
         laserColor = '#ff0000'; // Red for capital weapons
         break;
     }
@@ -215,7 +220,7 @@ export class Assembly {
 
     Matter.Body.setVelocity(laser, velocity);    // Mark as bullet for collision detection and store the source assembly ID
     laser.isBullet = true;
-    laser.timeToLive = Date.now() + 5000; // 5 seconds from now (longer since lasers are faster)
+    laser.timeToLive = Date.now() + 8000; // 8 seconds for slower lasers
     (laser as any).sourceAssemblyId = this.id; // Store which assembly fired this laser
 
     return laser;
@@ -287,8 +292,8 @@ export class Assembly {
     this.rootBody = Matter.Body.create({
       parts: this.entities.map(e => e.body),
       isStatic: false,
-      frictionAir: 0.01, // Small air resistance to prevent runaway acceleration
-      friction: 0.001 // Minimal friction for surface contact
+      frictionAir: 0, // No air resistance in space
+      friction: 0 // No friction in space
     });
 
     // Restore position

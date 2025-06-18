@@ -5,6 +5,7 @@ import { EntityConfig, GRID_SIZE } from '../types/GameTypes';
 import { getBlockDefinition, BLOCK_SIZE } from './BlockSystem';
 import shipsData from '../data/ships.json';
 import { ControllerManager } from './ControllerManager';
+import { FlightController } from './FlightController';
 import { ControlInput } from './Controller';
 
 export class GameEngine {
@@ -33,7 +34,8 @@ export class GameEngine {
   private minZoom: number = 0.1; // Allow zooming out much further
   private maxZoom: number = 4; // Allow zooming in more
   private lastFrameTime: number = 0;
-  private controllerManager: ControllerManager = new ControllerManager();  // Zoom control properties
+  private controllerManager: ControllerManager = new ControllerManager();
+  private flightController: FlightController | null = null; // Advanced flight control  // Zoom control properties
   private baseZoomLevel: number = 0.2; // Start closer so speed-based zoom out is more noticeable
   private speedBasedZoomEnabled: boolean = true;
   private zoomSmoothingFactor: number = 0.02; // Smooth transitions
@@ -49,9 +51,18 @@ export class GameEngine {
     this.engine.world.gravity.y = 0; // No gravity in space
     this.engine.world.gravity.x = 0; // Ensure no horizontal gravity either
 
-    // Set global air resistance to zero for space-like physics
+    // Set global friction to zero for space-like physics
     this.engine.world.bodies.forEach(body => {
       body.frictionAir = 0; // No air resistance in space
+      body.friction = 0; // No surface friction in space
+    });
+
+    // Add event listener to ensure all new bodies have zero friction
+    Matter.Events.on(this.engine, 'beforeUpdate', () => {
+      this.engine.world.bodies.forEach(body => {
+        if (body.frictionAir !== 0) body.frictionAir = 0;
+        if (body.friction !== 0) body.friction = 0;
+      });
     });
 
     // Create renderer with debug options - matching MVP spec
@@ -321,9 +332,7 @@ export class GameEngine {
       this.bullets.push(bullet);
     });
     // Handle additional player input (mouse controls, etc.)
-    this.handlePlayerInput();
-
-    // Update assemblies
+    this.handlePlayerInput();    // Update assemblies
     this.assemblies.forEach(assembly => assembly.update());
 
     // Update entity flash effects
@@ -364,21 +373,19 @@ export class GameEngine {
       thrust: { x: 0, y: 0 },
       torque: 0,
       fire: false
-    };    // Keyboard thrust controls
+    };    // Keyboard thrust controls - ship-local coordinates
     if (this.keys.has('w') || this.keys.has('arrowup')) {
-      const angle = this.playerAssembly.rootBody.angle;
       input.thrust = {
-        x: Math.cos(angle) * 1.0, // 0° = pointing right (forward)
-        y: Math.sin(angle) * 1.0
+        x: 1.0, // Forward in ship-local coordinates
+        y: 0
       };
     }
 
     // Reverse thrust
     if (this.keys.has('s') || this.keys.has('arrowdown')) {
-      const angle = this.playerAssembly.rootBody.angle;
       input.thrust = {
-        x: Math.cos(angle) * -0.5, // Reverse direction
-        y: Math.sin(angle) * -0.5
+        x: -0.5, // Reverse in ship-local coordinates
+        y: 0
       };
     }// Manual rotation
     if (this.keys.has('a') || this.keys.has('arrowleft')) {
@@ -571,13 +578,12 @@ export class GameEngine {
 
       this.assemblies.push(assembly);
       Matter.World.add(this.world, assembly.rootBody);
-      console.log(`🌍 Added to world, total assemblies: ${this.assemblies.length}`);
-
-      // Set as player if requested
+      console.log(`🌍 Added to world, total assemblies: ${this.assemblies.length}`);      // Set as player if requested
       if (isPlayer && (!this.playerAssembly || this.playerAssembly.destroyed)) {
         this.playerAssembly = assembly;
         assembly.isPlayerControlled = true;
-        console.log('👤 Set as player assembly');
+        this.flightController = new FlightController(assembly); // Initialize advanced flight control
+        console.log('👤 Set as player assembly with flight controller');
       }
     } catch (error) {
       console.error('❌ Error spawning ship:', error);
@@ -1056,16 +1062,15 @@ export class GameEngine {
 
       // Add to world and our list
       this.assemblies.push(assembly);
-      Matter.World.add(this.world, assembly.rootBody);
-
-      // Create appropriate controller
+      Matter.World.add(this.world, assembly.rootBody);      // Create appropriate controller
       if (hasPlayer && !playerAssigned && assembly.hasControlCenter()) {
         // Make this the player assembly
         this.playerAssembly = assembly;
         assembly.isPlayerControlled = true;
+        this.flightController = new FlightController(assembly); // Initialize advanced flight control
         this.controllerManager.createPlayerController(assembly);
         playerAssigned = true;
-        console.log(`👤 Player assigned to ${randomShip.name} on team ${team}`);
+        console.log(`👤 Player assigned to ${randomShip.name} on team ${team} with flight controller`);
       } else {
         // Create AI controller
         const aiController = this.controllerManager.createAIController(assembly);
@@ -1279,11 +1284,10 @@ export class GameEngine {
     );
 
     switch (this.playerCommand) {
-      case 'follow':
-        this.executeFollowCommand(playerPos, targetPos, distance);
+      case 'follow': this.executeFollowCommand();
         break;
       case 'orbit':
-        this.executeOrbitCommand(playerPos, targetPos, distance);
+        this.executeOrbitCommand();
         break;
       case 'keepDistance':
         this.executeKeepDistanceCommand(playerPos, targetPos, distance);
@@ -1292,93 +1296,28 @@ export class GameEngine {
         this.executeLockOnCommand(playerPos, targetPos, distance);
         break;
     }
-  }
-  private executeFollowCommand(playerPos: Matter.Vector, targetPos: Matter.Vector, distance: number): void {
-    const followDistance = 150; // Desired following distance
-    const approachThreshold = 30; // How close before we start slowing down
+  } private executeFollowCommand(): void {
+    console.log('🎯 Follow command executing...', this.flightController ? 'FC OK' : 'NO FC', this.selectedAssembly ? 'Target OK' : 'NO Target');
+    if (!this.flightController || !this.selectedAssembly) return;
 
-    if (distance > followDistance + approachThreshold) {
-      // Calculate direction to target
-      const dirX = (targetPos.x - playerPos.x) / distance;
-      const dirY = (targetPos.y - playerPos.y) / distance;      // Calculate thrust intensity based on distance (reduced power)
-      const distanceRatio = Math.min(1, (distance - followDistance) / 300);
-      const thrustPower = 0.1 + (distanceRatio * 0.15); // Reduced from 0.5-1.0 to 0.1-0.25
+    // Use advanced flight controller for smooth following
+    const control = this.flightController.followTarget(this.selectedAssembly, 150);
 
-      // Apply thrust using the ship's proper propulsion system
-      const thrustInput = {
-        x: dirX * thrustPower,
-        y: dirY * thrustPower
-      };
+    console.log('🚀 Follow control:', control.thrust.x.toFixed(3), control.thrust.y.toFixed(3), 'torque:', control.torque.toFixed(3));
 
-      this.playerAssembly!.applyThrust(thrustInput);
+    // Send control input to the controller manager (like player input)
+    this.controllerManager.setPlayerInput(control);
+  } private executeOrbitCommand(): void {
+    console.log('🌀 Orbit command executing...', this.flightController ? 'FC OK' : 'NO FC', this.selectedAssembly ? 'Target OK' : 'NO Target');
+    if (!this.flightController || !this.selectedAssembly) return;
 
-      // Calculate desired facing angle (toward target)
-      const targetAngle = Math.atan2(targetPos.y - playerPos.y, targetPos.x - playerPos.x);
-      const currentAngle = this.playerAssembly!.rootBody.angle;
-      let angleDiff = targetAngle - currentAngle;
+    // Use advanced flight controller for smooth orbital motion
+    const control = this.flightController.orbitTarget(this.selectedAssembly, 200);
 
-      // Normalize angle difference
-      while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-      while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+    console.log('🚀 Orbit control:', control.thrust.x.toFixed(3), control.thrust.y.toFixed(3), 'torque:', control.torque.toFixed(3));
 
-      // Apply torque using the ship's proper rotation system
-      if (Math.abs(angleDiff) > 0.1) {
-        const torquePower = Math.min(1, Math.abs(angleDiff) * 2);
-        const torque = Math.sign(angleDiff) * torquePower * 0.8;
-        this.playerAssembly!.applyTorque(torque);
-      }
-    } else if (distance < followDistance - approachThreshold) {
-      // Too close, back away gently
-      const dirX = (playerPos.x - targetPos.x) / distance;
-      const dirY = (playerPos.y - targetPos.y) / distance; const thrustInput = {
-        x: dirX * 0.08, // Reduced from 0.3 to 0.08
-        y: dirY * 0.08
-      };
-
-      this.playerAssembly!.applyThrust(thrustInput);
-    }
-    // If we're in the sweet spot (followDistance ± approachThreshold), don't thrust
-  } private executeOrbitCommand(playerPos: Matter.Vector, targetPos: Matter.Vector, _distance: number): void {
-    const orbitDistance = 200; // Desired orbit distance
-    const orbitSpeed = 0.005; // Reduced from 0.015 to 0.005 (3x slower orbit)
-
-    // Calculate angle from target to player
-    const currentAngle = Math.atan2(playerPos.y - targetPos.y, playerPos.x - targetPos.x);
-
-    // Calculate desired orbit position (slightly ahead for forward motion)
-    const desiredAngle = currentAngle + orbitSpeed;
-    const desiredX = targetPos.x + Math.cos(desiredAngle) * orbitDistance;
-    const desiredY = targetPos.y + Math.sin(desiredAngle) * orbitDistance;
-
-    // Calculate thrust direction toward desired position
-    const toDesiredX = desiredX - playerPos.x;
-    const toDesiredY = desiredY - playerPos.y;
-    const toDesiredDist = Math.sqrt(toDesiredX * toDesiredX + toDesiredY * toDesiredY);
-
-    if (toDesiredDist > 0) {
-      // Use ship's thruster system for orbit movement
-      const thrustPower = Math.min(0.8, toDesiredDist / 100); // Scale thrust by distance to desired position
-      const thrustInput = {
-        x: (toDesiredX / toDesiredDist) * thrustPower,
-        y: (toDesiredY / toDesiredDist) * thrustPower
-      };
-      this.playerAssembly!.applyThrust(thrustInput);
-    }
-
-    // Calculate orbital movement direction and face that way
-    const orbitTangentAngle = desiredAngle + Math.PI / 2;
-    const currentAngle2 = this.playerAssembly!.rootBody.angle;
-    let angleDiff = orbitTangentAngle - currentAngle2;
-
-    // Normalize angle difference
-    while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-    while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-
-    // Apply torque to face orbital direction
-    if (Math.abs(angleDiff) > 0.1) {
-      const torque = Math.sign(angleDiff) * Math.min(0.8, Math.abs(angleDiff) * 2);
-      this.playerAssembly!.applyTorque(torque);
-    }
+    // Send control input to the controller manager (like player input)
+    this.controllerManager.setPlayerInput(control);
   }
   private executeKeepDistanceCommand(playerPos: Matter.Vector, targetPos: Matter.Vector, distance: number): void {
     const keepDistance = 300; // Desired distance to maintain

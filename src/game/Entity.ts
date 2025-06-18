@@ -38,9 +38,8 @@ export class Entity {
       definition.width,
       definition.height,
       {
-        mass: definition.mass,
-        frictionAir: 0, // No air resistance in space
-        friction: 0.001, // Minimal friction for surface contact,
+        mass: definition.mass, frictionAir: 0, // No air resistance in space
+        friction: 0, // No friction in space
         render: {
           fillStyle: this.makeTransparent(definition.color, 0.6), // Semi-transparent background
           strokeStyle: this.brightenColor(definition.color), // Brighter border color

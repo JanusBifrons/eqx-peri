@@ -1,15 +1,31 @@
 {
   "ships": [
     {
-      "name": "Scout Fighter",
+      "name": "Long Scout",
       "parts": [
         {
           "type": "Engine",
-          "x": -16,
+          "x": -48,
           "y": 0,
           "rotation": 180,
           "health": 80,
           "maxHealth": 80
+        },
+        {
+          "type": "Hull",
+          "x": -32,
+          "y": 0,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "PowerCell",
+          "x": -16,
+          "y": 0,
+          "rotation": 0,
+          "health": 40,
+          "maxHealth": 40
         },
         {
           "type": "Cockpit",
@@ -20,8 +36,24 @@
           "maxHealth": 100
         },
         {
-          "type": "Gun",
+          "type": "Hull",
           "x": 16,
+          "y": 0,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": 32,
+          "y": 0,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Gun",
+          "x": 48,
           "y": 0,
           "rotation": 0,
           "health": 60,
@@ -30,52 +62,7 @@
       ]
     },
     {
-      "name": "Heavy Cruiser",
-      "parts": [
-        {
-          "type": "Engine",
-          "x": -16,
-          "y": 0,
-          "rotation": 180,
-          "health": 80,
-          "maxHealth": 80
-        },
-        {
-          "type": "Cockpit",
-          "x": 0,
-          "y": 0,
-          "rotation": 0,
-          "health": 100,
-          "maxHealth": 100
-        },
-        {
-          "type": "Gun",
-          "x": 16,
-          "y": 0,
-          "rotation": 0,
-          "health": 60,
-          "maxHealth": 60
-        },
-        {
-          "type": "Hull",
-          "x": 0,
-          "y": -16,
-          "rotation": 0,
-          "health": 120,
-          "maxHealth": 120
-        },
-        {
-          "type": "Hull",
-          "x": 0,
-          "y": 16,
-          "rotation": 0,
-          "health": 120,
-          "maxHealth": 120
-        }
-      ]
-    },
-    {
-      "name": "Battleship",
+      "name": "Wide Fighter",
       "parts": [
         {
           "type": "Engine",
@@ -116,6 +103,352 @@
           "rotation": 0,
           "health": 60,
           "maxHealth": 60
+        },
+        {
+          "type": "Hull",
+          "x": 0,
+          "y": -16,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": -16,
+          "y": -16,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Engine",
+          "x": -32,
+          "y": -16,
+          "rotation": 180,
+          "health": 80,
+          "maxHealth": 80
+        },
+        {
+          "type": "Hull",
+          "x": 0,
+          "y": 16,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": -16,
+          "y": 16,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Engine",
+          "x": -32,
+          "y": 16,
+          "rotation": 180,
+          "health": 80,
+          "maxHealth": 80
+        }
+      ]
+    },
+    {
+      "name": "Long Cruiser",
+      "parts": [
+        {
+          "type": "Engine",
+          "x": -64,
+          "y": 0,
+          "rotation": 180,
+          "health": 80,
+          "maxHealth": 80
+        },
+        {
+          "type": "Hull",
+          "x": -48,
+          "y": 0,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "PowerCell",
+          "x": -32,
+          "y": 0,
+          "rotation": 0,
+          "health": 40,
+          "maxHealth": 40
+        },
+        {
+          "type": "Hull",
+          "x": -16,
+          "y": 0,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Cockpit",
+          "x": 0,
+          "y": 0,
+          "rotation": 0,
+          "health": 100,
+          "maxHealth": 100
+        },
+        {
+          "type": "Hull",
+          "x": 16,
+          "y": 0,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": 32,
+          "y": 0,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": 48,
+          "y": 0,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Gun",
+          "x": 64,
+          "y": 0,
+          "rotation": 0,
+          "health": 60,
+          "maxHealth": 60
+        },
+        {
+          "type": "Hull",
+          "x": -32,
+          "y": -16,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Engine",
+          "x": -48,
+          "y": -16,
+          "rotation": 180,
+          "health": 80,
+          "maxHealth": 80
+        },
+        {
+          "type": "Hull",
+          "x": -32,
+          "y": 16,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Engine",
+          "x": -48,
+          "y": 16,
+          "rotation": 180,
+          "health": 80,
+          "maxHealth": 80
+        },
+        {
+          "type": "Hull",
+          "x": 32,
+          "y": -16,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Engine",
+          "x": 16,
+          "y": -16,
+          "rotation": 0,
+          "health": 80,
+          "maxHealth": 80
+        },
+        {
+          "type": "Hull",
+          "x": 32,
+          "y": 16,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Engine",
+          "x": 16,
+          "y": 16,
+          "rotation": 0,
+          "health": 80,
+          "maxHealth": 80
+        }
+      ]
+    },
+    {
+      "name": "Wide Battleship",
+      "parts": [
+        {
+          "type": "Engine",
+          "x": -48,
+          "y": 0,
+          "rotation": 180,
+          "health": 80,
+          "maxHealth": 80
+        },
+        {
+          "type": "Hull",
+          "x": -32,
+          "y": 0,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "PowerCell",
+          "x": -16,
+          "y": 0,
+          "rotation": 0,
+          "health": 40,
+          "maxHealth": 40
+        },
+        {
+          "type": "Cockpit",
+          "x": 0,
+          "y": 0,
+          "rotation": 0,
+          "health": 100,
+          "maxHealth": 100
+        },
+        {
+          "type": "Hull",
+          "x": 16,
+          "y": 0,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": 32,
+          "y": 0,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Gun",
+          "x": 48,
+          "y": 0,
+          "rotation": 0,
+          "health": 60,
+          "maxHealth": 60
+        },
+        {
+          "type": "Hull",
+          "x": 0,
+          "y": -16,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": 0,
+          "y": -32,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": 0,
+          "y": 16,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": 0,
+          "y": 32,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": -16,
+          "y": -16,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Engine",
+          "x": -32,
+          "y": -16,
+          "rotation": 180,
+          "health": 80,
+          "maxHealth": 80
+        },
+        {
+          "type": "Hull",
+          "x": -16,
+          "y": 16,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Engine",
+          "x": -32,
+          "y": 16,
+          "rotation": 180,
+          "health": 80,
+          "maxHealth": 80
+        },
+        {
+          "type": "Hull",
+          "x": 16,
+          "y": -16,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Engine",
+          "x": 32,
+          "y": -16,
+          "rotation": 0,
+          "health": 80,
+          "maxHealth": 80
+        },
+        {
+          "type": "Hull",
+          "x": 16,
+          "y": 16,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Engine",
+          "x": 32,
+          "y": 16,
+          "rotation": 0,
+          "health": 80,
+          "maxHealth": 80
         }
       ]
     }

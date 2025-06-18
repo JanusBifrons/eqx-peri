@@ -49,17 +49,22 @@ export class ControllerManager {
         }
 
         return newBullets;
-    }
-    // Apply control input to an assembly
+    }    // Apply control input to an assembly
     private applyInput(assembly: Assembly, input: ControlInput): Matter.Body[] {
         if (assembly.destroyed) return [];
 
         const bullets: Matter.Body[] = [];
 
-        // Apply thrust
-        if (input.thrust.x !== 0 || input.thrust.y !== 0) {
-            assembly.applyThrust(input.thrust);
+        // Log inputs to debug differences between player and AI
+        const thrustMag = Math.sqrt(input.thrust.x * input.thrust.x + input.thrust.y * input.thrust.y);
+        if (thrustMag > 0 || Math.abs(input.torque) > 0) {
+            console.log(`🎮 [${assembly.isPlayerControlled ? 'PLAYER' : 'AI'}] Control Input:`,
+                `thrust=(${input.thrust.x.toFixed(3)}, ${input.thrust.y.toFixed(3)}, mag=${thrustMag.toFixed(3)})`,
+                `torque=${input.torque.toFixed(3)}`);
         }
+
+        // Apply thrust (always call to ensure thrust levels are updated, even when 0)
+        assembly.applyThrust(input.thrust);
 
         // Apply torque
         if (Math.abs(input.torque) > 0.1) {
