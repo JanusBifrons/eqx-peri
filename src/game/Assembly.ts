@@ -1,7 +1,7 @@
 import * as Matter from 'matter-js';
 import { Entity } from './Entity';
 import { EntityConfig, Vector2, EntityType, ENTITY_DEFINITIONS } from '../types/GameTypes';
-import { areEntitiesAdjacent } from './BlockSystem';
+import { ConnectionDetector } from './BlockSystem';
 
 export class Assembly {
   public id: string;
@@ -11,7 +11,8 @@ export class Assembly {
   public isPlayerControlled: boolean = false;
   public destroyed: boolean = false;
   public lastFireTime: number = 0;
-  public fireRate: number = 300; // 300ms between shots = 3.3 shots per second (faster firing)  public team: number = 0; // Team assignment for combat
+  public fireRate: number = 300; // 300ms between shots = 3.3 shots per second (faster firing)
+  public team: number = 0; // Team assignment for combat
 
   constructor(entityConfigs: EntityConfig[], position: Vector2 = { x: 0, y: 0 }) {
     this.id = Math.random().toString(36).substr(2, 9);
@@ -241,15 +242,15 @@ export class Assembly {
 
     return laser;
   }
-
   public removeEntity(entity: Entity): Assembly[] {
     const entityIndex = this.entities.findIndex(e => e.id === entity.id);
     if (entityIndex === -1) return [this];
+
     // Store current physics state before destroying
     const currentVelocity = this.rootBody.velocity;
     const currentAngularVelocity = this.rootBody.angularVelocity;
     const currentPosition = this.rootBody.position;
-    const currentAngle = this.rootBody.angle; // Store the rotation angle
+    const currentAngle = this.rootBody.angle;
     const wasPlayerControlled = this.isPlayerControlled;
 
     // Remove the destroyed entity
@@ -260,10 +261,22 @@ export class Assembly {
       return [];
     }
 
-    // Mark this assembly as destroyed so it gets cleaned up properly
-    this.destroyed = true;
     // Find connected components from remaining entities
     const components = this.findConnectedComponents();
+
+    // If there's only one component, the ship remains intact - no need to break apart
+    if (components.length === 1) {
+      console.log(`🔗 Ship remains intact after losing ${entity.type} - all parts still connected`);
+      // Recreate the assembly body without the destroyed entity to update physics
+      this.createFreshBody();
+      return [this];
+    }
+
+    // Multiple components found - ship breaks apart
+    console.log(`💥 Ship breaking into ${components.length} components after losing ${entity.type}`);
+
+    // Mark this assembly as destroyed since it's being split
+    this.destroyed = true;
 
     // Create completely new assemblies for each component
     const newAssemblies: Assembly[] = [];
@@ -409,15 +422,28 @@ export class Assembly {
     console.log(`🔧 Total components found: ${components.length}`);
     return components;
   } private areEntitiesConnected(entity1: Entity, entity2: Entity): boolean {
-    // Use the updated adjacency function from BlockSystem that handles different block sizes
-    const result = areEntitiesAdjacent(
-      { type: entity1.type, x: entity1.localOffset.x, y: entity1.localOffset.y }, { type: entity2.type, x: entity2.localOffset.x, y: entity2.localOffset.y }
-    );
+    // Use the robust connection detection system
+    // Create temporary objects with the required structure for the connection detector
+    const entityData1 = {
+      type: entity1.type,
+      x: entity1.body.position.x,
+      y: entity1.body.position.y
+    };
 
-    // Debug logging disabled to reduce spam during assembly breaks
-    // console.log(`🔗 Checking connection: ${entity1.type}(${entity1.localOffset.x},${entity1.localOffset.y}) -> ${entity2.type}(${entity2.localOffset.x},${entity2.localOffset.y}) = ${result}`);
+    const entityData2 = {
+      type: entity2.type,
+      x: entity2.body.position.x,
+      y: entity2.body.position.y
+    };
 
-    return result;
+    const isConnected = ConnectionDetector.areEntitiesConnected(entityData1, entityData2);
+
+    // Debug logging for troubleshooting
+    if (isConnected) {
+      console.log(`🔗 Connected: ${entity1.type}(${entityData1.x},${entityData1.y}) -> ${entity2.type}(${entityData2.x},${entityData2.y})`);
+    }
+
+    return isConnected;
   }
 
   private dfsComponent(
@@ -488,42 +514,6 @@ export class Assembly {
   // Set ship name for display
   public setShipName(name: string): void {
     this.shipName = name;
-  }
-
-  // Calculate ship dimensions for zoom purposes
-  public getShipDimensions(): { width: number, height: number } {
-    if (this.entities.length === 0) {
-      return { width: 0, height: 0 };
-    }
-
-    let minX = Infinity, maxX = -Infinity;
-    let minY = Infinity, maxY = -Infinity;
-
-    // Calculate bounding box from entity positions
-    this.entities.forEach(entity => {
-      const entityDef = ENTITY_DEFINITIONS[entity.type];
-      const halfWidth = entityDef.width / 2;
-      const halfHeight = entityDef.height / 2;
-
-      // Use entity's local position within the assembly
-      const localX = entity.x;
-      const localY = entity.y;
-
-      minX = Math.min(minX, localX - halfWidth);
-      maxX = Math.max(maxX, localX + halfWidth);
-      minY = Math.min(minY, localY - halfHeight);
-      maxY = Math.max(maxY, localY + halfHeight);
-    });
-
-    return {
-      width: maxX - minX,
-      height: maxY - minY
-    };
-  }
-
-  public getShipSize(): number {
-    const dims = this.getShipDimensions();
-    return Math.max(dims.width, dims.height);
   }
 }
 

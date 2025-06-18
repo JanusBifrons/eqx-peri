@@ -87,3 +87,16 @@ npm run build
 - Background sector loading for large-scale worlds
 - AI-controlled ships
 - Particle effects and visual polish
+
+## Enhanced Cockpit Survival System
+- **10x Health**: All cockpit types have significantly increased health for survival
+- **High Thrust-to-Weight**: Cockpits can outrun and outmaneuver most ships when separated
+- **Built-in Weapon**: Cockpits can fire when nothing is connected on their top/north side
+- **Built-in Engine**: Cockpits can provide thrust when nothing is connected on their bottom/south side
+- **Visual Indicators**: Cockpits flash different colors when using built-in systems
+- **Attachment Point System**: Robust connection detection using precise attachment points instead of distance
+
+### Cockpit Specifications
+- **Standard Cockpit**: 1000 HP, 4.0 thrust, excellent escape capability
+- **Large Cockpit**: 2500 HP, 16.0 thrust, superior maneuverability  
+- **Capital Core**: 10000 HP, 64.0 thrust, massive survival capability

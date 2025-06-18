@@ -1201,7 +1201,10 @@ export class GameEngine {
     }
     // console.log('🔍 No assembly found at position');
     return null;
-  } private getAssemblyAtWorldPosition(worldX: number, worldY: number): Assembly | null {
+  }
+
+  // @ts-ignore - Currently unused but may be needed later
+  private getAssemblyAtWorldPosition(worldX: number, worldY: number): Assembly | null {
     console.log('🔍 Looking for assembly at world position:', worldX, worldY);
 
     // Find assembly at this world position

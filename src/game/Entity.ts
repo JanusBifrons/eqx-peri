@@ -1,5 +1,5 @@
 import * as Matter from 'matter-js';
-import { EntityType, EntityConfig, ENTITY_DEFINITIONS } from '../types/GameTypes';
+import { EntityType, EntityConfig, ENTITY_DEFINITIONS, Vector2, GRID_SIZE } from '../types/GameTypes';
 
 export class Entity {
   public id: string;
@@ -17,7 +17,7 @@ export class Entity {
   public isFiring: boolean = false;
   public fireFlashTimer: number = 0;
   public thrustParticles: Array<{ x: number, y: number, age: number, maxAge: number }> = [];
-  private readonly MAX_PARTICLES = 8;
+  private readonly MAX_PARTICLES = 4; // Reduced from 8
 
   constructor(config: EntityConfig) {
     this.id = Math.random().toString(36).substr(2, 9);
@@ -28,10 +28,13 @@ export class Entity {
     const definition = ENTITY_DEFINITIONS[this.type];
     if (!definition) {
       throw new Error(`Unknown entity type: ${this.type}`);
-    }
+    } this.maxHealth = config.maxHealth || definition.defaultHealth;
+    this.health = config.health || this.maxHealth;
 
-    this.maxHealth = config.maxHealth || definition.defaultHealth;
-    this.health = config.health || this.maxHealth;    // Create Matter.js body at exact position with enhanced physics and visual styling
+    // Debug logging for cockpits
+    if (this.type === 'Cockpit' || this.type === 'LargeCockpit' || this.type === 'CapitalCore') {
+      console.log(`🛡️ Created ${this.type} with health: ${this.health}/${this.maxHealth} (default: ${definition.defaultHealth})`);
+    }// Create Matter.js body at exact position with enhanced physics and visual styling
     this.body = Matter.Bodies.rectangle(
       config.x,
       config.y,
@@ -83,15 +86,127 @@ export class Entity {
     this.updateVisualState();
   }
   public canFire(): boolean {
-    return (this.type === 'Gun' || this.type === 'LargeGun' || this.type === 'CapitalWeapon') && !this.destroyed;
+    // Traditional weapons
+    if ((this.type === 'Gun' || this.type === 'LargeGun' || this.type === 'CapitalWeapon') && !this.destroyed) {
+      return true;
+    }
+
+    // Cockpit weapons - can fire if nothing is connected on top
+    if ((this.type === 'Cockpit' || this.type === 'LargeCockpit' || this.type === 'CapitalCore') && !this.destroyed) {
+      return this.canUseCockpitWeapon();
+    }
+
+    return false;
   }
 
   public canProvideThrust(): boolean {
-    return (this.type === 'Engine' || this.type === 'LargeEngine' || this.type === 'CapitalEngine') && !this.destroyed;
+    // Traditional engines
+    if ((this.type === 'Engine' || this.type === 'LargeEngine' || this.type === 'CapitalEngine') && !this.destroyed) {
+      return true;
+    }
+
+    // Cockpit engines - can provide thrust if nothing is connected on top
+    if ((this.type === 'Cockpit' || this.type === 'LargeCockpit' || this.type === 'CapitalCore') && !this.destroyed) {
+      return this.canUseCockpitEngine();
+    }
+
+    return false;
+  }
+  /**
+   * Check if cockpit can use its built-in weapon (nothing connected on top/north)
+   */
+  private canUseCockpitWeapon(): boolean {
+    if (!this.body.assembly) return false;
+
+    // Check if there's anything connected on the top (north) attachment point
+    return !this.hasConnectionOnSide('north');
   }
 
-  public isControlCenter(): boolean {
-    return (this.type === 'Cockpit' || this.type === 'LargeCockpit' || this.type === 'CapitalCore') && !this.destroyed;
+  /**
+   * Check if cockpit can use its built-in engine (nothing connected on bottom/south) 
+   */
+  private canUseCockpitEngine(): boolean {
+    if (!this.body.assembly) return false;
+
+    // Check if there's anything connected on the bottom (south) attachment point
+    return !this.hasConnectionOnSide('south');
+  }
+  /**
+   * Check if there's a connection on a specific side of this entity using attachment points
+   * This is a more robust system that uses the defined attachment points rather than distance
+   */
+  private hasConnectionOnSide(side: 'north' | 'south' | 'east' | 'west'): boolean {
+    if (!this.body.assembly) return false;
+
+    const assembly = this.body.assembly;
+    const myDefinition = ENTITY_DEFINITIONS[this.type];
+    if (!myDefinition) return false;
+
+    // Get my attachment points for the specified side
+    const myAttachmentPoints = this.getAttachmentPointsForSide(side);
+    if (myAttachmentPoints.length === 0) return false;
+
+    // Convert my attachment points to world coordinates
+    const myWorldPos = this.body.position;
+    const myWorldAttachmentPoints = myAttachmentPoints.map(point => ({
+      x: myWorldPos.x + point.x * GRID_SIZE,
+      y: myWorldPos.y + point.y * GRID_SIZE
+    }));
+
+    // Check all other entities in the assembly
+    for (const otherEntity of assembly.entities) {
+      if (otherEntity.id === this.id) continue;
+
+      const otherDefinition = ENTITY_DEFINITIONS[otherEntity.type];
+      if (!otherDefinition) continue;
+
+      // Get all attachment points of the other entity
+      const otherEntityPos = otherEntity.body.position;
+      const otherWorldAttachmentPoints = otherDefinition.attachmentPoints.map(point => ({
+        x: otherEntityPos.x + point.x * GRID_SIZE,
+        y: otherEntityPos.y + point.y * GRID_SIZE
+      }));
+
+      // Check if any of my side's attachment points align with any of the other entity's attachment points
+      for (const myPoint of myWorldAttachmentPoints) {
+        for (const otherPoint of otherWorldAttachmentPoints) {
+          const distance = Math.sqrt(
+            Math.pow(myPoint.x - otherPoint.x, 2) +
+            Math.pow(myPoint.y - otherPoint.y, 2)
+          );
+
+          // If attachment points are very close (within 2 pixels), they're connected
+          if (distance < 2) {
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Get attachment points for a specific side of this entity
+   */
+  private getAttachmentPointsForSide(side: 'north' | 'south' | 'east' | 'west'): Vector2[] {
+    const definition = ENTITY_DEFINITIONS[this.type];
+    if (!definition) return [];
+
+    return definition.attachmentPoints.filter(point => {
+      switch (side) {
+        case 'north': // Top - negative Y
+          return point.y < 0;
+        case 'south': // Bottom - positive Y
+          return point.y > 0;
+        case 'east': // Right - positive X
+          return point.x > 0;
+        case 'west': // Left - negative X
+          return point.x < 0;
+        default:
+          return false;
+      }
+    });
   }
 
   private interpolateColor(color1: string, color2: string, factor: number): string {
@@ -133,19 +248,18 @@ export class Entity {
     const g = Math.min(255, parseInt(hex.substr(2, 2), 16) + Math.round(255 * factor));
     const b = Math.min(255, parseInt(hex.substr(4, 2), 16) + Math.round(255 * factor));
     return `rgb(${r}, ${g}, ${b})`;
-  }
-  public triggerCollisionFlash(): void {
+  } public triggerCollisionFlash(): void {
     this.isFlashing = true;
-    this.flashTimer = 400; // Flash for 400 milliseconds (longer for better visibility)
+    this.flashTimer = 200; // Reduced flash duration (200ms instead of 400ms)
     // Store original colors if not already stored
     if (!this.originalFillStyle) {
       this.originalFillStyle = this.body.render.fillStyle || '';
     }
 
-    // Set intense flash colors (bright white/cyan)
-    this.body.render.fillStyle = 'rgba(255, 255, 255, 0.95)';
-    this.body.render.strokeStyle = '#00ffff'; // Bright cyan
-    this.body.render.lineWidth = 10; // Very thick border during flash
+    // Set more subtle flash colors
+    this.body.render.fillStyle = 'rgba(255, 255, 255, 0.7)'; // Less intense white
+    this.body.render.strokeStyle = '#88ccff'; // Softer cyan
+    this.body.render.lineWidth = 6; // Thinner border during flash (was 10)
   }
   public updateFlash(deltaTime: number): void {
     if (!this.isFlashing) return;
@@ -160,13 +274,13 @@ export class Entity {
       // Restore colors based on current health state
       this.updateVisualState();
     } else {
-      // Create intense pulsing effect during flash
-      const flashIntensity = Math.sin((400 - this.flashTimer) * 0.03) * 0.6 + 0.4;
-      const alpha = 0.7 + (flashIntensity * 0.3);
+      // Create more subtle pulsing effect during flash
+      const flashIntensity = Math.sin((200 - this.flashTimer) * 0.05) * 0.3 + 0.7; // Reduced intensity
+      const alpha = 0.5 + (flashIntensity * 0.2); // Less dramatic alpha changes
 
-      // Alternate between white and cyan for more dramatic effect
-      const cyclePosition = (400 - this.flashTimer) * 0.01;
-      const colorMix = Math.sin(cyclePosition) * 0.5 + 0.5;
+      // Softer color transitions
+      const cyclePosition = (200 - this.flashTimer) * 0.008; // Slower cycling
+      const colorMix = Math.sin(cyclePosition) * 0.3 + 0.7; // Less dramatic color mixing
 
       if (colorMix > 0.5) {
         this.body.render.fillStyle = `rgba(255, 255, 255, ${alpha})`;
@@ -219,6 +333,25 @@ export class Entity {
       lineWidth = 8;
     }
 
+    // Apply cockpit weapon effects when firing
+    if (this.isControlCenter() && this.canFire() && this.isFiring) {
+      fillColor = '#ff8800'; // Orange flash for cockpit weapon
+      strokeColor = '#ffffff'; // White border
+      alpha = 0.9;
+      lineWidth = 8;
+    }
+
+    // Apply cockpit engine effects when thrusting
+    if (this.isControlCenter() && this.canProvideThrust() && this.thrustLevel > 0) {
+      const thrustIntensity = this.thrustLevel;
+
+      // Cockpit engines get a different color scheme
+      fillColor = '#88ff88'; // Light green for cockpit thrust
+      strokeColor = '#44ff44'; // Bright green stroke
+      alpha = 0.8 + (thrustIntensity * 0.2);
+      lineWidth = 6 + Math.round(thrustIntensity * 4);
+    }
+
     // Apply health-based damage coloring
     if (this.destroyed) {
       this.body.render.fillStyle = this.makeTransparent('#330000', 0.5);
@@ -253,30 +386,28 @@ export class Entity {
       this.generateThrustParticles();
     }
   }
-
   private generateThrustParticles(): void {
-    // Add new particles if we have room
-    if (this.thrustParticles.length < this.MAX_PARTICLES) {
+    // Add new particles if we have room (reduced number)
+    if (this.thrustParticles.length < Math.floor(this.MAX_PARTICLES * 0.5)) { // 50% fewer particles
       // Generate particles behind the engine
       const engineAngle = this.body.angle + (this.rotation * Math.PI / 180);
-      const exhaustDistance = 20 + Math.random() * 15;
+      const exhaustDistance = 15 + Math.random() * 10; // Reduced distance
 
       // Particles spawn behind the engine
       const particleX = this.body.position.x - Math.cos(engineAngle) * exhaustDistance;
       const particleY = this.body.position.y - Math.sin(engineAngle) * exhaustDistance;
 
       this.thrustParticles.push({
-        x: particleX + (Math.random() - 0.5) * 10, // Add some spread
-        y: particleY + (Math.random() - 0.5) * 10,
+        x: particleX + (Math.random() - 0.5) * 6, // Reduced spread
+        y: particleY + (Math.random() - 0.5) * 6,
         age: 0,
-        maxAge: 300 + Math.random() * 200 // 0.3-0.5 seconds
+        maxAge: 200 + Math.random() * 100 // Shorter lifetime (0.2-0.3 seconds)
       });
     }
   }
-
   public triggerWeaponFire(): void {
     this.isFiring = true;
-    this.fireFlashTimer = 200; // Flash for 200ms
+    this.fireFlashTimer = 100; // Reduced flash duration (100ms instead of 200ms)
   }
 
   public updateVisualEffects(deltaTime: number): void {
@@ -295,7 +426,6 @@ export class Entity {
     this.updateFlash(deltaTime);
     this.updateVisualState();
   }
-
   private updateThrustParticles(deltaTime: number): void {
     if (this.destroyed || this.thrustLevel <= 0) {
       // Clear particles if destroyed or no thrust
@@ -303,13 +433,13 @@ export class Entity {
       return;
     }
 
-    // Add new particle
-    if (this.thrustParticles.length < this.MAX_PARTICLES) {
+    // Add new particle less frequently
+    if (this.thrustParticles.length < Math.floor(this.MAX_PARTICLES * 0.5) && Math.random() < 0.7) { // 70% chance instead of 100%
       this.thrustParticles.push({
         x: this.body.position.x,
         y: this.body.position.y,
         age: 0,
-        maxAge: 100 + Math.random() * 100 // 100 to 200 ms lifetime
+        maxAge: 80 + Math.random() * 60 // Shorter lifetime (80-140ms)
       });
     }
 
@@ -325,38 +455,37 @@ export class Entity {
       }
     }
   }
-
   // Draw custom thrust effects
   public drawThrustEffects(ctx: CanvasRenderingContext2D): void {
     if (!this.canProvideThrust() || this.thrustLevel <= 0) return;
 
-    const thrustIntensity = this.thrustLevel;
+    const thrustIntensity = this.thrustLevel * 0.6; // Reduced intensity
     const pos = this.body.position;
     const engineAngle = this.body.angle + (this.rotation * Math.PI / 180);
 
-    // Calculate exhaust position (behind the engine)
-    const exhaustDistance = 20 + thrustIntensity * 15;
+    // Calculate exhaust position (behind the engine) - smaller effect
+    const exhaustDistance = 15 + thrustIntensity * 8; // Reduced from 20 + 15
     const exhaustX = pos.x - Math.cos(engineAngle) * exhaustDistance;
     const exhaustY = pos.y - Math.sin(engineAngle) * exhaustDistance;
 
     // Draw thrust plume
     ctx.save();
-    ctx.globalAlpha = thrustIntensity * 0.8;
+    ctx.globalAlpha = thrustIntensity * 0.5; // Reduced opacity
 
-    // Create gradient for thrust plume
+    // Create gradient for thrust plume - more subtle
     const gradient = ctx.createRadialGradient(
-      pos.x, pos.y, 2,
-      exhaustX, exhaustY, exhaustDistance
+      pos.x, pos.y, 1,
+      exhaustX, exhaustY, exhaustDistance * 0.8
     );
-    gradient.addColorStop(0, '#ffff00'); // Bright yellow at engine
-    gradient.addColorStop(0.5, '#ff6600'); // Orange in middle
-    gradient.addColorStop(1, 'rgba(255, 0, 0, 0)'); // Transparent red at end
+    gradient.addColorStop(0, '#ffaa00'); // Less bright yellow
+    gradient.addColorStop(0.5, '#ff4400'); // Less bright orange 
+    gradient.addColorStop(1, 'rgba(255, 100, 0, 0)'); // Transparent orange at end
 
     ctx.fillStyle = gradient;
     ctx.beginPath();
 
-    // Draw triangular plume
-    const plumeWidth = 8 + thrustIntensity * 4;
+    // Draw smaller triangular plume
+    const plumeWidth = 4 + thrustIntensity * 2; // Reduced from 8 + 4
     ctx.moveTo(pos.x, pos.y);
     ctx.lineTo(
       exhaustX - Math.sin(engineAngle) * plumeWidth,
@@ -369,34 +498,12 @@ export class Entity {
     ctx.closePath();
     ctx.fill();
 
-    // Draw directional arrow
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 3;
-    ctx.globalAlpha = 1.0;
-
-    // Arrow pointing in thrust direction
-    const arrowLength = 30;
-    const arrowX = pos.x - Math.cos(engineAngle) * arrowLength;
-    const arrowY = pos.y - Math.sin(engineAngle) * arrowLength;
-
-    ctx.beginPath();
-    ctx.moveTo(pos.x, pos.y);
-    ctx.lineTo(arrowX, arrowY);
-
-    // Arrow head
-    const arrowHeadSize = 8;
-    ctx.lineTo(
-      arrowX + Math.cos(engineAngle - 2.5) * arrowHeadSize,
-      arrowY + Math.sin(engineAngle - 2.5) * arrowHeadSize
-    );
-    ctx.moveTo(arrowX, arrowY);
-    ctx.lineTo(
-      arrowX + Math.cos(engineAngle + 2.5) * arrowHeadSize,
-      arrowY + Math.sin(engineAngle + 2.5) * arrowHeadSize
-    );
-    ctx.stroke();
-
+    // Remove the directional arrow - it was too prominent
     ctx.restore();
+  }
+
+  public isControlCenter(): boolean {
+    return (this.type === 'Cockpit' || this.type === 'LargeCockpit' || this.type === 'CapitalCore') && !this.destroyed;
   }
 }
 

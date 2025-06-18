@@ -19,7 +19,7 @@ export const BLOCK_SIZE = 16;
 // Connection directions (cardinal only for structural integrity)
 export enum ConnectionDirection {
   NORTH = 'north',
-  EAST = 'east', 
+  EAST = 'east',
   SOUTH = 'south',
   WEST = 'west'
 }
@@ -47,18 +47,18 @@ export interface ConnectionPoint {
 export interface BlockDefinition {
   type: EntityType;
   displayName: string;
-  
+
   // Physical properties
   size: { width: number; height: number }; // In BLOCK_SIZE units (usually 1x1)
   mass: number;
   health: number;
-  
+
   // Visual properties  
   color: string;
-  
+
   // Connection system
   connectionPoints: ConnectionPoint[];
-  
+
   // Capabilities
   capabilities: BlockCapability[];
 }
@@ -98,7 +98,7 @@ export class CoordinateSystem {
       y: gridPos.y * BLOCK_SIZE
     };
   }
-  
+
   /**
    * Convert world position to grid position
    */
@@ -108,7 +108,7 @@ export class CoordinateSystem {
       y: Math.round(worldPos.y / BLOCK_SIZE)
     };
   }
-  
+
   /**
    * Get adjacent grid position in a direction
    */
@@ -131,15 +131,15 @@ export class CoordinateSystem {
  */
 export class BlockRegistry {
   private static definitions = new Map<EntityType, BlockDefinition>();
-  
+
   static register(definition: BlockDefinition): void {
     this.definitions.set(definition.type, definition);
   }
-  
+
   static get(type: EntityType): BlockDefinition | undefined {
     return this.definitions.get(type);
   }
-  
+
   static getAll(): BlockDefinition[] {
     return Array.from(this.definitions.values());
   }
@@ -155,51 +155,51 @@ export class ShipValidator {
   static isValidDesign(design: ShipDesign): boolean {
     if (design.blocks.length === 0) return false;
     if (design.blocks.length === 1) return true;
-    
+
     // Build adjacency map
     const adjacencyMap = this.buildAdjacencyMap(design);
-    
+
     // Check if all blocks are reachable from the first block
     const visited = new Set<string>();
     const toVisit = [this.getBlockKey(design.blocks[0])];
-    
+
     while (toVisit.length > 0) {
       const current = toVisit.pop()!;
       if (visited.has(current)) continue;
-      
+
       visited.add(current);
       const neighbors = adjacencyMap.get(current) || [];
       toVisit.push(...neighbors.filter(n => !visited.has(n)));
     }
-    
+
     return visited.size === design.blocks.length;
   }
-    /**
-   * Check if two blocks can connect at their given positions
-   */
+  /**
+ * Check if two blocks can connect at their given positions
+ */
   static canBlocksConnect(block1: BlockPlacement, block2: BlockPlacement): boolean {
     const def1 = BlockRegistry.get(block1.type);
     const def2 = BlockRegistry.get(block2.type);
-    
+
     if (!def1 || !def2) return false;
-    
+
     // Calculate the actual distance between block centers
     const dx = block2.gridPosition.x - block1.gridPosition.x;
     const dy = block2.gridPosition.y - block1.gridPosition.y;
-    
+
     // Calculate expected distance for edge-to-edge connection
     // For blocks to connect, they need to be adjacent (edge touching)
     const expectedDistanceX = (def1.size.width + def2.size.width) / 2;
     const expectedDistanceY = (def1.size.height + def2.size.height) / 2;
-    
+
     // Check if blocks are properly adjacent (not overlapping, not too far apart)
     const isAdjacentX = Math.abs(dx) === expectedDistanceX && dy === 0;
     const isAdjacentY = Math.abs(dy) === expectedDistanceY && dx === 0;
-    
+
     if (!(isAdjacentX || isAdjacentY)) {
       return false; // Not properly adjacent
     }
-    
+
     // Determine the connection direction from block1 to block2
     let direction: ConnectionDirection;
     if (isAdjacentX) {
@@ -207,52 +207,52 @@ export class ShipValidator {
     } else {
       direction = dy > 0 ? ConnectionDirection.SOUTH : ConnectionDirection.NORTH;
     }
-    
+
     // Check if block1 has a connection point in that direction that accepts block2's type
     const connectionPoint = def1.connectionPoints.find(cp => cp.direction === direction);
     if (!connectionPoint || !connectionPoint.canConnectTo.includes(block2.type)) {
       return false;
     }
-    
+
     // Check reverse connection (block2 should accept block1's type)
     const reverseDirection = this.getReverseDirection(direction);
     const reverseConnectionPoint = def2.connectionPoints.find(cp => cp.direction === reverseDirection);
     if (!reverseConnectionPoint || !reverseConnectionPoint.canConnectTo.includes(block1.type)) {
       return false;
     }
-    
+
     return true;
   }
-  
+
   private static buildAdjacencyMap(design: ShipDesign): Map<string, string[]> {
     const map = new Map<string, string[]>();
-    
+
     for (const block of design.blocks) {
       map.set(this.getBlockKey(block), []);
     }
-    
+
     for (let i = 0; i < design.blocks.length; i++) {
       for (let j = i + 1; j < design.blocks.length; j++) {
         const block1 = design.blocks[i];
         const block2 = design.blocks[j];
-        
+
         if (this.canBlocksConnect(block1, block2)) {
           const key1 = this.getBlockKey(block1);
           const key2 = this.getBlockKey(block2);
-          
+
           map.get(key1)!.push(key2);
           map.get(key2)!.push(key1);
         }
       }
     }
-    
+
     return map;
   }
-  
+
   private static getBlockKey(block: BlockPlacement): string {
     return `${block.gridPosition.x},${block.gridPosition.y}`;
   }
-  
+
   private static getReverseDirection(direction: ConnectionDirection): ConnectionDirection {
     switch (direction) {
       case ConnectionDirection.NORTH: return ConnectionDirection.SOUTH;
@@ -283,7 +283,7 @@ export function initializeBlockRegistry(): void {
       { direction: ConnectionDirection.WEST, position: { x: 0, y: 0 }, canConnectTo: ['Engine', 'Gun', 'Hull', 'PowerCell'] }
     ]
   });
-  
+
   // Engine - Propulsion system
   BlockRegistry.register({
     type: 'Engine',
@@ -300,7 +300,7 @@ export function initializeBlockRegistry(): void {
       // No south connection - exhaust port
     ]
   });
-  
+
   // Gun - Weapon system
   BlockRegistry.register({
     type: 'Gun',
@@ -317,7 +317,7 @@ export function initializeBlockRegistry(): void {
       // No north connection - weapon fires forward
     ]
   });
-  
+
   // Hull - Structural support
   BlockRegistry.register({
     type: 'Hull',
@@ -334,7 +334,7 @@ export function initializeBlockRegistry(): void {
       { direction: ConnectionDirection.WEST, position: { x: 0, y: 0 }, canConnectTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'PowerCell'] }
     ]
   });
-    // PowerCell - Energy storage
+  // PowerCell - Energy storage
   BlockRegistry.register({
     type: 'PowerCell',
     displayName: 'Power Cell',
@@ -514,19 +514,19 @@ export function initializeBlockRegistry(): void {
  */
 export function validateEntityPlacement(entities: any[]): boolean {
   if (entities.length === 0) return false;
-  
+
   // Convert entities to block placements
   const blocks: BlockPlacement[] = entities.map(entity => ({
     type: entity.type,
     gridPosition: CoordinateSystem.worldToGrid({ x: entity.x, y: entity.y }),
     rotation: entity.rotation || 0
   }));
-  
+
   const design: ShipDesign = {
     name: 'Validation',
     blocks: blocks
   };
-  
+
   return ShipValidator.isValidDesign(design);
 }
 
@@ -538,50 +538,103 @@ export function getBlockDefinition(type: EntityType): BlockDefinition | undefine
 }
 
 /**
- * Check if two entities are properly adjacent (touching but not overlapping)
+ * Robust connection detection for ship entities
+ * Uses grid-based positioning with proper adjacency rules
  */
-export function areEntitiesAdjacent(entity1: any, entity2: any): boolean {
-  const def1 = BlockRegistry.get(entity1.type);
-  const def2 = BlockRegistry.get(entity2.type);
-  
-  if (!def1 || !def2) return false;
-  
-  // Check if entities have any connection points that align
-  for (const cp1 of def1.connectionPoints) {
-    // Calculate world position of connection point 1
-    const cp1WorldX = entity1.x + (cp1.position.x * BLOCK_SIZE);
-    const cp1WorldY = entity1.y + (cp1.position.y * BLOCK_SIZE);
-    
-    for (const cp2 of def2.connectionPoints) {
-      // Calculate world position of connection point 2
-      const cp2WorldX = entity2.x + (cp2.position.x * BLOCK_SIZE);
-      const cp2WorldY = entity2.y + (cp2.position.y * BLOCK_SIZE);
-      
-      // Check if connection points are close enough and compatible
-      const cpDx = Math.abs(cp1WorldX - cp2WorldX);
-      const cpDy = Math.abs(cp1WorldY - cp2WorldY);
-      
-      // Connection points should be very close (within 1 pixel tolerance)
-      const arePointsAligned = cpDx <= 1 && cpDy <= 1;
-      
-      // Check if connection directions are opposite (they connect to each other)
-      const areDirectionsCompatible = 
-        (cp1.direction === ConnectionDirection.NORTH && cp2.direction === ConnectionDirection.SOUTH) ||
-        (cp1.direction === ConnectionDirection.SOUTH && cp2.direction === ConnectionDirection.NORTH) ||
-        (cp1.direction === ConnectionDirection.EAST && cp2.direction === ConnectionDirection.WEST) ||
-        (cp1.direction === ConnectionDirection.WEST && cp2.direction === ConnectionDirection.EAST);
-      
-      // Check if the block types are compatible
-      const areTypesCompatible = 
-        cp1.canConnectTo.includes(entity2.type) && cp2.canConnectTo.includes(entity1.type);
-      
-      if (arePointsAligned && areDirectionsCompatible && areTypesCompatible) {
-        return true;
-      }
+export class ConnectionDetector {  /**
+   * Check if two entities are properly connected
+   * This is the main function that should be used for connection detection
+   */
+  static areEntitiesConnected(entity1: any, entity2: any): boolean {
+    const def1 = BlockRegistry.get(entity1.type);
+    const def2 = BlockRegistry.get(entity2.type);
+
+    if (!def1 || !def2) {
+      return false;
+    }
+
+    // Convert entity positions to grid coordinates
+    const grid1 = CoordinateSystem.worldToGrid({ x: entity1.x, y: entity1.y });
+    const grid2 = CoordinateSystem.worldToGrid({ x: entity2.x, y: entity2.y });
+
+    // Calculate grid distance
+    const dx = Math.abs(grid1.x - grid2.x);
+    const dy = Math.abs(grid1.y - grid2.y);
+
+    // For proper adjacency, entities must be exactly 1 grid unit apart in one direction
+    // and aligned in the other direction (Manhattan distance = 1)
+    const isProperlyAdjacent = (dx === 1 && dy === 0) || (dx === 0 && dy === 1);
+
+    if (!isProperlyAdjacent) {
+      return false;
+    }
+
+    // Determine connection direction from entity1 to entity2
+    const direction = this.getConnectionDirection(grid1, grid2);
+    if (!direction) {
+      return false;
+    }
+
+    // Check if both entities can connect in the determined direction
+    const canConnect = this.canConnectInDirection(def1, def2, direction);
+
+    return canConnect;
+  }
+
+  /**
+   * Get the direction from grid1 to grid2
+   */
+  private static getConnectionDirection(grid1: GridPosition, grid2: GridPosition): ConnectionDirection | null {
+    const dx = grid2.x - grid1.x;
+    const dy = grid2.y - grid1.y;
+
+    if (dx === 1 && dy === 0) return ConnectionDirection.EAST;
+    if (dx === -1 && dy === 0) return ConnectionDirection.WEST;
+    if (dx === 0 && dy === 1) return ConnectionDirection.SOUTH;
+    if (dx === 0 && dy === -1) return ConnectionDirection.NORTH;
+
+    return null;
+  }
+
+  /**
+   * Check if two block definitions can connect in a specific direction
+   */
+  private static canConnectInDirection(def1: BlockDefinition, def2: BlockDefinition, direction: ConnectionDirection): boolean {
+    // Find connection point on entity1 that faces the connection direction
+    const cp1 = def1.connectionPoints.find(cp => cp.direction === direction);
+    if (!cp1 || !cp1.canConnectTo.includes(def2.type)) {
+      return false;
+    }
+
+    // Find connection point on entity2 that faces the opposite direction
+    const reverseDirection = this.getReverseDirection(direction);
+    const cp2 = def2.connectionPoints.find(cp => cp.direction === reverseDirection);
+    if (!cp2 || !cp2.canConnectTo.includes(def1.type)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Get the opposite direction
+   */
+  private static getReverseDirection(direction: ConnectionDirection): ConnectionDirection {
+    switch (direction) {
+      case ConnectionDirection.NORTH: return ConnectionDirection.SOUTH;
+      case ConnectionDirection.SOUTH: return ConnectionDirection.NORTH;
+      case ConnectionDirection.EAST: return ConnectionDirection.WEST;
+      case ConnectionDirection.WEST: return ConnectionDirection.EAST;
     }
   }
-  
-  return false;
+}
+
+/**
+ * Legacy function for backward compatibility
+ * @deprecated Use ConnectionDetector.areEntitiesConnected instead
+ */
+export function areEntitiesAdjacent(entity1: any, entity2: any): boolean {
+  return ConnectionDetector.areEntitiesConnected(entity1, entity2);
 }
 
 // Initialize the block registry

@@ -41,8 +41,9 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     width: GRID_SIZE,
     height: GRID_SIZE,
     mass: 500, // Significantly increased for realistic physics
-    defaultHealth: 100,
+    defaultHealth: 1000, // 10x health for survival capability
     color: '#00ff00',
+    thrust: 4.0, // Significantly increased thrust for high thrust-to-weight ratio
     canAttachTo: ['Engine', 'Gun', 'Hull', 'PowerCell'],
     attachmentPoints: [
       { x: 0, y: -1 }, // top
@@ -50,7 +51,8 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
       { x: 0, y: 1 },  // bottom
       { x: -1, y: 0 }  // left
     ]
-  }, Engine: {
+  },
+  Engine: {
     type: 'Engine',
     width: GRID_SIZE,
     height: GRID_SIZE,
@@ -64,7 +66,8 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
       { x: 1, y: 0 },  // right
       { x: -1, y: 0 }  // left
     ]
-  }, Gun: {
+  },
+  Gun: {
     type: 'Gun',
     width: GRID_SIZE,
     height: GRID_SIZE,
@@ -77,7 +80,8 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
       { x: 0, y: 1 },  // bottom
       { x: -1, y: 0 }  // left
     ]
-  }, Hull: {
+  },
+  Hull: {
     type: 'Hull',
     width: GRID_SIZE,
     height: GRID_SIZE,
@@ -91,7 +95,8 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
       { x: 0, y: 1 },  // bottom
       { x: -1, y: 0 }  // left
     ]
-  }, PowerCell: {
+  },
+  PowerCell: {
     type: 'PowerCell',
     width: GRID_SIZE,
     height: GRID_SIZE,
@@ -105,14 +110,17 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
       { x: 0, y: 1 },  // bottom
       { x: -1, y: 0 }  // left
     ]
-  },  // Large sized blocks (2x2)
+  },
+
+  // Large sized blocks (2x2)
   LargeCockpit: {
     type: 'LargeCockpit',
     width: GRID_SIZE * 2,
     height: GRID_SIZE * 2,
     mass: 2000, // 4x mass for 4x size (2x2)
-    defaultHealth: 250,
+    defaultHealth: 2500, // 10x health for survival capability
     color: '#00aa00',
+    thrust: 16.0, // Very high thrust for excellent thrust-to-weight ratio
     canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell'],
     attachmentPoints: [
       { x: 0, y: -2 }, // top center
@@ -124,7 +132,8 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
       { x: -2, y: 0 }, // left center
       { x: -1, y: -1 } // top left
     ]
-  }, LargeEngine: {
+  },
+  LargeEngine: {
     type: 'LargeEngine',
     width: GRID_SIZE * 2,
     height: GRID_SIZE * 2,
@@ -196,14 +205,17 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
       { x: -2, y: 0 }, // left center
       { x: -1, y: -1 } // top left
     ]
-  },  // Capital ship sized blocks (4x4)
+  },
+
+  // Capital ship sized blocks (4x4)
   CapitalCore: {
     type: 'CapitalCore',
     width: GRID_SIZE * 4,
     height: GRID_SIZE * 4,
     mass: 8000, // 16x mass for 16x size (4x4)
-    defaultHealth: 1000,
+    defaultHealth: 10000, // 10x health for survival capability
     color: '#0066ff',
+    thrust: 64.0, // Massive thrust for incredible thrust-to-weight ratio
     canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor'],
     attachmentPoints: [
       { x: 0, y: -4 }, // top center
@@ -215,7 +227,8 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
       { x: -4, y: 0 }, // left center
       { x: -2, y: -2 } // top left
     ]
-  }, CapitalEngine: {
+  },
+  CapitalEngine: {
     type: 'CapitalEngine',
     width: GRID_SIZE * 4,
     height: GRID_SIZE * 4,

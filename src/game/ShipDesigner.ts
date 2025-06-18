@@ -10,7 +10,7 @@ export type Direction = 'forward' | 'backward' | 'left' | 'right';
  */
 export class ShipDesigner {
   private static readonly GRID_UNIT = 16; // Base grid unit in pixels
-  
+
   /**
    * Convert direction to rotation angle
    * forward = 0° (pointing right/positive X)
@@ -26,7 +26,7 @@ export class ShipDesigner {
       case 'left': return 270;
     }
   }
-  
+
   /**
    * Convert grid coordinates to world coordinates
    */
@@ -52,7 +52,7 @@ export class ShipDesigner {
 
   /**
    * Legacy method for backward compatibility with numerical rotations
-   */
+   */  // @ts-ignore - Currently unused but may be needed later
   private static placeBlockWithRotation(type: EntityType, gridX: number, gridY: number, rotation: number = 0): EntityConfig {
     const worldPos = this.gridToWorld(gridX, gridY);
     return {
@@ -150,6 +150,55 @@ export class ShipDesigner {
     parts.push(this.placeBlock('Gun', 1, -6, 'left'));  // Bottom defense
     parts.push(this.placeBlock('Gun', -1, 6, 'right')); // Top rear defense
     parts.push(this.placeBlock('Gun', -1, -6, 'left')); // Bottom rear defense
+
+    return parts;
+  }
+
+  /**
+   * Create a survival test ship that demonstrates cockpit weapon/engine features
+   * Layout: Engine <- Hull <- Cockpit (with clear top and bottom for built-in systems)
+   */
+  static createSurvivalTest(): EntityConfig[] {
+    const parts: EntityConfig[] = [];
+
+    // Central cockpit at origin - deliberately leave top and bottom clear
+    parts.push(this.placeBlock('Cockpit', 0, 0, 'forward')); // Faces right
+
+    // Hull to the left (rear)
+    parts.push(this.placeBlock('Hull', -1, 0, 'forward'));
+
+    // Traditional engine behind hull
+    parts.push(this.placeBlock('Engine', -2, 0, 'backward')); // Faces left to push right
+
+    // Gun to the right (front) - but offset so cockpit top is clear
+    parts.push(this.placeBlock('Gun', 1, 1, 'forward')); // Offset down so cockpit top is free
+
+    // Power cell below hull
+    parts.push(this.placeBlock('PowerCell', -1, 1, 'forward'));
+
+    return parts;
+  }
+
+  /**
+   * Create a large survival ship with enhanced cockpit
+   * Layout: Large cockpit with strategic connections to test survival features
+   */
+  static createLargeSurvivalTest(): EntityConfig[] {
+    const parts: EntityConfig[] = [];
+
+    // Central large cockpit at origin
+    parts.push(this.placeBlock('LargeCockpit', 0, 0, 'forward')); // 2x2 block
+
+    // Connect only to sides to leave top and bottom clear for built-in systems
+    parts.push(this.placeBlock('HeavyHull', -3, 0, 'forward')); // Left side
+    parts.push(this.placeBlock('HeavyHull', 3, 0, 'forward'));  // Right side
+
+    // Add traditional components to sides
+    parts.push(this.placeBlock('LargeEngine', -6, 0, 'backward')); // Far left
+    parts.push(this.placeBlock('LargeGun', 6, 0, 'forward'));     // Far right
+
+    // Power support
+    parts.push(this.placeBlock('LargePowerCell', 0, 3, 'forward')); // Below, but not blocking cockpit bottom
 
     return parts;
   }
