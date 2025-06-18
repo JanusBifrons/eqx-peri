@@ -1,6 +1,6 @@
 import * as Matter from 'matter-js';
 import { Entity } from './Entity';
-import { EntityConfig, Vector2 } from '../types/GameTypes';
+import { EntityConfig, Vector2, EntityType, ENTITY_DEFINITIONS } from '../types/GameTypes';
 import { areEntitiesAdjacent } from './BlockSystem';
 
 export class Assembly {
@@ -21,7 +21,7 @@ export class Assembly {
     this.rootBody = Matter.Body.create({
       parts: this.entities.map(e => e.body),
       isStatic: false,
-      frictionAir: 0, // No air resistance in space
+      frictionAir: 0.01, // Small air resistance to prevent runaway acceleration
       friction: 0.001 // Minimal friction for surface contact
     });
 
@@ -30,9 +30,13 @@ export class Assembly {
 
     // Store reference to this assembly in the body
     this.rootBody.assembly = this;
-  }
-  public update(): void {
+  } public update(): void {
     if (this.destroyed) return;
+
+    // Update visual effects for all entities
+    this.entities.forEach(entity => {
+      entity.updateVisualEffects(16); // Assuming ~60fps, 16ms per frame
+    });
 
     // Check if we still have a control center
     const hasControlCenter = this.entities.some(e => e.isControlCenter());
@@ -57,41 +61,70 @@ export class Assembly {
     if (this.isPlayerControlled && !hasControlCenter) {
       this.isPlayerControlled = false;
     }
-  }
-  public applyThrust(force: Vector2): void {
+  } public applyThrust(thrustInput: Vector2): void {
     if (this.destroyed) return;
 
     const engines = this.entities.filter(e => e.canProvideThrust());
     if (engines.length === 0) return;
 
-    // Calculate total thrust power based on engine types
-    let totalThrustPower = 0;
-    engines.forEach(engine => {
-      switch (engine.type) {
-        case 'Engine':
-          totalThrustPower += 1;
-          break;
-        case 'LargeEngine':
-          totalThrustPower += 3; // 3x power of regular engine
-          break;
-        case 'CapitalEngine':
-          totalThrustPower += 8; // 8x power of regular engine
-          break;
+    // Calculate thrust magnitude for visual effects
+    const thrustMagnitude = Math.sqrt(thrustInput.x * thrustInput.x + thrustInput.y * thrustInput.y);
+
+    // Debug logging
+    if (thrustMagnitude > 0) {
+      console.log(`🚀 Thrust Input: x=${thrustInput.x.toFixed(2)}, y=${thrustInput.y.toFixed(2)}, engines=${engines.length}`);
+    }    // SIMPLIFIED: Apply thrust directly in ship-local coordinates
+    engines.forEach((engine) => {
+      // Get engine thrust values
+      const engineThrust = this.getEngineThrust(engine.type);
+
+      // Set visual thrust level for this engine
+      engine.setThrustLevel(thrustMagnitude);
+
+      // SIMPLE LOGIC: All engines contribute to movement in the requested direction
+      // The physics engine will handle the realistic movement behavior
+      let thrustContribution = { x: 0, y: 0 };
+
+      // If requesting any thrust, all engines contribute proportionally
+      if (thrustMagnitude > 0) {
+        thrustContribution.x = thrustInput.x * engineThrust;
+        thrustContribution.y = thrustInput.y * engineThrust;
+      }
+
+      if (thrustContribution.x !== 0 || thrustContribution.y !== 0) {
+        // Convert ship-local thrust to world coordinates
+        const shipAngle = this.rootBody.angle;
+        const worldForce = {
+          x: thrustContribution.x * Math.cos(shipAngle) - thrustContribution.y * Math.sin(shipAngle),
+          y: thrustContribution.x * Math.sin(shipAngle) + thrustContribution.y * Math.cos(shipAngle)
+        };
+
+        // Apply force at CENTER OF MASS to avoid unwanted torque from engine positioning
+        Matter.Body.applyForce(this.rootBody, this.rootBody.position, worldForce);
       }
     });
-
-    // Apply thrust from the center of mass, scaled by total thrust power
-    const scaledForce = Matter.Vector.mult(force, totalThrustPower);
-    Matter.Body.applyForce(this.rootBody, this.rootBody.position, scaledForce);
-  }
-  public applyTorque(torque: number): void {
+  } private getEngineThrust(engineType: string): number {
+    // Get thrust from engine part definition
+    const definition = ENTITY_DEFINITIONS[engineType as EntityType];
+    if (definition && definition.thrust) {
+      return definition.thrust;
+    }
+    return 0;
+  }  public applyTorque(torqueInput: number): void {
     if (this.destroyed) return;
 
-    // Apply rotational force
-    const targetAngularVelocity = torque * 0.1;
+    // Balanced rotation using Matter.js angular velocity
+    const currentAngularVelocity = this.rootBody.angularVelocity;
+    const maxAngularVelocity = 0.02; // Reduced from 0.1 to 0.02 (much more reasonable)
 
-    Matter.Body.setAngularVelocity(this.rootBody, targetAngularVelocity);
-  } public fireWeapons(targetAngle?: number): Matter.Body[] {
+    const desiredAngularVelocity = torqueInput * maxAngularVelocity;
+    const dampening = 0.15; // Reduced from 0.3 to 0.15 (less twitchy)
+
+    const newAngularVelocity = currentAngularVelocity +
+      (desiredAngularVelocity - currentAngularVelocity) * dampening;
+
+    Matter.Body.setAngularVelocity(this.rootBody, newAngularVelocity);
+  }public fireWeapons(targetAngle?: number): Matter.Body[] {
     if (this.destroyed) return [];
 
     const currentTime = Date.now();
@@ -105,6 +138,9 @@ export class Assembly {
     const lasers: Matter.Body[] = [];
 
     weapons.forEach(weapon => {
+      // Trigger visual firing effect
+      weapon.triggerWeaponFire();
+
       const laser = this.createLaser(weapon, targetAngle);
       if (laser) {
         lasers.push(laser);
@@ -251,7 +287,7 @@ export class Assembly {
     this.rootBody = Matter.Body.create({
       parts: this.entities.map(e => e.body),
       isStatic: false,
-      frictionAir: 0, // No air resistance in space
+      frictionAir: 0.01, // Small air resistance to prevent runaway acceleration
       friction: 0.001 // Minimal friction for surface contact
     });
 

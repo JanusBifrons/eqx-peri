@@ -225,12 +225,10 @@ export class AIController {
 
     private moveToward(target: Vector2, speedMultiplier: number): void {
         const myPos = this.assembly.rootBody.position;
-        const direction = Matter.Vector.normalise(Matter.Vector.sub(target, myPos));
-
-        // Calculate thrust force
+        const direction = Matter.Vector.normalise(Matter.Vector.sub(target, myPos));        // Calculate thrust force - simple directional input
         const thrustForce = {
-            x: direction.x * 0.05 * speedMultiplier,
-            y: direction.y * 0.05 * speedMultiplier
+            x: direction.x * 0.8 * speedMultiplier, // 0-1 values
+            y: direction.y * 0.8 * speedMultiplier
         };
 
         this.assembly.applyThrust(thrustForce);
@@ -265,11 +263,9 @@ export class AIController {
             y: toTarget.x
         };
 
-        const normalizedStrafe = Matter.Vector.normalise(strafeDirection);
-
-        const thrustForce = {
-            x: normalizedStrafe.x * 0.03,
-            y: normalizedStrafe.y * 0.03
+        const normalizedStrafe = Matter.Vector.normalise(strafeDirection); const thrustForce = {
+            x: normalizedStrafe.x * 0.6, // Simple 0-1 thrust values
+            y: normalizedStrafe.y * 0.6
         };
 
         this.assembly.applyThrust(thrustForce);

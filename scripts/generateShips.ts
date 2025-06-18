@@ -7,6 +7,11 @@
 import { ShipDesignManager } from '../src/game/ShipDesignManager';
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
+
+// Get current directory for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Generate the ships.json file
 const shipsData = ShipDesignManager.generateShipsJson();

@@ -113,10 +113,8 @@ export class AIController extends Controller {
             fire: shouldFire,
             targetAngle: angleToTarget
         };
-    }
-
-    private calculateMovement(distance: number, angleToTarget: number): Vector2 {
-        const thrustPower = 0.01 * this.aggressionLevel;
+    } private calculateMovement(distance: number, angleToTarget: number): Vector2 {
+        const thrustPower = 0.8 * this.aggressionLevel; // Simple 0-1 thrust values
 
         if (distance > this.preferredRange * 1.5) {
             // Too far - move closer

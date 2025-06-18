@@ -1,10 +1,32 @@
 import { EntityConfig, EntityType } from '../types/GameTypes';
 
 /**
+ * Direction enumeration for intuitive ship design
+ */
+export type Direction = 'forward' | 'backward' | 'left' | 'right';
+
+/**
  * Grid-based ship designer that ensures proper block placement and connections
  */
 export class ShipDesigner {
   private static readonly GRID_UNIT = 16; // Base grid unit in pixels
+  
+  /**
+   * Convert direction to rotation angle
+   * forward = 0° (pointing right/positive X)
+   * right = 90° (pointing down/positive Y) 
+   * backward = 180° (pointing left/negative X)
+   * left = 270° (pointing up/negative Y)
+   */
+  private static directionToRotation(direction: Direction): number {
+    switch (direction) {
+      case 'forward': return 0;
+      case 'right': return 90;
+      case 'backward': return 180;
+      case 'left': return 270;
+    }
+  }
+  
   /**
    * Convert grid coordinates to world coordinates
    */
@@ -16,9 +38,22 @@ export class ShipDesigner {
   }
 
   /**
-   * Place a block at grid coordinates, ensuring it's properly positioned
+   * Place a block at grid coordinates with directional facing
    */
-  private static placeBlock(type: EntityType, gridX: number, gridY: number, rotation: number = 0): EntityConfig {
+  private static placeBlock(type: EntityType, gridX: number, gridY: number, facing: Direction = 'forward'): EntityConfig {
+    const worldPos = this.gridToWorld(gridX, gridY);
+    return {
+      type,
+      x: worldPos.x,
+      y: worldPos.y,
+      rotation: this.directionToRotation(facing)
+    };
+  }
+
+  /**
+   * Legacy method for backward compatibility with numerical rotations
+   */
+  private static placeBlockWithRotation(type: EntityType, gridX: number, gridY: number, rotation: number = 0): EntityConfig {
     const worldPos = this.gridToWorld(gridX, gridY);
     return {
       type,
@@ -27,123 +62,94 @@ export class ShipDesigner {
       rotation
     };
   }
-
   /**
-   * Design a massive capital ship using proper grid placement
+   * Create a simple horizontal fighter ship
+   * Layout: Engine <- Hull <- Cockpit -> Gun
    */
-  static createCapitalDreadnought(): EntityConfig[] {
+  static createBasicFighter(): EntityConfig[] {
     const parts: EntityConfig[] = [];
 
-    // Central core at origin (0,0) - 4x4 block
-    parts.push(this.placeBlock('CapitalCore', 0, 0));
+    // Central cockpit at origin
+    parts.push(this.placeBlock('Cockpit', 0, 0, 'forward')); // Faces right
 
-    // Main structural cross - 4x4 blocks positioned adjacent to core
-    parts.push(this.placeBlock('MegaHull', 0, -8));  // North: core extends -2 to +2, hull at -6 to -2, gap at -4
-    parts.push(this.placeBlock('MegaHull', 0, 8));   // South: core extends -2 to +2, hull at +2 to +6, gap at +4
-    parts.push(this.placeBlock('MegaHull', -8, 0));  // West
-    parts.push(this.placeBlock('MegaHull', 8, 0));   // East
+    // Gun at front (right side)
+    parts.push(this.placeBlock('Gun', 1, 0, 'forward')); // Faces right
 
-    // Forward weapons section - 4x4 capital weapon
-    parts.push(this.placeBlock('CapitalWeapon', 0, -16)); // North of forward hull
+    // Hull behind cockpit
+    parts.push(this.placeBlock('Hull', -1, 0, 'forward'));
 
-    // Rear propulsion - 4x4 capital engine
-    parts.push(this.placeBlock('CapitalEngine', 0, 16, 180)); // South of rear hull
+    // Engine at back (left side) - faces backward to push ship forward
+    parts.push(this.placeBlock('Engine', -2, 0, 'backward')); // Faces left to push right
 
-    // Power reactors in the corners - 4x4 blocks
-    parts.push(this.placeBlock('PowerReactor', -8, -8));  // Northwest
-    parts.push(this.placeBlock('PowerReactor', 8, -8));   // Northeast
-    parts.push(this.placeBlock('PowerReactor', -8, 8));   // Southwest
-    parts.push(this.placeBlock('PowerReactor', 8, 8));    // Southeast
-
-    // Secondary weapons - 2x2 large guns
-    parts.push(this.placeBlock('LargeGun', -12, -4));  // Port side
-    parts.push(this.placeBlock('LargeGun', -12, 4));   // Port side
-    parts.push(this.placeBlock('LargeGun', 12, -4));   // Starboard side
-    parts.push(this.placeBlock('LargeGun', 12, 4));    // Starboard side
-
-    // Forward battery - 2x2 large guns
-    parts.push(this.placeBlock('LargeGun', -4, -12));  // Port forward
-    parts.push(this.placeBlock('LargeGun', 4, -12));   // Starboard forward
-
-    // Secondary engines - 2x2 large engines
-    parts.push(this.placeBlock('LargeEngine', -4, 12, 180));  // Port rear
-    parts.push(this.placeBlock('LargeEngine', 4, 12, 180));   // Starboard rear
-
-    // Structural support - 2x2 heavy hull
-    parts.push(this.placeBlock('HeavyHull', -12, -8));  // Port forward structure
-    parts.push(this.placeBlock('HeavyHull', 12, -8));   // Starboard forward structure
-    parts.push(this.placeBlock('HeavyHull', -12, 8));   // Port rear structure
-    parts.push(this.placeBlock('HeavyHull', 12, 8));    // Starboard rear structure
-
-    // Command bridge - 2x2 large cockpit
-    parts.push(this.placeBlock('LargeCockpit', 0, -4));  // Forward of core
-
-    // Power distribution - 2x2 large power cells
-    parts.push(this.placeBlock('LargePowerCell', -4, 0));  // Port of core
-    parts.push(this.placeBlock('LargePowerCell', 4, 0));   // Starboard of core
-
-    // Point defense turrets - 1x1 guns
-    parts.push(this.placeBlock('Gun', -14, -6));  // Port side defense
-    parts.push(this.placeBlock('Gun', -14, 6));   // Port side defense
-    parts.push(this.placeBlock('Gun', 14, -6));   // Starboard side defense
-    parts.push(this.placeBlock('Gun', 14, 6));    // Starboard side defense
-    parts.push(this.placeBlock('Gun', -6, -14));  // Forward port defense
-    parts.push(this.placeBlock('Gun', 6, -14));   // Forward starboard defense
-
-    // Maneuvering thrusters - 1x1 engines
-    parts.push(this.placeBlock('Engine', -6, 14, 180));  // Rear port thruster
-    parts.push(this.placeBlock('Engine', 6, 14, 180));   // Rear starboard thruster
-    parts.push(this.placeBlock('Engine', -10, 10, 180)); // Rear port corner
-    parts.push(this.placeBlock('Engine', 10, 10, 180));  // Rear starboard corner
-
-    // Additional power cells - 1x1 power cells
-    parts.push(this.placeBlock('PowerCell', -10, -2));  // Port power
-    parts.push(this.placeBlock('PowerCell', -10, 2));   // Port power
-    parts.push(this.placeBlock('PowerCell', 10, -2));   // Starboard power
-    parts.push(this.placeBlock('PowerCell', 10, 2));    // Starboard power
-
-    // Structural fill - 1x1 hull pieces
-    parts.push(this.placeBlock('Hull', -2, -10));  // Forward port
-    parts.push(this.placeBlock('Hull', 2, -10));   // Forward starboard
-    parts.push(this.placeBlock('Hull', -2, 10));   // Rear port
-    parts.push(this.placeBlock('Hull', 2, 10));    // Rear starboard
-    parts.push(this.placeBlock('Hull', -10, -10)); // Port forward corner
-    parts.push(this.placeBlock('Hull', 10, -10));  // Starboard forward corner
+    // Power cell
+    parts.push(this.placeBlock('PowerCell', 0, 1, 'forward'));
 
     return parts;
   }
 
   /**
-   * Create a medium cruiser with mixed block sizes
+   * Create a horizontal heavy cruiser
+   * Layout: Engine <- Hull <- Cockpit -> Hull -> Gun
    */
   static createHeavyCruiser(): EntityConfig[] {
     const parts: EntityConfig[] = [];
 
-    // Central command - 2x2 large cockpit
-    parts.push(this.placeBlock('LargeCockpit', 0, 0));
+    // Central large cockpit
+    parts.push(this.placeBlock('LargeCockpit', 0, 0, 'forward')); // 2x2 block
 
-    // Main structure - 2x2 heavy hull
-    parts.push(this.placeBlock('HeavyHull', 0, -4));  // Forward
-    parts.push(this.placeBlock('HeavyHull', 0, 4));   // Rear
+    // Forward section (right side)
+    parts.push(this.placeBlock('LargeGun', 3, 0, 'forward')); // 2x2 gun
+    parts.push(this.placeBlock('Hull', 2, 1, 'forward'));
+    parts.push(this.placeBlock('Hull', 2, -1, 'forward'));
 
-    // Main weapons - 2x2 large guns
-    parts.push(this.placeBlock('LargeGun', 0, -8));   // Forward gun
-    parts.push(this.placeBlock('LargeGun', -4, -2));  // Port gun  
-    parts.push(this.placeBlock('LargeGun', 4, -2));   // Starboard gun
+    // Rear section (left side)  
+    parts.push(this.placeBlock('LargeEngine', -3, 0, 'backward')); // 2x2 engine
+    parts.push(this.placeBlock('Hull', -2, 1, 'forward'));
+    parts.push(this.placeBlock('Hull', -2, -1, 'forward'));
 
-    // Propulsion - 2x2 large engine
-    parts.push(this.placeBlock('LargeEngine', 0, 8, 180)); // Main engine
+    // Side weapons
+    parts.push(this.placeBlock('Gun', 1, 2, 'right'));  // Port gun faces down
+    parts.push(this.placeBlock('Gun', 1, -2, 'left'));  // Starboard gun faces up
 
-    // Power - 2x2 large power cell
-    parts.push(this.placeBlock('LargePowerCell', 0, 2));
+    // Power systems
+    parts.push(this.placeBlock('LargePowerCell', -1, 0, 'forward')); // 2x2 power
 
-    // Secondary systems - 1x1 blocks
-    parts.push(this.placeBlock('Gun', -2, -6));      // Port defense
-    parts.push(this.placeBlock('Gun', 2, -6));       // Starboard defense
-    parts.push(this.placeBlock('Engine', -2, 6, 180)); // Port thruster
-    parts.push(this.placeBlock('Engine', 2, 6, 180));  // Starboard thruster
-    parts.push(this.placeBlock('PowerCell', -2, 2));   // Port power
-    parts.push(this.placeBlock('PowerCell', 2, 2));    // Starboard power
+    return parts;
+  }
+
+  /**
+   * Create a massive horizontal capital ship
+   * Layout: Multiple engines on left, core in center, weapons on right
+   */
+  static createCapitalDreadnought(): EntityConfig[] {
+    const parts: EntityConfig[] = [];
+
+    // Central core
+    parts.push(this.placeBlock('CapitalCore', 0, 0, 'forward')); // 4x4 core
+
+    // Forward weapons section (right side)
+    parts.push(this.placeBlock('CapitalWeapon', 5, 0, 'forward')); // 4x4 weapon
+    parts.push(this.placeBlock('LargeGun', 3, 3, 'forward')); // 2x2 gun
+    parts.push(this.placeBlock('LargeGun', 3, -3, 'forward')); // 2x2 gun
+
+    // Rear propulsion (left side)
+    parts.push(this.placeBlock('CapitalEngine', -5, 0, 'backward')); // 4x4 engine
+    parts.push(this.placeBlock('LargeEngine', -3, 3, 'backward')); // 2x2 engine  
+    parts.push(this.placeBlock('LargeEngine', -3, -3, 'backward')); // 2x2 engine
+
+    // Power systems
+    parts.push(this.placeBlock('PowerReactor', 0, 5, 'forward')); // 4x4 reactor
+    parts.push(this.placeBlock('PowerReactor', 0, -5, 'forward')); // 4x4 reactor
+
+    // Structural hull
+    parts.push(this.placeBlock('MegaHull', 2, 0, 'forward')); // 4x4 hull
+    parts.push(this.placeBlock('MegaHull', -2, 0, 'forward')); // 4x4 hull
+
+    // Additional defensive guns
+    parts.push(this.placeBlock('Gun', 1, 6, 'right'));  // Top defense
+    parts.push(this.placeBlock('Gun', 1, -6, 'left'));  // Bottom defense
+    parts.push(this.placeBlock('Gun', -1, 6, 'right')); // Top rear defense
+    parts.push(this.placeBlock('Gun', -1, -6, 'left')); // Bottom rear defense
 
     return parts;
   }

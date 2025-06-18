@@ -74,48 +74,42 @@ export class ShipDesignManager {
       name,
       blocks
     };
-  }
-  
-  /**
-   * Create predefined ship designs
+  }  /**
+   * Create predefined ship designs using horizontal layout (right = forward)
    */
   static createStandardDesigns(): ShipDesign[] {
     this.initialize();
     
     return [
       {
-        name: "Basic Fighter",
+        name: "Scout Fighter",
         blocks: [
+          // Simple horizontal line: Engine-Cockpit-Gun
+          { type: 'Engine', gridPosition: { x: -1, y: 0 }, rotation: 180 },
           { type: 'Cockpit', gridPosition: { x: 0, y: 0 }, rotation: 0 },
-          { type: 'Engine', gridPosition: { x: 0, y: 1 }, rotation: 180 },
-          { type: 'Gun', gridPosition: { x: 0, y: -1 }, rotation: 0 }
+          { type: 'Gun', gridPosition: { x: 1, y: 0 }, rotation: 0 }
         ]
       },
       {
-        name: "Cruiser", 
+        name: "Heavy Cruiser", 
         blocks: [
+          // Basic cross pattern
+          { type: 'Engine', gridPosition: { x: -1, y: 0 }, rotation: 180 },
           { type: 'Cockpit', gridPosition: { x: 0, y: 0 }, rotation: 0 },
-          { type: 'Engine', gridPosition: { x: -1, y: 1 }, rotation: 180 },
-          { type: 'Engine', gridPosition: { x: 1, y: 1 }, rotation: 180 },
-          { type: 'Gun', gridPosition: { x: -1, y: -1 }, rotation: 0 },
-          { type: 'Gun', gridPosition: { x: 1, y: -1 }, rotation: 0 },
-          { type: 'Hull', gridPosition: { x: -1, y: 0 }, rotation: 0 },
-          { type: 'Hull', gridPosition: { x: 1, y: 0 }, rotation: 0 },
-          { type: 'Hull', gridPosition: { x: 0, y: 1 }, rotation: 0 },
-          { type: 'PowerCell', gridPosition: { x: 0, y: -2 }, rotation: 0 }
+          { type: 'Gun', gridPosition: { x: 1, y: 0 }, rotation: 0 },
+          { type: 'Hull', gridPosition: { x: 0, y: -1 }, rotation: 0 },
+          { type: 'Hull', gridPosition: { x: 0, y: 1 }, rotation: 0 }
         ]
       },
       {
-        name: "Heavy Fighter",
+        name: "Battleship",
         blocks: [
+          // Simple line with power
+          { type: 'Engine', gridPosition: { x: -2, y: 0 }, rotation: 180 },
+          { type: 'PowerCell', gridPosition: { x: -1, y: 0 }, rotation: 0 },
           { type: 'Cockpit', gridPosition: { x: 0, y: 0 }, rotation: 0 },
-          { type: 'Engine', gridPosition: { x: 0, y: 2 }, rotation: 180 },
-          { type: 'Gun', gridPosition: { x: -1, y: -1 }, rotation: 315 },
-          { type: 'Gun', gridPosition: { x: 1, y: -1 }, rotation: 45 },
-          { type: 'Hull', gridPosition: { x: -1, y: 0 }, rotation: 0 },
           { type: 'Hull', gridPosition: { x: 1, y: 0 }, rotation: 0 },
-          { type: 'Hull', gridPosition: { x: 0, y: 1 }, rotation: 0 },
-          { type: 'PowerCell', gridPosition: { x: 0, y: -1 }, rotation: 0 }
+          { type: 'Gun', gridPosition: { x: 2, y: 0 }, rotation: 0 }
         ]
       }
     ];

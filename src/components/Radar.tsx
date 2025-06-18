@@ -11,14 +11,18 @@ import {
     Box,
     Chip,
     Button,
-    Divider
+    Divider,
+    IconButton
 } from '@mui/material';
 import {
     MyLocation,
     PersonPinCircle,
     RadioButtonUnchecked,
     SocialDistance,
-    GpsFixed
+    GpsFixed,
+    ZoomIn,
+    ZoomOut,
+    CenterFocusStrong
 } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
 import { GameEngine } from '../game/GameEngine';
@@ -61,6 +65,8 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
     const [selectedShip, setSelectedShip] = useState<any>(null);
     const [activeCommand, setActiveCommand] = useState<string | null>(null);
     const [commandTarget, setCommandTarget] = useState<string | null>(null);
+    const [currentZoom, setCurrentZoom] = useState<number>(0.1);
+    const [currentSpeed, setCurrentSpeed] = useState<number>(0); const [speedBasedZoom, setSpeedBasedZoom] = useState<boolean>(true);
 
     useEffect(() => {
         if (!gameEngine) return;
@@ -85,6 +91,11 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
                     setRadarData(data);
                 }
 
+                // Update zoom and speed info from GameEngine
+                setCurrentZoom(gameEngine.getCurrentZoom());
+                setCurrentSpeed(gameEngine.getCurrentSpeed());
+                setSpeedBasedZoom(gameEngine.isSpeedBasedZoomEnabled());
+
                 // Update selected ship info
                 const selected = gameEngine.getSelectedAssembly();
                 if (selected) {
@@ -100,7 +111,31 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
 
         const interval = setInterval(updateRadar, 100);
         return () => clearInterval(interval);
-    }, [gameEngine]); const handleTurnToFace = (ship: any) => {
+    }, [gameEngine]);
+
+    const handleZoomIn = () => {
+        if (gameEngine) {
+            gameEngine.zoomIn();
+        }
+    };
+
+    const handleZoomOut = () => {
+        if (gameEngine) {
+            gameEngine.zoomOut();
+        }
+    }; const handleZoomReset = () => {
+        if (gameEngine) {
+            gameEngine.resetZoom();
+        }
+    };
+
+    const toggleSpeedBasedZoom = () => {
+        if (gameEngine) {
+            gameEngine.toggleSpeedBasedZoom();
+        }
+    };
+
+    const handleTurnToFace = (ship: any) => {
         if (gameEngine && ship) {
             gameEngine.turnPlayerToFaceTarget(ship.x, ship.y);
         }
@@ -171,12 +206,65 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
 
     return (
         <CompactPaper elevation={3}>
-            <Box sx={{ p: 1 }}>
-                <Typography variant="h6" sx={{ color: '#00ff00', fontSize: '0.9rem', mb: 1 }}>
-                    📡 RADAR
-                </Typography>
-
-                {/* Radar Visual */}
+            <Box sx={{ p: 1 }}>                <Typography variant="h6" sx={{ color: '#00ff00', fontSize: '0.9rem', mb: 1 }}>
+                📡 RADAR
+            </Typography>                {/* Zoom Controls */}
+                <Box sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    mb: 1,
+                    p: 0.5,
+                    backgroundColor: 'rgba(0, 50, 100, 0.2)',
+                    borderRadius: 0.5
+                }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <IconButton
+                            size="small"
+                            onClick={handleZoomOut}
+                            sx={{ color: '#00ccff', p: 0.25 }}
+                        >
+                            <ZoomOut sx={{ fontSize: '14px' }} />
+                        </IconButton>
+                        <IconButton
+                            size="small"
+                            onClick={handleZoomIn}
+                            sx={{ color: '#00ccff', p: 0.25 }}
+                        >
+                            <ZoomIn sx={{ fontSize: '14px' }} />
+                        </IconButton>
+                        <IconButton
+                            size="small"
+                            onClick={handleZoomReset}
+                            sx={{ color: '#00ccff', p: 0.25 }}
+                        >
+                            <CenterFocusStrong sx={{ fontSize: '14px' }} />
+                        </IconButton>
+                    </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        {speedBasedZoom && (
+                            <Typography variant="caption" sx={{
+                                fontSize: '0.6rem',
+                                color: '#00ff00',
+                                minWidth: '40px'
+                            }}>
+                                {Math.round(currentSpeed)}u/s
+                            </Typography>
+                        )}
+                        <Button
+                            size="small"
+                            onClick={toggleSpeedBasedZoom}
+                            sx={{
+                                fontSize: '0.6rem',
+                                color: speedBasedZoom ? '#00ff00' : '#666',
+                                minWidth: 'auto',
+                                p: 0.25
+                            }}
+                        >
+                            AUTO
+                        </Button>
+                    </Box>
+                </Box>{/* Radar Visual */}
                 <Box sx={{
                     width: '100%',
                     height: 120,
@@ -185,17 +273,28 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
                     borderRadius: 1,
                     position: 'relative',
                     mb: 1
-                }}>
+                }}>                    {/* Zoom level indicator */}
+                    <Typography variant="caption" sx={{
+                        position: 'absolute',
+                        top: 2,
+                        right: 4,
+                        fontSize: '0.6rem',
+                        color: '#00ff00',
+                        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                        px: 0.5,
+                        borderRadius: 0.25
+                    }}>
+                        {(1 / currentZoom).toFixed(0)}x
+                    </Typography>
+
                     {radarData.map((ship) => {
                         const playerShip = radarData.find(s => s.isPlayer);
-                        if (!playerShip) return null;
-
-                        // Scale positions to fit radar display
-                        const scale = 0.02;
+                        if (!playerShip) return null;                        // Use current zoom for radar display
                         const centerX = 140;
                         const centerY = 60;
-                        const x = centerX + (ship.x - playerShip.x) * scale;
-                        const y = centerY + (ship.y - playerShip.y) * scale;
+                        const radarScale = currentZoom * 200; // Scale the game zoom for radar display
+                        const x = centerX + (ship.x - playerShip.x) * radarScale;
+                        const y = centerY + (ship.y - playerShip.y) * radarScale;
 
                         // Keep dots within bounds
                         const clampedX = Math.max(8, Math.min(272, x));

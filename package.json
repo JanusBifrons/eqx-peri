@@ -20,6 +20,7 @@
   },
   "devDependencies": {
     "@types/matter-js": "^0.19.6",
+    "@types/node": "^24.0.3",
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
     "@typescript-eslint/eslint-plugin": "^6.14.0",

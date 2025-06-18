@@ -33,7 +33,10 @@ export class GameEngine {
   private minZoom: number = 0.1; // Allow zooming out much further
   private maxZoom: number = 4; // Allow zooming in more
   private lastFrameTime: number = 0;
-  private controllerManager: ControllerManager = new ControllerManager();
+  private controllerManager: ControllerManager = new ControllerManager();  // Zoom control properties
+  private baseZoomLevel: number = 0.2; // Start closer so speed-based zoom out is more noticeable
+  private speedBasedZoomEnabled: boolean = true;
+  private zoomSmoothingFactor: number = 0.02; // Smooth transitions
 
   constructor(container: HTMLElement) {
     console.log('🎮 Creating GameEngine...');
@@ -107,12 +110,11 @@ export class GameEngine {
     if (aspectRatio > 1.8) {
       const wideScreenMultiplier = Math.min(aspectRatio / 1.8, 1.5);
       baseZoom = baseZoom / wideScreenMultiplier;
-    }
+    }    // Ensure the calculated zoom is within bounds
+    this.baseZoomLevel = Math.max(this.minZoom, Math.min(this.maxZoom, baseZoom));
+    this.zoomLevel = this.baseZoomLevel; // Initialize current zoom
 
-    // Ensure the calculated zoom is within bounds
-    this.zoomLevel = Math.max(this.minZoom, Math.min(this.maxZoom, baseZoom));
-
-    console.log(`🔍 Calculated default zoom: ${this.zoomLevel.toFixed(2)} for ${containerWidth}x${containerHeight}`);
+    console.log(`🔍 Calculated default zoom: ${this.baseZoomLevel.toFixed(2)} for ${containerWidth}x${containerHeight}`);
   }
 
   private setInitialCameraView(): void {
@@ -341,6 +343,9 @@ export class GameEngine {
     // Update camera with mouse influence
     this.updateCameraWithMouse();
 
+    // Update zoom based on speed
+    this.updateSpeedBasedZoom();
+
     // Continue loop
     requestAnimationFrame(() => this.gameLoop());
   }
@@ -359,14 +364,12 @@ export class GameEngine {
       thrust: { x: 0, y: 0 },
       torque: 0,
       fire: false
-    };
-
-    // Keyboard thrust controls
+    };    // Keyboard thrust controls
     if (this.keys.has('w') || this.keys.has('arrowup')) {
       const angle = this.playerAssembly.rootBody.angle;
       input.thrust = {
-        x: Math.cos(angle) * 0.08,
-        y: Math.sin(angle) * 0.08
+        x: Math.cos(angle) * 1.0, // 0° = pointing right (forward)
+        y: Math.sin(angle) * 1.0
       };
     }
 
@@ -374,17 +377,15 @@ export class GameEngine {
     if (this.keys.has('s') || this.keys.has('arrowdown')) {
       const angle = this.playerAssembly.rootBody.angle;
       input.thrust = {
-        x: Math.cos(angle) * -0.04,
-        y: Math.sin(angle) * -0.04
+        x: Math.cos(angle) * -0.5, // Reverse direction
+        y: Math.sin(angle) * -0.5
       };
-    }
-
-    // Manual rotation
+    }// Manual rotation
     if (this.keys.has('a') || this.keys.has('arrowleft')) {
-      input.torque = -0.5;
+      input.torque = -1.0; // Increased from -0.15 to -1.0 (6.7x stronger)
     }
     if (this.keys.has('d') || this.keys.has('arrowright')) {
-      input.torque = 0.5;
+      input.torque = 1.0; // Increased from 0.15 to 1.0 (6.7x stronger)
     }
 
     // Firing
@@ -662,13 +663,12 @@ export class GameEngine {
     });
 
     // Keep mouse constraint in sync with render bounds    this.render.mouse = this.mouse;
-  }
-
-  private handleWorldClick(worldX: number, worldY: number): void {
-    console.log('🖱️ World click at:', worldX, worldY);
+  }  /*
+  private handleWorldClick(_worldX: number, _worldY: number): void {
+    console.log('🖱️ World click at:', _worldX, _worldY);
 
     // Find assembly at this world position
-    const clickedAssembly = this.getAssemblyAtWorldPosition(worldX, worldY);
+    const clickedAssembly = this.getAssemblyAtWorldPosition(_worldX, _worldY);
 
     console.log('🖱️ Clicked assembly:', clickedAssembly?.shipName || 'none');
 
@@ -679,12 +679,12 @@ export class GameEngine {
     } else if (clickedAssembly === this.playerAssembly) {
       // Clicked on player ship - don't clear selection, but also don't select it
       console.log('🖱️ Clicked on player ship - no action');
-    } else {
-      // Clear selection if clicking empty space
+    } else {      // Clear selection if clicking empty space
       console.log('🖱️ Clicked empty space - clearing selection');
       this.selectAssembly(null);
     }
   }
+  */
 
   private handleRightClick(event: MouseEvent): void {
     // Right click for alternative actions - rotate to face mouse
@@ -1300,11 +1300,9 @@ export class GameEngine {
     if (distance > followDistance + approachThreshold) {
       // Calculate direction to target
       const dirX = (targetPos.x - playerPos.x) / distance;
-      const dirY = (targetPos.y - playerPos.y) / distance;
-
-      // Calculate thrust intensity based on distance
+      const dirY = (targetPos.y - playerPos.y) / distance;      // Calculate thrust intensity based on distance (reduced power)
       const distanceRatio = Math.min(1, (distance - followDistance) / 300);
-      const thrustPower = 0.5 + (distanceRatio * 0.5); // 0.5 to 1.0 thrust power
+      const thrustPower = 0.1 + (distanceRatio * 0.15); // Reduced from 0.5-1.0 to 0.1-0.25
 
       // Apply thrust using the ship's proper propulsion system
       const thrustInput = {
@@ -1332,20 +1330,17 @@ export class GameEngine {
     } else if (distance < followDistance - approachThreshold) {
       // Too close, back away gently
       const dirX = (playerPos.x - targetPos.x) / distance;
-      const dirY = (playerPos.y - targetPos.y) / distance;
-
-      const thrustInput = {
-        x: dirX * 0.3, // Gentle reverse thrust
-        y: dirY * 0.3
+      const dirY = (playerPos.y - targetPos.y) / distance; const thrustInput = {
+        x: dirX * 0.08, // Reduced from 0.3 to 0.08
+        y: dirY * 0.08
       };
 
       this.playerAssembly!.applyThrust(thrustInput);
     }
     // If we're in the sweet spot (followDistance ± approachThreshold), don't thrust
-  }
-  private executeOrbitCommand(playerPos: Matter.Vector, targetPos: Matter.Vector, distance: number): void {
+  } private executeOrbitCommand(playerPos: Matter.Vector, targetPos: Matter.Vector, _distance: number): void {
     const orbitDistance = 200; // Desired orbit distance
-    const orbitSpeed = 0.015; // Orbit angular speed
+    const orbitSpeed = 0.005; // Reduced from 0.015 to 0.005 (3x slower orbit)
 
     // Calculate angle from target to player
     const currentAngle = Math.atan2(playerPos.y - targetPos.y, playerPos.x - targetPos.x);
@@ -1448,14 +1443,75 @@ export class GameEngine {
     // Move closer if very far using proper thrusters
     if (distance > 400) {
       const dirX = (targetPos.x - playerPos.x) / distance;
-      const dirY = (targetPos.y - playerPos.y) / distance;
-
-      const thrustInput = {
-        x: dirX * 0.4, // Moderate approach speed
-        y: dirY * 0.4
+      const dirY = (targetPos.y - playerPos.y) / distance; const thrustInput = {
+        x: dirX * 0.1, // Reduced from 0.4 to 0.1 (moderate approach speed)
+        y: dirY * 0.1
       };
       this.playerAssembly!.applyThrust(thrustInput);
     }
+  }
+
+  // Zoom control methods
+  public zoomIn(): void {
+    this.baseZoomLevel = Math.min(this.baseZoomLevel * 1.5, this.maxZoom);
+    console.log(`🔍 Zoom In: ${this.baseZoomLevel.toFixed(2)}`);
+  }
+
+  public zoomOut(): void {
+    this.baseZoomLevel = Math.max(this.baseZoomLevel * 0.67, this.minZoom);
+    console.log(`🔍 Zoom Out: ${this.baseZoomLevel.toFixed(2)}`);
+  } public resetZoom(): void {
+    this.baseZoomLevel = 0.2;
+    console.log(`🔍 Reset Zoom: ${this.baseZoomLevel.toFixed(2)}`);
+  }
+
+  public toggleSpeedBasedZoom(): boolean {
+    this.speedBasedZoomEnabled = !this.speedBasedZoomEnabled;
+    console.log(`🔍 Speed-based zoom: ${this.speedBasedZoomEnabled ? 'ON' : 'OFF'}`);
+    return this.speedBasedZoomEnabled;
+  }
+
+  public getCurrentZoom(): number {
+    return this.zoomLevel;
+  }
+
+  public getBaseZoom(): number {
+    return this.baseZoomLevel;
+  }
+
+  public isSpeedBasedZoomEnabled(): boolean {
+    return this.speedBasedZoomEnabled;
+  }
+
+  public getCurrentSpeed(): number {
+    if (!this.playerAssembly) return 0;
+    const velocity = this.playerAssembly.rootBody.velocity;
+    return Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
+  }  // Update zoom based on speed - call this in the update loop
+  private updateSpeedBasedZoom(): void {
+    if (!this.speedBasedZoomEnabled || !this.playerAssembly) {
+      this.zoomLevel = this.baseZoomLevel;
+      return;
+    }
+
+    const speed = this.getCurrentSpeed();    // Calculate speed-based zoom adjustment as a percentage (max 15% zoom out)
+    const maxSpeedZoomPercent = 0.15; // Maximum 15% zoom out
+    const speedThreshold = 15; // Reduced from 50 to 15 - speed at which max zoom out is reached
+    const speedPercent = Math.min(speed / speedThreshold, 1.0);
+    const zoomOutPercent = speedPercent * maxSpeedZoomPercent;
+
+    // Apply the zoom out percentage to the base zoom level
+    const targetZoom = this.baseZoomLevel * (1 - zoomOutPercent);
+    const clampedTargetZoom = Math.max(this.minZoom, targetZoom);
+
+    // Very smooth transition to target zoom
+    const smoothingFactor = 0.02; // Much smoother transitions
+    this.zoomLevel += (clampedTargetZoom - this.zoomLevel) * smoothingFactor;
+
+    // Debug logging (uncomment to see zoom changes)
+    // if (speed > 1) {
+    //   console.log(`🔍 Speed: ${speed.toFixed(1)}, ZoomOut%: ${(zoomOutPercent * 100).toFixed(1)}%, Target: ${clampedTargetZoom.toFixed(3)}, Current: ${this.zoomLevel.toFixed(3)}`);
+    // }
   }
 
   public getPlayerAssembly(): Assembly | null {

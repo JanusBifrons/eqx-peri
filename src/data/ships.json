@@ -1,161 +1,122 @@
 {
   "ships": [
     {
-      "name": "Basic Fighter",
+      "name": "Scout Fighter",
       "parts": [
-        { "type": "Cockpit", "x": 0, "y": 0, "rotation": 0 },
-        { "type": "Engine", "x": 0, "y": 16, "rotation": 180 },
-        { "type": "Gun", "x": 0, "y": -16, "rotation": 0 }
+        {
+          "type": "Engine",
+          "x": -16,
+          "y": 0,
+          "rotation": 180,
+          "health": 80,
+          "maxHealth": 80
+        },
+        {
+          "type": "Cockpit",
+          "x": 0,
+          "y": 0,
+          "rotation": 0,
+          "health": 100,
+          "maxHealth": 100
+        },
+        {
+          "type": "Gun",
+          "x": 16,
+          "y": 0,
+          "rotation": 0,
+          "health": 60,
+          "maxHealth": 60
+        }
       ]
     },
     {
-      "name": "Cruiser",
+      "name": "Heavy Cruiser",
       "parts": [
-        { "type": "Cockpit", "x": 0, "y": 0, "rotation": 0 },
-        { "type": "Engine", "x": -16, "y": 16, "rotation": 180 },
-        { "type": "Engine", "x": 16, "y": 16, "rotation": 180 },
-        { "type": "Gun", "x": -16, "y": -16, "rotation": 0 },
-        { "type": "Gun", "x": 16, "y": -16, "rotation": 0 },
-        { "type": "Hull", "x": -16, "y": 0, "rotation": 0 },
-        { "type": "Hull", "x": 16, "y": 0, "rotation": 0 },
-        { "type": "Hull", "x": 0, "y": 16, "rotation": 0 },
-        { "type": "PowerCell", "x": 0, "y": -16, "rotation": 0 }
-      ]
-    },    {
-      "name": "Heavy Fighter",
-      "parts": [
-        { "type": "Cockpit", "x": 0, "y": 0, "rotation": 0 },
-        { "type": "Engine", "x": 0, "y": 32, "rotation": 180 },
-        { "type": "Gun", "x": -16, "y": -16, "rotation": 0 },
-        { "type": "Gun", "x": 16, "y": -16, "rotation": 0 },
-        { "type": "Hull", "x": -16, "y": 0, "rotation": 0 },
-        { "type": "Hull", "x": 16, "y": 0, "rotation": 0 },
-        { "type": "Hull", "x": 0, "y": 16, "rotation": 0 },
-        { "type": "PowerCell", "x": 0, "y": -16, "rotation": 0 }
-      ]
-    },{
-      "name": "Capital Dreadnought",
-      "parts": [
-        { "type": "LargeCockpit", "x": 0, "y": 0, "rotation": 0 },
-        { "type": "HeavyHull", "x": 0, "y": -32, "rotation": 0 },
-        { "type": "HeavyHull", "x": 0, "y": 32, "rotation": 0 },
-        { "type": "HeavyHull", "x": -32, "y": 0, "rotation": 0 },
-        { "type": "HeavyHull", "x": 32, "y": 0, "rotation": 0 },
-        { "type": "LargeGun", "x": 0, "y": -64, "rotation": 0 },
-        { "type": "LargeGun", "x": -32, "y": -32, "rotation": 0 },
-        { "type": "LargeGun", "x": 32, "y": -32, "rotation": 0 },
-        { "type": "LargeEngine", "x": 0, "y": 64, "rotation": 180 },
-        { "type": "LargeEngine", "x": -32, "y": 32, "rotation": 180 },
-        { "type": "LargeEngine", "x": 32, "y": 32, "rotation": 180 },
-        { "type": "LargePowerCell", "x": -64, "y": 0, "rotation": 0 },
-        { "type": "LargePowerCell", "x": 64, "y": 0, "rotation": 0 },
-        { "type": "HeavyHull", "x": -64, "y": -32, "rotation": 0 },
-        { "type": "HeavyHull", "x": 64, "y": -32, "rotation": 0 },
-        { "type": "HeavyHull", "x": -64, "y": 32, "rotation": 0 },
-        { "type": "HeavyHull", "x": 64, "y": 32, "rotation": 0 },        { "type": "LargeGun", "x": -64, "y": -64, "rotation": 0 },
-        { "type": "LargeGun", "x": 64, "y": -64, "rotation": 0 }
+        {
+          "type": "Engine",
+          "x": -16,
+          "y": 0,
+          "rotation": 180,
+          "health": 80,
+          "maxHealth": 80
+        },
+        {
+          "type": "Cockpit",
+          "x": 0,
+          "y": 0,
+          "rotation": 0,
+          "health": 100,
+          "maxHealth": 100
+        },
+        {
+          "type": "Gun",
+          "x": 16,
+          "y": 0,
+          "rotation": 0,
+          "health": 60,
+          "maxHealth": 60
+        },
+        {
+          "type": "Hull",
+          "x": 0,
+          "y": -16,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": 0,
+          "y": 16,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        }
       ]
     },
     {
-      "name": "Heavy Battlecruiser", 
+      "name": "Battleship",
       "parts": [
-        { "type": "LargeCockpit", "x": 0, "y": 0, "rotation": 0 },
-        { "type": "HeavyHull", "x": 0, "y": -32, "rotation": 0 },
-        { "type": "HeavyHull", "x": 0, "y": 32, "rotation": 0 },
-        { "type": "HeavyHull", "x": 0, "y": -64, "rotation": 0 },
-        { "type": "HeavyHull", "x": 0, "y": 64, "rotation": 0 },
-        { "type": "LargeGun", "x": 0, "y": -96, "rotation": 0 },        { "type": "LargeGun", "x": -32, "y": -64, "rotation": 0 },
-        { "type": "LargeGun", "x": 32, "y": -64, "rotation": 0 },
-        { "type": "LargeEngine", "x": 0, "y": 96, "rotation": 180 },
-        { "type": "LargeEngine", "x": -32, "y": 64, "rotation": 180 },
-        { "type": "LargeEngine", "x": 32, "y": 64, "rotation": 180 },
-        { "type": "LargePowerCell", "x": -32, "y": 0, "rotation": 0 },
-        { "type": "LargePowerCell", "x": 32, "y": 0, "rotation": 0 },
-        { "type": "HeavyHull", "x": -32, "y": -32, "rotation": 0 },
-        { "type": "HeavyHull", "x": 32, "y": -32, "rotation": 0 },
-        { "type": "HeavyHull", "x": -32, "y": 32, "rotation": 0 },
-        { "type": "HeavyHull", "x": 32, "y": 32, "rotation": 0 }
-      ]
-    },
-    {
-      "name": "Capital Carrier",
-      "parts": [
-        { "type": "LargeCockpit", "x": 0, "y": 0, "rotation": 0 },
-        { "type": "HeavyHull", "x": -32, "y": 0, "rotation": 0 },
-        { "type": "HeavyHull", "x": 32, "y": 0, "rotation": 0 },
-        { "type": "HeavyHull", "x": -64, "y": 0, "rotation": 0 },
-        { "type": "HeavyHull", "x": 64, "y": 0, "rotation": 0 },
-        { "type": "HeavyHull", "x": -96, "y": 0, "rotation": 0 },
-        { "type": "HeavyHull", "x": 96, "y": 0, "rotation": 0 },
-        { "type": "LargeGun", "x": -96, "y": -32, "rotation": 0 },
-        { "type": "LargeGun", "x": 96, "y": -32, "rotation": 0 },        { "type": "LargeGun", "x": -96, "y": 32, "rotation": 0 },
-        { "type": "LargeGun", "x": 96, "y": 32, "rotation": 0 },
-        { "type": "LargeEngine", "x": -128, "y": 0, "rotation": 270 },
-        { "type": "LargeEngine", "x": 128, "y": 0, "rotation": 90 },
-        { "type": "LargePowerCell", "x": -64, "y": -32, "rotation": 0 },
-        { "type": "LargePowerCell", "x": 64, "y": -32, "rotation": 0 },
-        { "type": "LargePowerCell", "x": -64, "y": 32, "rotation": 0 },
-        { "type": "LargePowerCell", "x": 64, "y": 32, "rotation": 0 },
-        { "type": "HeavyHull", "x": -32, "y": -32, "rotation": 0 },
-        { "type": "HeavyHull", "x": 32, "y": -32, "rotation": 0 },
-        { "type": "HeavyHull", "x": -32, "y": 32, "rotation": 0 },
-        { "type": "HeavyHull", "x": 32, "y": 32, "rotation": 0 }
-      ]
-    },
-    {
-      "name": "Assault Frigate",
-      "parts": [
-        { "type": "LargeCockpit", "x": 0, "y": 0, "rotation": 0 },
-        { "type": "HeavyHull", "x": 0, "y": -32, "rotation": 0 },
-        { "type": "HeavyHull", "x": 0, "y": 32, "rotation": 0 },
-        { "type": "LargeGun", "x": 0, "y": -64, "rotation": 0 },        { "type": "LargeGun", "x": -32, "y": -32, "rotation": 0 },
-        { "type": "LargeGun", "x": 32, "y": -32, "rotation": 0 },
-        { "type": "LargeEngine", "x": 0, "y": 64, "rotation": 180 },
-        { "type": "LargePowerCell", "x": -32, "y": 0, "rotation": 0 },
-        { "type": "LargePowerCell", "x": 32, "y": 0, "rotation": 0 },
-        { "type": "HeavyHull", "x": -32, "y": 32, "rotation": 0 },
-        { "type": "HeavyHull", "x": 32, "y": 32, "rotation": 0 }
-      ]
-    },
-    {
-      "name": "Heavy Destroyer",
-      "parts": [
-        { "type": "LargeCockpit", "x": 0, "y": 0, "rotation": 0 },
-        { "type": "HeavyHull", "x": -32, "y": 0, "rotation": 0 },
-        { "type": "HeavyHull", "x": 32, "y": 0, "rotation": 0 },
-        { "type": "HeavyHull", "x": 0, "y": -32, "rotation": 0 },
-        { "type": "HeavyHull", "x": 0, "y": 32, "rotation": 0 },        { "type": "LargeGun", "x": -64, "y": 0, "rotation": 0 },
-        { "type": "LargeGun", "x": 64, "y": 0, "rotation": 0 },
-        { "type": "LargeGun", "x": 0, "y": -64, "rotation": 0 },
-        { "type": "LargeEngine", "x": 0, "y": 64, "rotation": 180 },
-        { "type": "LargeEngine", "x": -32, "y": 32, "rotation": 180 },
-        { "type": "LargeEngine", "x": 32, "y": 32, "rotation": 180 },
-        { "type": "LargePowerCell", "x": -32, "y": -32, "rotation": 0 },
-        { "type": "LargePowerCell", "x": 32, "y": -32, "rotation": 0 }
-      ]
-    },
-    {
-      "name": "Capital Fortress",
-      "parts": [
-        { "type": "LargeCockpit", "x": 0, "y": 0, "rotation": 0 },
-        { "type": "HeavyHull", "x": -32, "y": 0, "rotation": 0 },
-        { "type": "HeavyHull", "x": 32, "y": 0, "rotation": 0 },
-        { "type": "HeavyHull", "x": 0, "y": -32, "rotation": 0 },
-        { "type": "HeavyHull", "x": 0, "y": 32, "rotation": 0 },
-        { "type": "HeavyHull", "x": -32, "y": -32, "rotation": 0 },
-        { "type": "HeavyHull", "x": 32, "y": -32, "rotation": 0 },
-        { "type": "HeavyHull", "x": -32, "y": 32, "rotation": 0 },
-        { "type": "HeavyHull", "x": 32, "y": 32, "rotation": 0 },        { "type": "LargeGun", "x": -64, "y": -32, "rotation": 0 },
-        { "type": "LargeGun", "x": 64, "y": -32, "rotation": 0 },        { "type": "LargeGun", "x": -64, "y": 32, "rotation": 0 },
-        { "type": "LargeGun", "x": 64, "y": 32, "rotation": 0 },
-        { "type": "LargeGun", "x": 0, "y": -64, "rotation": 0 },
-        { "type": "LargeGun", "x": 0, "y": 64, "rotation": 0 },
-        { "type": "LargeEngine", "x": -64, "y": 0, "rotation": 270 },
-        { "type": "LargeEngine", "x": 64, "y": 0, "rotation": 90 },
-        { "type": "LargePowerCell", "x": -32, "y": 64, "rotation": 0 },
-        { "type": "LargePowerCell", "x": 32, "y": 64, "rotation": 0 },
-        { "type": "LargePowerCell", "x": -32, "y": -64, "rotation": 0 },
-        { "type": "LargePowerCell", "x": 32, "y": -64, "rotation": 0 }
+        {
+          "type": "Engine",
+          "x": -32,
+          "y": 0,
+          "rotation": 180,
+          "health": 80,
+          "maxHealth": 80
+        },
+        {
+          "type": "PowerCell",
+          "x": -16,
+          "y": 0,
+          "rotation": 0,
+          "health": 40,
+          "maxHealth": 40
+        },
+        {
+          "type": "Cockpit",
+          "x": 0,
+          "y": 0,
+          "rotation": 0,
+          "health": 100,
+          "maxHealth": 100
+        },
+        {
+          "type": "Hull",
+          "x": 16,
+          "y": 0,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Gun",
+          "x": 32,
+          "y": 0,
+          "rotation": 0,
+          "health": 60,
+          "maxHealth": 60
+        }
       ]
     }
   ]
