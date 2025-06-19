@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { GameEngine } from './game/GameEngine';
 import Radar from './components/Radar';
 import LockedTargets from './components/LockedTargets';
-import StatusHUD from './components/StatusHUD';
+import PowerManagement from './components/PowerManagement';
 import ShipSelection from './components/ShipSelection';
 import PartsInfo from './components/PartsInfo';
 import {
@@ -249,10 +249,8 @@ const App: React.FC = () => {
 
           {/* Radar Component */}
           <Radar gameEngine={gameEngine} />
-        </Box>
-
-        {/* Status HUD - Always visible at bottom */}
-        <StatusHUD gameEngine={gameEngine} />
+        </Box>        {/* Power Management - Always visible at bottom */}
+        <PowerManagement gameEngine={gameEngine} />
       </div>
     </ThemeProvider>
   );

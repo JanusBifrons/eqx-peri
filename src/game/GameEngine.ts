@@ -9,6 +9,7 @@ import { ControllerManager } from './ControllerManager';
 import { FlightController } from './FlightController';
 import { ControlInput } from './Controller';
 import { ToastSystem } from './ToastSystem';
+import { PowerSystem } from './PowerSystem';
 
 export class GameEngine {
   private engine: Matter.Engine;
@@ -560,11 +561,13 @@ export class GameEngine {
     // Find an assembly with a control center
     const controllableAssembly = this.assemblies.find(a =>
       a.hasControlCenter() && !a.destroyed
-    );
-
-    if (controllableAssembly) {
+    ); if (controllableAssembly) {
       this.playerAssembly = controllableAssembly;
       this.playerAssembly.isPlayerControlled = true;
+
+      // Initialize power system with new player assembly
+      const powerSystem = PowerSystem.getInstance();
+      powerSystem.setPlayerAssembly(this.playerAssembly);
     }
   } private renderGrid(): void {
     const ctx = this.render.canvas.getContext('2d');

@@ -2,6 +2,7 @@ import * as Matter from 'matter-js';
 import { Entity } from './Entity';
 import { EntityConfig, Vector2, EntityType, ENTITY_DEFINITIONS } from '../types/GameTypes';
 import { ConnectionDetector } from './BlockSystem';
+import { PowerSystem } from './PowerSystem';
 
 export class Assembly {
   public id: string;
@@ -64,11 +65,16 @@ export class Assembly {
     const hasControlCenter = this.entities.some(e => e.isControlCenter());
 
     // Remove destroyed entities and rebuild if needed
-    const activeEntities = this.entities.filter(e => !e.destroyed);
-
-    if (activeEntities.length !== this.entities.length) {
+    const activeEntities = this.entities.filter(e => !e.destroyed); if (activeEntities.length !== this.entities.length) {
       // Some entities were destroyed - we need to rebuild completely
       this.entities = activeEntities;
+
+      // Update power system if this is the player ship
+      if (this.isPlayerControlled) {
+        const powerSystem = PowerSystem.getInstance();
+        powerSystem.setPlayerAssembly(this);
+        powerSystem.updatePowerAfterDamage();
+      }
 
       if (this.entities.length === 0) {
         this.destroy();
@@ -86,19 +92,35 @@ export class Assembly {
   } public applyThrust(thrustInput: Vector2): void {
     if (this.destroyed) return;
 
+    // Check if this is the player assembly and if engines have power
+    if (this.isPlayerControlled) {
+      const powerSystem = PowerSystem.getInstance();
+      if (!powerSystem.canUseThrusters()) {
+        // No engine power - disable all thrust
+        const engines = this.entities.filter(e => e.canProvideThrust());
+        engines.forEach(engine => engine.setThrustLevel(0));
+        return;
+      }
+    }
+
     const engines = this.entities.filter(e => e.canProvideThrust());
-    if (engines.length === 0) return;    // Calculate thrust magnitude for visual effects
+    if (engines.length === 0) return;// Calculate thrust magnitude for visual effects
     const thrustMagnitude = Math.sqrt(thrustInput.x * thrustInput.x + thrustInput.y * thrustInput.y);
 
     // Debug logging disabled to reduce spam
     // if (thrustMagnitude > 0) {
     //   console.log(`🚀 Thrust Input: x=${thrustInput.x.toFixed(2)}, y=${thrustInput.y.toFixed(2)}, engines=${engines.length}`);
-    // }
-
-    // SIMPLIFIED: Apply thrust directly in ship-local coordinates
+    // }    // SIMPLIFIED: Apply thrust directly in ship-local coordinates
     engines.forEach((engine) => {
       // Get engine thrust values
-      const engineThrust = this.getEngineThrust(engine.type);
+      let engineThrust = this.getEngineThrust(engine.type);
+
+      // Apply power efficiency for player ships
+      if (this.isPlayerControlled) {
+        const powerSystem = PowerSystem.getInstance();
+        const efficiency = powerSystem.getEngineEfficiency();
+        engineThrust *= efficiency;
+      }
 
       // Set visual thrust level for this engine
       engine.setThrustLevel(thrustMagnitude);
@@ -149,10 +171,28 @@ export class Assembly {
   } public fireWeapons(): Matter.Body[] {
     if (this.destroyed) return [];
 
-    const currentTime = Date.now();
+    // Check if this is the player assembly and if weapons have power
+    if (this.isPlayerControlled) {
+      const powerSystem = PowerSystem.getInstance();
+      if (!powerSystem.canFireWeapons()) {
+        // No weapon power - cannot fire
+        return [];
+      }
+    } const currentTime = Date.now();
+
+    // Calculate effective firing rate based on weapon power for player ships
+    let effectiveFireRate = this.fireRate;
+    if (this.isPlayerControlled) {
+      const powerSystem = PowerSystem.getInstance();
+      const weaponEfficiency = powerSystem.getWeaponEfficiency();
+      // More power = faster firing (lower fire rate delay)
+      // At 0% efficiency: fireRate * 3 (much slower)
+      // At 100% efficiency: fireRate * 1 (normal speed)
+      effectiveFireRate = this.fireRate * (3 - 2 * weaponEfficiency);
+    }
 
     // Enforce firing rate limit
-    if (currentTime - this.lastFireTime < this.fireRate) {
+    if (currentTime - this.lastFireTime < effectiveFireRate) {
       return []; // Can't fire yet, return empty array
     } const weapons = this.entities.filter(e => e.canFire());
     const lasers: Matter.Body[] = [];
