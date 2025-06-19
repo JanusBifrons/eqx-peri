@@ -32,13 +32,13 @@ export class GameEngine {
   // Player command system
   private playerCommand: string | null = null;
   private playerCommandTarget: Assembly | null = null;
-  private zoomLevel: number = 1.5; // Will be calculated based on window size
-  private minZoom: number = 0.1; // Allow zooming out much further
+  private zoomLevel: number = 0.05; // Will be calculated based on window size
+  private minZoom: number = 0.01; // Allow zooming out much further
   private maxZoom: number = 4; // Allow zooming in more
   private lastFrameTime: number = 0;
   private controllerManager: ControllerManager = new ControllerManager();
-  private flightController: FlightController | null = null; // Advanced flight control  // Zoom control properties
-  private baseZoomLevel: number = 0.2; // Start closer so speed-based zoom out is more noticeable
+  private flightController: FlightController | null = null;  // Advanced flight control  // Zoom control properties
+  private baseZoomLevel: number = 0.05; // Start much further out to see more of the battlefield
   private speedBasedZoomEnabled: boolean = true;
   // private zoomSmoothingFactor: number = 0.02; // Smooth transitions - currently unused
 
@@ -134,19 +134,17 @@ export class GameEngine {
   private calculateDefaultZoom(containerWidth: number, containerHeight: number): void {
     // Base zoom calculation - larger windows should zoom out more to show more battlefield
     const minDimension = Math.min(containerWidth, containerHeight);
-    const maxDimension = Math.max(containerWidth, containerHeight);
-
-    // Calculate base zoom - smaller windows get closer zoom, larger windows get further zoom
-    let baseZoom = 1.5; // Default for small screens
+    const maxDimension = Math.max(containerWidth, containerHeight);    // Calculate base zoom - smaller windows get closer zoom, larger windows get further zoom
+    let baseZoom = 0.3; // Default for small screens - much further out
 
     if (minDimension >= 800) {
       // Large screens - zoom out more to show more of the battlefield
       const sizeMultiplier = Math.min(minDimension / 800, 2.5); // Cap at 2.5x multiplier
-      baseZoom = 1.5 / sizeMultiplier; // Inverse relationship - larger screen = smaller zoom = more zoomed out
+      baseZoom = 0.3 / sizeMultiplier; // Inverse relationship - larger screen = smaller zoom = more zoomed out
     } else if (minDimension >= 600) {
       // Medium screens - moderate zoom out
       const sizeMultiplier = minDimension / 600;
-      baseZoom = 1.5 / (1 + (sizeMultiplier - 1) * 0.5);
+      baseZoom = 0.3 / (1 + (sizeMultiplier - 1) * 0.5);
     }
 
     // Adjust for very wide screens (ultrawide monitors) - zoom out even more
@@ -767,7 +765,6 @@ export class GameEngine {
       }
     });    // Add click event for target selection
     this.render.canvas.addEventListener('click', (event) => {
-      console.log('🖱️ Click event detected at:', event.clientX, event.clientY);
       this.handleCanvasClick(event);
     });
 
@@ -1180,8 +1177,8 @@ export class GameEngine {
     this.toastSystem.showGameEvent("🚀 Battle Initialized!");    // Spawn player team (Team 0) - Blue team close left
     this.spawnTeam(0, -800, 0, 1, true); // Only spawn 1 player ship
 
-    // Disable enemy team spawning for testing
-    // this.spawnTeam(1, 800, 0, 4, false); // Much closer - only 800 units right
+    // Spawn enemy team (Team 1) - Red team on the right
+    this.spawnTeam(1, 800, 0, 1, false); // 1 enemy AI ship
 
     console.log('⚔️ Battle initialized with player and AI teams!');
     this.toastSystem.showSuccess("Teams deployed - engage!");
@@ -1357,6 +1354,14 @@ export class GameEngine {
     console.log('🎯 Player ship turned to face target');
   }
 
+  public getAssemblyById(id: string): Assembly | null {
+    return this.assemblies.find(a => a.id === id) || null;
+  }
+
+  public getAllAssemblies(): Assembly[] {
+    return [...this.assemblies]; // Return a copy to prevent external modification
+  }
+
   public selectAssemblyById(id: string): void {
     console.log('🎯 GameEngine: Selecting assembly by ID:', id);
     const assembly = this.assemblies.find(a => a.id === id);
@@ -1396,9 +1401,17 @@ export class GameEngine {
           break;
         case 'keepDistance':
           console.log('📏 Setting player to maintain distance from target:', this.playerCommandTarget?.shipName);
-          break;
-        case 'lockOn':
+          break; case 'lockOn':
           console.log('🔒 Setting player to lock onto target:', this.playerCommandTarget?.shipName);
+          // Also add target to weapon targeting system
+          if (this.playerCommandTarget) {
+            this.playerAssembly.lockTarget(this.playerCommandTarget);
+            // Set as primary target if it's the first lock
+            if (this.playerAssembly.primaryTarget === null) {
+              this.playerAssembly.setPrimaryTarget(this.playerCommandTarget);
+            }
+            this.toastSystem.showSuccess(`🔒 Locked: ${this.playerCommandTarget.shipName}`);
+          }
           break;
         case 'stop':
           console.log('🛑 Clearing all player commands');
@@ -1551,7 +1564,7 @@ export class GameEngine {
     this.baseZoomLevel = Math.max(this.baseZoomLevel * 0.67, this.minZoom);
     console.log(`🔍 Zoom Out: ${this.baseZoomLevel.toFixed(2)}`);
   } public resetZoom(): void {
-    this.baseZoomLevel = 0.2;
+    this.baseZoomLevel = 0.05;
     console.log(`🔍 Reset Zoom: ${this.baseZoomLevel.toFixed(2)}`);
   }
 
@@ -1753,9 +1766,7 @@ export class GameEngine {
         console.log(`🔍 Regular ship: ${selectedShip.name} - using normal zoom`);
       }
     }
-  }
-
-  private handleCanvasClick(event: MouseEvent): void {
+  } private handleCanvasClick(event: MouseEvent): void {
     const rect = this.render.canvas.getBoundingClientRect();
     const screenX = event.clientX - rect.left;
     const screenY = event.clientY - rect.top;
@@ -1787,8 +1798,7 @@ export class GameEngine {
       }
       this.selectAssembly(null);
     }
-  }
-  private handleTargetClick(assembly: Assembly): void {
+  } private handleTargetClick(assembly: Assembly): void {
     if (!this.playerAssembly || this.playerAssembly.destroyed) return;
 
     // Toggle target lock

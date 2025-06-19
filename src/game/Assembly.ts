@@ -744,10 +744,10 @@ export class Assembly {
   public updateWeaponAiming(): void {
     if (this.destroyed) return;
 
-    const weapons = this.entities.filter(e => e.canFire());
-
-    weapons.forEach(weapon => {
-      // Determine what the weapon should aim at
+    const weapons = this.entities.filter(e => e.canFire()); weapons.forEach(weapon => {
+      // Weapon targeting priority order:
+      // 1. Primary target assembly (highest priority)
+      // 2. Mouse cursor position (fallback)
       let aimingTarget: Vector2 | null = null;
 
       if (this.primaryTarget && !this.primaryTarget.destroyed) {

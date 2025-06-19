@@ -32,9 +32,6 @@ interface RadarProps {
 }
 
 const CompactPaper = styled(Paper)(() => ({
-    position: 'absolute',
-    top: 10,
-    right: 10,
     width: 280,
     maxHeight: '60vh',
     backgroundColor: 'rgba(0, 0, 0, 0.85)',
@@ -178,13 +175,36 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
         }
     }; const handleLockOn = (ship: any) => {
         if (gameEngine && ship) {
-            console.log('🔒 Lock on command for:', ship.shipName || ship.id);
-            gameEngine.setPlayerCommand('lockOn', ship.id);
-            setActiveCommand('lockOn');
-            setCommandTarget(ship.id);
+            console.log('🔒 Lock on target (passive):', ship.shipName || ship.id);
+            // Find the target assembly and use passive target locking instead of active steering command
+            const targetAssembly = gameEngine.getAllAssemblies().find((a: any) => a.id === ship.id);
+            if (targetAssembly) {
+                const playerAssembly = gameEngine.getPlayerAssembly();
+                if (playerAssembly) {
+                    if (playerAssembly.isTargetLocked(targetAssembly)) {
+                        playerAssembly.unlockTarget(targetAssembly);
+                        console.log('🔓 Unlocked target:', targetAssembly.shipName);
+                    } else {
+                        playerAssembly.lockTarget(targetAssembly);
+                        console.log('🔒 Locked target:', targetAssembly.shipName);
+
+                        // Set as primary target if it's the first lock
+                        if (playerAssembly.primaryTarget === null) {
+                            playerAssembly.setPrimaryTarget(targetAssembly);
+                            console.log('🎯 Set as primary target:', targetAssembly.shipName);
+                        }
+                    }
+                }
+            }
         }
     }; const isCommandActive = (command: string, ship: any) => {
         return activeCommand === command && commandTarget === ship.id;
+    }; const isTargetLocked = (ship: any) => {
+        if (!gameEngine || !ship) return false;
+        const playerAssembly = gameEngine.getPlayerAssembly();
+        if (!playerAssembly) return false;
+        const targetAssembly = gameEngine.getAllAssemblies().find((a: any) => a.id === ship.id);
+        return targetAssembly ? playerAssembly.isTargetLocked(targetAssembly) : false;
     };
 
     const handleClearCommand = () => {
@@ -546,22 +566,21 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
                                         }}
                                     >
                                         Keep Dist.
-                                    </Button>
-                                    <Button
+                                    </Button>                                    <Button
                                         size="small"
-                                        variant={isCommandActive('lockOn', selectedShip) ? 'contained' : 'outlined'}
+                                        variant={isTargetLocked(selectedShip) ? 'contained' : 'outlined'}
                                         onClick={() => handleLockOn(selectedShip)}
                                         startIcon={<GpsFixed sx={{ fontSize: '12px !important' }} />}
                                         sx={{
                                             fontSize: '0.65rem',
-                                            color: isCommandActive('lockOn', selectedShip) ? '#000' : '#ff4444',
+                                            color: isTargetLocked(selectedShip) ? '#000' : '#ff4444',
                                             borderColor: '#ff4444',
-                                            backgroundColor: isCommandActive('lockOn', selectedShip) ? '#ff4444' : 'transparent',
+                                            backgroundColor: isTargetLocked(selectedShip) ? '#ff4444' : 'transparent',
                                             minHeight: 24,
                                             gridColumn: '1 / -1', // Span both columns
                                             '&:hover': {
                                                 borderColor: '#dd2222',
-                                                backgroundColor: isCommandActive('lockOn', selectedShip) ? '#dd2222' : 'rgba(255, 68, 68, 0.1)'
+                                                backgroundColor: isTargetLocked(selectedShip) ? '#dd2222' : 'rgba(255, 68, 68, 0.1)'
                                             }
                                         }}
                                     >

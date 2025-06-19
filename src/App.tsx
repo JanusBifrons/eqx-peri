@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { GameEngine } from './game/GameEngine';
 import Radar from './components/Radar';
+import LockedTargets from './components/LockedTargets';
 import StatusHUD from './components/StatusHUD';
 import ShipSelection from './components/ShipSelection';
 import PartsInfo from './components/PartsInfo';
@@ -230,10 +231,25 @@ const App: React.FC = () => {
           onShipSelect={playerDestroyed ? handleRespawn : handleShipSelect}
           onClose={() => { }} // Don't allow closing without selection
           title={playerDestroyed ? "Your Ship Was Destroyed - Select New Ship" : "Select Your Ship"}
-        />
+        />        {/* Right-side UI Container */}
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 10,
+            right: 10,
+            display: 'flex',
+            flexDirection: 'row',
+            gap: 1,
+            alignItems: 'flex-start',
+            zIndex: 1000
+          }}
+        >
+          {/* Locked Targets Component */}
+          <LockedTargets gameEngine={gameEngine} />
 
-        {/* Radar Component - Always visible */}
-        <Radar gameEngine={gameEngine} />
+          {/* Radar Component */}
+          <Radar gameEngine={gameEngine} />
+        </Box>
 
         {/* Status HUD - Always visible at bottom */}
         <StatusHUD gameEngine={gameEngine} />
