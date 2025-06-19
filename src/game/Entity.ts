@@ -11,13 +11,17 @@ export class Entity {
   public rotation: number; public flashTimer: number = 0;
   public isFlashing: boolean = false;
   private originalFillStyle: string = '';
-
   // New properties for visual effects
   public thrustLevel: number = 0; // 0-1, how much thrust is being applied
   public isFiring: boolean = false;
   public fireFlashTimer: number = 0;
   public thrustParticles: Array<{ x: number, y: number, age: number, maxAge: number }> = [];
   private readonly MAX_PARTICLES = 4; // Reduced from 8
+
+  // Weapon aiming state for smooth turret rotation
+  public currentAimAngle: number = 0; // Current turret angle relative to weapon's natural direction
+  public targetAimAngle: number = 0; // Desired turret angle
+  public aimRotationSpeed: number = 0.005; // Radians per second rotation speed - extremely slow for testing
 
   constructor(config: EntityConfig) {
     this.id = Math.random().toString(36).substr(2, 9);
@@ -409,7 +413,6 @@ export class Entity {
     this.isFiring = true;
     this.fireFlashTimer = 100; // Reduced flash duration (100ms instead of 200ms)
   }
-
   public updateVisualEffects(deltaTime: number): void {
     // Update weapon fire flash
     if (this.fireFlashTimer > 0) {
@@ -418,6 +421,9 @@ export class Entity {
         this.isFiring = false;
       }
     }
+
+    // Update weapon aiming rotation smoothly
+    this.updateWeaponAiming(deltaTime);
 
     // Update thrust particles
     this.updateThrustParticles(deltaTime);
@@ -504,6 +510,44 @@ export class Entity {
 
   public isControlCenter(): boolean {
     return (this.type === 'Cockpit' || this.type === 'LargeCockpit' || this.type === 'CapitalCore') && !this.destroyed;
+  }
+  private updateWeaponAiming(deltaTime: number): void {
+    // Only update aiming for weapons
+    if (!this.canFire()) return;
+
+    // Smoothly rotate current aim angle toward target aim angle
+    let angleDiff = this.targetAimAngle - this.currentAimAngle;
+
+    // Normalize angle difference
+    while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+    while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;    // Apply rotation at limited speed for mechanical feel
+    const maxRotationThisFrame = this.aimRotationSpeed * deltaTime;
+
+    if (Math.abs(angleDiff) <= maxRotationThisFrame) {
+      // Close enough, snap to target
+      this.currentAimAngle = this.targetAimAngle;
+    } else {
+      // Rotate toward target at limited speed
+      if (angleDiff > 0) {
+        this.currentAimAngle += maxRotationThisFrame;
+      } else {
+        this.currentAimAngle -= maxRotationThisFrame;
+      }
+    }
+
+    // Keep current angle in reasonable range
+    while (this.currentAimAngle > Math.PI) this.currentAimAngle -= 2 * Math.PI;
+    while (this.currentAimAngle < -Math.PI) this.currentAimAngle += 2 * Math.PI;
+  }
+
+  public setTargetAimAngle(angle: number): void {
+    this.targetAimAngle = angle;
+  }
+
+  public getCurrentFiringAngle(assemblyAngle: number): number {
+    const weaponLocalAngle = this.rotation * Math.PI / 180;
+    const weaponNaturalAngle = assemblyAngle + weaponLocalAngle;
+    return weaponNaturalAngle + this.currentAimAngle;
   }
 }
 

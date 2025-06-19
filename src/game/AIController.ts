@@ -275,15 +275,8 @@ export class AIController {
         if (!this.state.target || this.state.target.destroyed) return;
 
         const currentTime = Date.now();
-        if (currentTime - this.state.lastFireTime < this.assembly.fireRate) return;
-
-        // Calculate angle to target
-        const myPos = this.assembly.rootBody.position;
-        const targetPos = this.state.target.rootBody.position;
-        const targetAngle = Math.atan2(targetPos.y - myPos.y, targetPos.x - myPos.x);
-
-        // Fire weapons
-        const bullets = this.assembly.fireWeapons(targetAngle);
+        if (currentTime - this.state.lastFireTime < this.assembly.fireRate) return;        // Fire weapons
+        const bullets = this.assembly.fireWeapons();
         if (bullets.length > 0) {
             this.state.lastFireTime = currentTime;
             // Notify game engine about new bullets (this will be handled by the game engine)

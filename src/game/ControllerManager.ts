@@ -71,7 +71,7 @@ export class ControllerManager {
 
         // Fire weapons
         if (input.fire) {
-            const newBullets = assembly.fireWeapons(input.targetAngle);
+            const newBullets = assembly.fireWeapons();
             bullets.push(...newBullets);
         }
 

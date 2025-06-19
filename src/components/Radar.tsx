@@ -378,23 +378,24 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
                                         cursor: 'pointer',
                                         '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.05)' }
                                     }}
-                                >
-                                    <TableCell>
-                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>                                            <RadarDot
-                                            team={ship.team}
-                                            isPlayer={ship.isPlayer}
-                                            isSelected={selectedShip?.id === ship.id}
-                                            isDebris={ship.isDebris || false}
-                                        />                                            <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
+                                >                                    <TableCell>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                            <RadarDot
+                                                team={ship.team}
+                                                isPlayer={ship.isPlayer}
+                                                isSelected={selectedShip?.id === ship.id}
+                                                isDebris={ship.isDebris || false}
+                                            />
+                                            <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
                                                 {ship.isDebris ? 'Debris' : (ship.shipName || `Ship-${ship.id.slice(-4)}`)}
                                             </Typography>
-                                        </Box>
-                                    </TableCell>
+                                        </Box>                                    </TableCell>
                                     <TableCell align="right">
                                         <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
                                             {ship.distance ? Math.round(ship.distance) : 0}
                                         </Typography>
-                                    </TableCell>                                    <TableCell align="center">
+                                    </TableCell>
+                                    <TableCell align="center">
                                         <Chip
                                             label={
                                                 ship.isDebris ? 'DBR' :

@@ -28,9 +28,7 @@ export class Assembly {
     this.entities = entityConfigs.map(config => new Entity(config));
 
     // Calculate expected total mass
-    const expectedTotalMass = this.entities.reduce((sum, e) => sum + e.body.mass, 0);
-    console.log(`🏗️ Creating Assembly with ${this.entities.length} parts, expected total mass: ${expectedTotalMass}`);
-    this.entities.forEach(e => console.log(`  - ${e.type}: mass ${e.body.mass}`));
+    const expectedTotalMass = this.entities.reduce((sum, e) => sum + e.body.mass, 0);    // Assembly created with combined mass
 
     // Create root body with realistic physics settings
     this.rootBody = Matter.Body.create({
@@ -42,7 +40,7 @@ export class Assembly {
     });
 
     // Debug: Check if Matter.js calculated the mass correctly
-    console.log(`🏗️ Matter.js calculated root body mass: ${this.rootBody.mass} (expected: ${expectedTotalMass})`);
+    // Create the Matter.js compound body
     if (Math.abs(this.rootBody.mass - expectedTotalMass) > 0.1) {
       console.warn(`⚠️ Mass mismatch! Matter.js mass: ${this.rootBody.mass}, calculated: ${expectedTotalMass}`);
     }
@@ -148,7 +146,7 @@ export class Assembly {
       (desiredAngularVelocity - currentAngularVelocity) * dampening;
 
     Matter.Body.setAngularVelocity(this.rootBody, newAngularVelocity);
-  }  public fireWeapons(targetAngle?: number, targetPosition?: Vector2): Matter.Body[] {
+  } public fireWeapons(): Matter.Body[] {
     if (this.destroyed) return [];
 
     const currentTime = Date.now();
@@ -156,36 +154,16 @@ export class Assembly {
     // Enforce firing rate limit
     if (currentTime - this.lastFireTime < this.fireRate) {
       return []; // Can't fire yet, return empty array
-    }
-
-    const weapons = this.entities.filter(e => e.canFire());
+    } const weapons = this.entities.filter(e => e.canFire());
     const lasers: Matter.Body[] = [];
 
     weapons.forEach(weapon => {
       // Trigger visual firing effect
       weapon.triggerWeaponFire();
 
-      // Calculate weapon-specific aiming angle with priority:
-      // 1. Primary target if available and in arc
-      // 2. Cursor position if available and in arc
-      // 3. Specified target position if available and in arc
-      // 4. Target angle or weapon natural direction
-      let weaponTargetAngle = targetAngle;
-      let aimingTarget: Vector2 | null = null;
-
-      if (this.primaryTarget && !this.primaryTarget.destroyed) {
-        aimingTarget = this.primaryTarget.rootBody.position;
-      } else if (this.cursorPosition) {
-        aimingTarget = this.cursorPosition;
-      } else if (targetPosition) {
-        aimingTarget = targetPosition;
-      }
-
-      if (aimingTarget && this.canWeaponAimAtTarget(weapon, aimingTarget)) {
-        weaponTargetAngle = this.calculateWeaponAimAngle(weapon, aimingTarget);
-      }
-
-      const laser = this.createLaser(weapon, weaponTargetAngle);
+      // Fire using the weapon's current (smoothly interpolated) aiming angle
+      const currentFiringAngle = weapon.getCurrentFiringAngle(this.rootBody.angle);
+      const laser = this.createLaser(weapon, currentFiringAngle);
       if (laser) {
         lasers.push(laser);
       }
@@ -200,7 +178,7 @@ export class Assembly {
   public canWeaponAimAtTarget(weapon: Entity, targetPosition: Vector2): boolean {
     const weaponAngle = this.calculateWeaponAimAngle(weapon, targetPosition);
     const weaponNaturalAngle = this.rootBody.angle + (weapon.rotation * Math.PI / 180);
-    
+
     // Normalize angle difference
     let angleDiff = weaponAngle - weaponNaturalAngle;
     while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
@@ -211,51 +189,50 @@ export class Assembly {
     return Math.abs(angleDiff) <= aimingArc / 2;
   }
 
-  private calculateWeaponAimAngle(weapon: Entity, targetPosition: Vector2): number {
+  public calculateWeaponAimAngle(weapon: Entity, targetPosition: Vector2): number {
     const weaponWorldPos = weapon.body.position;
     return Math.atan2(
       targetPosition.y - weaponWorldPos.y,
       targetPosition.x - weaponWorldPos.x
     );
   }
-
-  private getWeaponAimingArc(weaponType: string): number {
-    // Return aiming arc in radians
+  public getWeaponAimingArc(weaponType: string): number {
+    // Return aiming arc in radians - significantly widened for debugging
     switch (weaponType) {
       case 'Gun':
       case 'Cockpit':
-        return Math.PI / 6; // 30 degrees total arc (15 degrees each side)
+        return Math.PI; // 180 degrees total arc (90 degrees each side)
       case 'LargeGun':
       case 'LargeCockpit':
-        return Math.PI / 4; // 45 degrees total arc
+        return Math.PI * 1.2; // 216 degrees total arc
       case 'CapitalWeapon':
       case 'CapitalCore':
-        return Math.PI / 3; // 60 degrees total arc
+        return Math.PI * 1.5; // 270 degrees total arc
       default:
-        return Math.PI / 6; // Default 30 degrees
+        return Math.PI; // Default 180 degrees
     }
-  }  private createLaser(weapon: Entity, targetAngle?: number): Matter.Body | null {
+  } private createLaser(weapon: Entity, targetAngle?: number): Matter.Body | null {
     // Calculate laser spawn position and direction
     const weaponWorldPos = weapon.body.position;
     const assemblyAngle = this.rootBody.angle;
     const weaponLocalAngle = weapon.rotation * Math.PI / 180;
 
     let firingAngle: number;
-    
+
     if (targetAngle !== undefined) {
       // Use target angle but apply aiming arc constraints
       const weaponNaturalAngle = assemblyAngle + weaponLocalAngle;
       let angleDiff = targetAngle - weaponNaturalAngle;
-      
+
       // Normalize angle difference
       while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
       while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-      
+
       // Clamp angle difference to weapon's aiming arc
       const aimingArc = this.getWeaponAimingArc(weapon.type);
       const maxAngleDiff = aimingArc / 2;
       angleDiff = Math.max(-maxAngleDiff, Math.min(maxAngleDiff, angleDiff));
-      
+
       firingAngle = weaponNaturalAngle + angleDiff;
     } else {
       // Use weapon's natural direction
@@ -477,7 +454,7 @@ export class Assembly {
   } private findConnectedComponents(): Entity[][] {
     if (this.entities.length <= 1) return [this.entities];
 
-    console.log(`🔍 Finding connected components for ${this.entities.length} entities`);
+
 
     // Build connectivity graph
     const graph = new Map<string, Set<string>>();
@@ -506,11 +483,11 @@ export class Assembly {
         const component: Entity[] = [];
         this.dfsComponent(entity.id, graph, visited, component);
         components.push(component);
-        console.log(`📦 Found component with ${component.length} entities: ${component.map(e => e.type).join(', ')}`);
+
       }
     });
 
-    console.log(`🔧 Total components found: ${components.length}`);
+
     return components;
   } private areEntitiesConnected(entity1: Entity, entity2: Entity): boolean {
     // Use the robust connection detection system
@@ -531,7 +508,7 @@ export class Assembly {
 
     // Debug logging for troubleshooting
     if (isConnected) {
-      console.log(`🔗 Connected: ${entity1.type}(${entityData1.x},${entityData1.y}) -> ${entity2.type}(${entityData2.x},${entityData2.y})`);
+
     }
 
     return isConnected;
@@ -760,9 +737,47 @@ export class Assembly {
     if (!this.primaryTarget || this.primaryTarget.destroyed) {
       return [];
     }
+    return this.fireWeapons();
+  }
 
-    const targetPosition = this.primaryTarget.rootBody.position;
-    return this.fireWeapons(undefined, targetPosition);
+  // Update weapon aiming continuously (called every frame)
+  public updateWeaponAiming(): void {
+    if (this.destroyed) return;
+
+    const weapons = this.entities.filter(e => e.canFire());
+
+    weapons.forEach(weapon => {
+      // Determine what the weapon should aim at
+      let aimingTarget: Vector2 | null = null;
+
+      if (this.primaryTarget && !this.primaryTarget.destroyed) {
+        aimingTarget = this.primaryTarget.rootBody.position;
+      } else if (this.cursorPosition) {
+        aimingTarget = this.cursorPosition;
+      }
+
+      // Calculate desired aiming angle and set it as the weapon's target
+      if (aimingTarget) {
+        const desiredAngle = this.calculateWeaponAimAngle(weapon, aimingTarget);
+        const weaponNaturalAngle = this.rootBody.angle + (weapon.rotation * Math.PI / 180);
+
+        // Calculate the desired rotation relative to weapon's natural direction
+        let desiredRelativeAngle = desiredAngle - weaponNaturalAngle;
+        while (desiredRelativeAngle > Math.PI) desiredRelativeAngle -= 2 * Math.PI;
+        while (desiredRelativeAngle < -Math.PI) desiredRelativeAngle += 2 * Math.PI;
+
+        // Simple clamping to weapon's aiming arc
+        const aimingArc = this.getWeaponAimingArc(weapon.type);
+        const maxAngle = aimingArc / 2;
+        desiredRelativeAngle = Math.max(-maxAngle, Math.min(maxAngle, desiredRelativeAngle));
+
+        // Set the weapon's target aim angle
+        weapon.setTargetAimAngle(desiredRelativeAngle);
+      } else {
+        // No target, return to natural position
+        weapon.setTargetAimAngle(0);
+      }
+    });
   }
 }
 
