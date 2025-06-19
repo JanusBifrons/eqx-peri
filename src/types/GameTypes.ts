@@ -1,6 +1,7 @@
 export type EntityType = 'Cockpit' | 'Engine' | 'Gun' | 'Hull' | 'PowerCell' |
   'LargeCockpit' | 'LargeEngine' | 'LargeGun' | 'HeavyHull' | 'LargePowerCell' |
-  'CapitalCore' | 'CapitalEngine' | 'CapitalWeapon' | 'MegaHull' | 'PowerReactor';
+  'CapitalCore' | 'CapitalEngine' | 'CapitalWeapon' | 'MegaHull' | 'PowerReactor' |
+  'MissileLauncher' | 'LargeMissileLauncher' | 'CapitalMissileLauncher';
 
 export interface EntityConfig {
   type: EntityType;
@@ -299,6 +300,54 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
       { x: -2, y: 2 }, // bottom left
       { x: -4, y: 0 }, // left center
       { x: -2, y: -2 } // top left
+    ]
+  },
+
+  // Missile Launchers
+  MissileLauncher: {
+    type: 'MissileLauncher',
+    width: GRID_SIZE,
+    height: GRID_SIZE,
+    mass: 450, // Similar to guns but slightly heavier
+    defaultHealth: 70,
+    color: '#ff9900', // Orange color for missiles
+    canAttachTo: ['Cockpit', 'Hull', 'PowerCell'],
+    attachmentPoints: [
+      { x: 1, y: 0 },  // right
+      { x: 0, y: 1 },  // bottom
+      { x: -1, y: 0 }  // left
+    ]
+  },
+  LargeMissileLauncher: {
+    type: 'LargeMissileLauncher',
+    width: GRID_SIZE * 2,
+    height: GRID_SIZE * 2,
+    mass: 1800, // 4x mass for 4x size
+    defaultHealth: 180,
+    color: '#ff7700', // Darker orange for large launchers
+    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell'],
+    attachmentPoints: [
+      { x: 1, y: 1 },  // bottom right
+      { x: 0, y: 2 },  // bottom center
+      { x: -1, y: 1 }, // bottom left
+      { x: -2, y: 0 }, // left center
+      { x: 2, y: 0 }   // right center
+    ]
+  },
+  CapitalMissileLauncher: {
+    type: 'CapitalMissileLauncher',
+    width: GRID_SIZE * 4,
+    height: GRID_SIZE * 4,
+    mass: 7200, // 16x mass for 16x size
+    defaultHealth: 720,
+    color: '#ff5500', // Even darker orange for capital launchers
+    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'MegaHull', 'PowerReactor'],
+    attachmentPoints: [
+      { x: 2, y: 2 },  // bottom right
+      { x: 0, y: 4 },  // bottom center
+      { x: -2, y: 2 }, // bottom left
+      { x: -4, y: 0 }, // left center
+      { x: 4, y: 0 }   // right center
     ]
   }
 };

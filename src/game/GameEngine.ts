@@ -1,6 +1,6 @@
 import * as Matter from 'matter-js';
 import Stats from 'stats.js';
-import { Assembly } from './Assembly';
+import { Assembly, MissileLaunchRequest } from './Assembly';
 import { Entity } from './Entity';
 import { EntityConfig, GRID_SIZE, ENTITY_DEFINITIONS, EntityType } from '../types/GameTypes';
 import { getBlockDefinition, BLOCK_SIZE } from './BlockSystem';
@@ -10,13 +10,14 @@ import { FlightController } from './FlightController';
 import { ControlInput } from './Controller';
 import { ToastSystem } from './ToastSystem';
 import { PowerSystem } from './PowerSystem';
+import { MissileSystem } from './MissileSystem';
 
 export class GameEngine {
   private engine: Matter.Engine;
-  private render: Matter.Render;
-  private world: Matter.World;
+  private render: Matter.Render; private world: Matter.World;
   private assemblies: Assembly[] = [];
   private bullets: Matter.Body[] = [];
+  private missileSystem: MissileSystem;
   private playerAssembly: Assembly | null = null;
   private keys: Set<string> = new Set();
   private running: boolean = false;
@@ -120,10 +121,11 @@ export class GameEngine {
     this.stats.dom.style.right = '10px';
     this.stats.dom.style.top = '10px';
     this.stats.dom.style.zIndex = '1000';
-    container.appendChild(this.stats.dom);
-
-    // Initialize toast system
+    container.appendChild(this.stats.dom);    // Initialize toast system
     this.toastSystem = new ToastSystem(container);
+
+    // Initialize missile system
+    this.missileSystem = new MissileSystem(this.world);
 
     // Initialize mouse interaction
     this.setupMouseInteraction();
@@ -181,6 +183,9 @@ export class GameEngine {
         case '1':
           this.spawnShip(Math.random() * 400 - 200, Math.random() * 400 - 200, false);
           break;
+        case '4':
+          this.spawnMissileCorvette(Math.random() * 400 - 200, Math.random() * 400 - 200, false);
+          break;
         case 'r':
           this.initializeBattle(); // Restart battle
           break;
@@ -217,13 +222,17 @@ export class GameEngine {
   } private setupCollisionDetection(): void {
     Matter.Events.on(this.engine, 'collisionStart', (event: { pairs: { bodyA: Matter.Body; bodyB: Matter.Body }[] }) => {
       event.pairs.forEach(pair => {
-        const { bodyA, bodyB } = pair;
-
-        // Check for bullet/laser collisions
+        const { bodyA, bodyB } = pair;        // Check for bullet/laser collisions
         if (bodyA.isBullet && bodyB.entity) {
           this.handleBulletHit(bodyA, bodyB.entity);
         } else if (bodyB.isBullet && bodyA.entity) {
           this.handleBulletHit(bodyB, bodyA.entity);
+        }
+        // Check for missile collisions
+        else if ((bodyA as any).isMissile && bodyB.entity) {
+          this.handleMissileHit((bodyA as any).missile, bodyB.entity);
+        } else if ((bodyB as any).isMissile && bodyA.entity) {
+          this.handleMissileHit((bodyB as any).missile, bodyA.entity);
         }
         // Check for entity-to-entity collisions (for flash effect)
         else if (bodyA.entity && bodyB.entity) {
@@ -349,7 +358,12 @@ export class GameEngine {
         }
       }
     }
-  } public start(): void {
+  } private handleMissileHit(missile: any, entity: Entity): void {
+    // Use the missile system to handle the hit
+    this.missileSystem.handleMissileHit(missile, entity);
+  }
+
+  public start(): void {
     console.log('🚀 Starting GameEngine...');
     if (this.running) return;
 
@@ -372,12 +386,14 @@ export class GameEngine {
     console.log('⚔️ About to initialize team battle...');
     this.initializeBattle();
   }
-
   public stop(): void {
     this.running = false;
     Matter.Render.stop(this.render);
     Matter.Runner.stop(this.runner);
     Matter.Engine.clear(this.engine);
+
+    // Cleanup missile system
+    this.missileSystem.cleanup();
   } private gameLoop(): void {
     if (!this.running) return;
 
@@ -390,13 +406,26 @@ export class GameEngine {
     this.updateCursorWorldPosition();
 
     // Update controllers (handles both player input and AI)
-    const newBullets = this.controllerManager.update(deltaTime, this.assemblies);
-
-    // Add new bullets to physics world
+    const newBullets = this.controllerManager.update(deltaTime, this.assemblies);    // Add new bullets to physics world
     newBullets.forEach(bullet => {
       Matter.World.add(this.world, bullet);
       this.bullets.push(bullet);
     });
+
+    // Handle missile launches from all assemblies
+    this.assemblies.forEach(assembly => {
+      const missileRequests = assembly.getMissileLaunchRequests();
+      missileRequests.forEach(request => {
+        this.missileSystem.createMissile(
+          request.position,
+          request.angle,
+          request.missileType,
+          request.sourceAssemblyId,
+          request.targetAssembly
+        );
+      });
+    });
+
     // Handle additional player input (mouse controls, etc.)
     this.handlePlayerInput();    // Update assemblies
     this.assemblies.forEach(assembly => {
@@ -405,10 +434,11 @@ export class GameEngine {
     });
 
     // Update entity flash effects
-    this.updateEntityFlashes(deltaTime);
-
-    // Update bullets
+    this.updateEntityFlashes(deltaTime);    // Update bullets
     this.updateBullets();
+
+    // Update missile system
+    this.missileSystem.update(deltaTime, this.assemblies);
 
     // Clean up destroyed assemblies
     this.cleanupDestroyedAssemblies();    // Check if player is destroyed and call callback
@@ -697,7 +727,40 @@ export class GameEngine {
     } catch (error) {
       console.error('❌ Error spawning ship:', error);
     }
+  } private spawnMissileCorvette(x: number, y: number, isPlayer: boolean): void {
+    try {
+      console.log(`🚀 Spawning Missile Corvette at (${x}, ${y}), isPlayer: ${isPlayer}`);
+
+      // Find the Missile Corvette ship in the JSON data
+      const ships = shipsData.ships;
+      const missileCorvette = ships.find(ship => ship.name === 'Missile Corvette');
+
+      if (!missileCorvette) {
+        console.error('❌ Missile Corvette ship not found in ships data');
+        return;
+      }
+
+      console.log(`🎯 Found Missile Corvette with ${missileCorvette.parts.length} parts`);
+
+      const assembly = new Assembly(missileCorvette.parts as EntityConfig[], { x, y });
+      console.log(`🔨 Created Missile Corvette assembly with ID: ${assembly.id}`);
+
+      this.assemblies.push(assembly);
+      Matter.World.add(this.world, assembly.rootBody);
+      console.log(`🌍 Added to world, total assemblies: ${this.assemblies.length}`);
+
+      // Set as player if requested
+      if (isPlayer && (!this.playerAssembly || this.playerAssembly.destroyed)) {
+        this.playerAssembly = assembly;
+        assembly.isPlayerControlled = true;
+        this.flightController = new FlightController(assembly);
+        console.log('👤 Set Missile Corvette as player assembly with flight controller');
+      }
+    } catch (error) {
+      console.error('❌ Error spawning Missile Corvette:', error);
+    }
   }
+
   private setupMouseInteraction(): void {
     // Create mouse and mouse constraint for Matter.js
     this.mouse = Matter.Mouse.create(this.render.canvas);
@@ -873,8 +936,7 @@ export class GameEngine {
     Matter.Events.on(this.render, 'afterRender', () => {
       if (this.showGrid) {
         this.renderGrid();
-      }
-      this.renderConnectionPoints();
+      } this.renderConnectionPoints();
       this.renderShipHighlights();
       this.renderAimingDebug(); // Add debug visuals for aiming system
       this.executePlayerCommands(); // Execute player commands each frame

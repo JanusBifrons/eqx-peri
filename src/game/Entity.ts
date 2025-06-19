@@ -88,10 +88,14 @@ export class Entity {
     this.health = 0;
     this.isFlashing = false; // Stop any flashing
     this.updateVisualState();
-  }
-  public canFire(): boolean {
+  } public canFire(): boolean {
     // Traditional weapons
     if ((this.type === 'Gun' || this.type === 'LargeGun' || this.type === 'CapitalWeapon') && !this.destroyed) {
+      return true;
+    }
+
+    // Missile launchers
+    if ((this.type === 'MissileLauncher' || this.type === 'LargeMissileLauncher' || this.type === 'CapitalMissileLauncher') && !this.destroyed) {
       return true;
     }
 
@@ -101,6 +105,12 @@ export class Entity {
     }
 
     return false;
+  }
+
+  public isMissileLauncher(): boolean {
+    return this.type === 'MissileLauncher' ||
+      this.type === 'LargeMissileLauncher' ||
+      this.type === 'CapitalMissileLauncher';
   }
 
   public canProvideThrust(): boolean {

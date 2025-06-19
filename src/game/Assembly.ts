@@ -3,6 +3,16 @@ import { Entity } from './Entity';
 import { EntityConfig, Vector2, EntityType, ENTITY_DEFINITIONS } from '../types/GameTypes';
 import { ConnectionDetector } from './BlockSystem';
 import { PowerSystem } from './PowerSystem';
+import { MissileType } from './Missile';
+
+// Interface for missile launch requests
+export interface MissileLaunchRequest {
+  position: Vector2;
+  angle: number;
+  missileType: MissileType;
+  sourceAssemblyId: string;
+  targetAssembly?: Assembly;
+}
 
 export class Assembly {
   public id: string;
@@ -194,7 +204,7 @@ export class Assembly {
     // Enforce firing rate limit
     if (currentTime - this.lastFireTime < effectiveFireRate) {
       return []; // Can't fire yet, return empty array
-    } const weapons = this.entities.filter(e => e.canFire());
+    } const weapons = this.entities.filter(e => e.canFire() && !e.isMissileLauncher());
     const lasers: Matter.Body[] = [];
 
     weapons.forEach(weapon => {
@@ -213,6 +223,76 @@ export class Assembly {
     this.lastFireTime = currentTime;
 
     return lasers;
+  }
+
+  public getMissileLaunchRequests(): MissileLaunchRequest[] {
+    if (this.destroyed) return [];
+
+    // Check if this is the player assembly and if weapons have power
+    if (this.isPlayerControlled) {
+      const powerSystem = PowerSystem.getInstance();
+      if (!powerSystem.canFireWeapons()) {
+        return [];
+      }
+    }
+
+    const currentTime = Date.now();
+
+    // Calculate effective firing rate
+    let effectiveFireRate = this.fireRate;
+    if (this.isPlayerControlled) {
+      const powerSystem = PowerSystem.getInstance();
+      const weaponEfficiency = powerSystem.getWeaponEfficiency();
+      effectiveFireRate = this.fireRate * (3 - 2 * weaponEfficiency);
+    }
+
+    // Enforce firing rate limit
+    if (currentTime - this.lastFireTime < effectiveFireRate) {
+      return [];
+    }
+
+    const missileLaunchers = this.entities.filter(e => e.isMissileLauncher() && e.canFire());
+    const missileRequests: MissileLaunchRequest[] = [];
+
+    missileLaunchers.forEach(launcher => {
+      // Trigger visual firing effect
+      launcher.triggerWeaponFire();
+
+      // Calculate launch position and angle
+      const launcherWorldPos = launcher.body.position;
+      const currentFiringAngle = launcher.getCurrentFiringAngle(this.rootBody.angle);
+
+      // Determine missile type based on launcher type
+      let missileType: MissileType;
+      switch (launcher.type) {
+        case 'MissileLauncher':
+          missileType = MissileType.HEAT_SEEKER; // Default to heat seekers for small launchers
+          break;
+        case 'LargeMissileLauncher':
+          missileType = MissileType.GUIDED; // Guided missiles for large launchers
+          break;
+        case 'CapitalMissileLauncher':
+          missileType = MissileType.TORPEDO; // Heavy torpedoes for capital launchers
+          break;
+        default:
+          missileType = MissileType.HEAT_SEEKER;
+      }
+
+      // If we have a primary target and it's a guided missile, use it
+      const targetAssembly = (missileType === MissileType.GUIDED && this.primaryTarget && !this.primaryTarget.destroyed)
+        ? this.primaryTarget
+        : undefined;
+
+      missileRequests.push({
+        position: launcherWorldPos,
+        angle: currentFiringAngle,
+        missileType,
+        sourceAssemblyId: this.id,
+        targetAssembly
+      });
+    });
+
+    return missileRequests;
   }
 
   public canWeaponAimAtTarget(weapon: Entity, targetPosition: Vector2): boolean {
