@@ -198,9 +198,7 @@ const PowerManagement: React.FC<PowerManagementProps> = ({ gameEngine }) => {
                 }
             ]
         });
-    };
-
-    const allocatePower = (systemId: string, amount: number) => {
+    };    const allocatePower = (systemId: string, amount: number) => {
         const currentAllocation = powerSystem.getPowerAllocation();
         const system = powerState.systems.find(s => s.id === systemId);
         if (!system) return;
@@ -208,7 +206,9 @@ const PowerManagement: React.FC<PowerManagementProps> = ({ gameEngine }) => {
         const newPower = Math.max(0, Math.min(system.maxPower, system.currentPower + amount));
         const powerChange = newPower - system.currentPower;
 
-        if (powerChange > powerSystem.getAvailablePower()) return;
+        // Only check available power for positive changes (allocation)
+        // Negative changes (deallocation) should always be allowed
+        if (powerChange > 0 && powerChange > powerSystem.getAvailablePower()) return;
 
         const newAllocation = {
             ...currentAllocation,
@@ -217,12 +217,13 @@ const PowerManagement: React.FC<PowerManagementProps> = ({ gameEngine }) => {
 
         powerSystem.setPowerAllocation(newAllocation);
         updatePowerState();
-    };
-
-    const renderPowerSlots = (system: PowerSystemUI) => {
+    };    const renderPowerSlots = (system: PowerSystemUI) => {
         const slots = [];
         for (let i = 0; i < system.maxPower; i++) {
-            const filled = i < system.currentPower;
+            // Fill from bottom to top: bottom slots fill first
+            // So slot at index (maxPower - 1 - i) should be filled if we have enough power
+            const slotFromBottom = system.maxPower - 1 - i;
+            const filled = slotFromBottom < system.currentPower;
             slots.push(
                 <PowerSlot
                     key={i}
@@ -239,12 +240,14 @@ const PowerManagement: React.FC<PowerManagementProps> = ({ gameEngine }) => {
             );
         }
         return slots;
-    };
-
-    const renderPowerCells = () => {
+    };const renderPowerCells = () => {
         const cells = [];
+        const allocatedPower = powerState.totalPower - powerState.availablePower;
+        
         for (let i = 0; i < powerState.totalPower; i++) {
-            const isAllocated = i >= powerState.availablePower;
+            // Top cells should be allocated (dark) first
+            // Bottom cells should remain available (bright) until needed
+            const isAllocated = i < allocatedPower;
             cells.push(
                 <PowerCell key={i} allocated={isAllocated} />
             );

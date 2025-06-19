@@ -30,11 +30,11 @@ export class PowerSystem {
             PowerSystem.instance = new PowerSystem();
         }
         return PowerSystem.instance;
-    }
-
-    public setPlayerAssembly(assembly: Assembly | null): void {
+    }    public setPlayerAssembly(assembly: Assembly | null): void {
+        // Only auto-allocate power if the assembly actually changed
+        const assemblyChanged = this.playerAssembly !== assembly;
         this.playerAssembly = assembly;
-        if (assembly) {
+        if (assembly && assemblyChanged) {
             // Auto-allocate power when new player ship is set
             this.autoAllocateInitialPower();
         }

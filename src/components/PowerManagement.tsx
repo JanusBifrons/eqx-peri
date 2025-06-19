@@ -67,7 +67,9 @@ const PowerSlotsContainer = styled(Box)(() => ({
 }));
 
 // System icon
-const SystemIcon = styled(Box)<{ color: string }>(({ color }) => ({
+const SystemIcon = styled(Box, {
+    shouldForwardProp: (prop) => prop !== 'color'
+})<{ color: string }>(({ color }) => ({
     color: color,
     display: 'flex',
     alignItems: 'center',
@@ -76,7 +78,9 @@ const SystemIcon = styled(Box)<{ color: string }>(({ color }) => ({
 }));
 
 // Power slot (horizontal rectangle, same as power cells)
-const PowerSlot = styled(Box)<{ filled: boolean; color: string }>(({ filled, color }) => ({
+const PowerSlot = styled(Box, {
+    shouldForwardProp: (prop) => prop !== 'filled' && prop !== 'color'
+})<{ filled: boolean; color: string }>(({ filled, color }) => ({
     width: 40,
     height: 12,
     backgroundColor: filled ? color : '#333',
@@ -94,7 +98,9 @@ const PowerSlot = styled(Box)<{ filled: boolean; color: string }>(({ filled, col
 
 
 
-const PowerCell = styled(Box)<{ allocated: boolean }>(({ allocated }) => ({
+const PowerCell = styled(Box, {
+    shouldForwardProp: (prop) => prop !== 'allocated'
+})<{ allocated: boolean }>(({ allocated }) => ({
     width: 40,
     height: 12,
     backgroundColor: allocated ? '#333' : '#FFD700',
@@ -195,9 +201,7 @@ const PowerManagement: React.FC<PowerManagementProps> = ({ gameEngine }) => {
                 }
             ]
         });
-    };
-
-    const allocatePower = (systemId: string, amount: number) => {
+    };    const allocatePower = (systemId: string, amount: number) => {
         const currentAllocation = powerSystem.getPowerAllocation();
         const system = powerState.systems.find(s => s.id === systemId);
         if (!system) return;
@@ -205,19 +209,23 @@ const PowerManagement: React.FC<PowerManagementProps> = ({ gameEngine }) => {
         const newPower = Math.max(0, Math.min(system.maxPower, system.currentPower + amount));
         const powerChange = newPower - system.currentPower;
 
-        if (powerChange > powerSystem.getAvailablePower()) return;
+        // Only check available power for positive changes (allocation)
+        // Negative changes (deallocation) should always be allowed
+        if (powerChange > 0 && powerChange > powerSystem.getAvailablePower()) return;
 
         const newAllocation = {
             ...currentAllocation,
             [systemId]: newPower
-        }; powerSystem.setPowerAllocation(newAllocation);
+        };
+        powerSystem.setPowerAllocation(newAllocation);
         updatePowerState();
-    };
-
-    const renderPowerSlots = (system: PowerSystemUI) => {
+    };    const renderPowerSlots = (system: PowerSystemUI) => {
         const slots = [];
         for (let i = 0; i < system.maxPower; i++) {
-            const filled = i < system.currentPower;
+            // Fill from bottom to top: bottom slots fill first
+            // So slot at index (maxPower - 1 - i) should be filled if we have enough power
+            const slotFromBottom = system.maxPower - 1 - i;
+            const filled = slotFromBottom < system.currentPower;
             slots.push(
                 <PowerSlot
                     key={i}
@@ -234,20 +242,20 @@ const PowerManagement: React.FC<PowerManagementProps> = ({ gameEngine }) => {
             );
         }
         return slots;
-    };
-
-    const renderPowerCells = () => {
+    };const renderPowerCells = () => {
         const cells = [];
+        const allocatedPower = powerState.totalPower - powerState.availablePower;
+        
         for (let i = 0; i < powerState.totalPower; i++) {
-            // Available cells at the bottom, allocated cells at the top
-            const isAllocated = i >= powerState.availablePower;
+            // Top cells should be allocated (dark) first
+            // Bottom cells should remain available (bright) until needed
+            const isAllocated = i < allocatedPower;
             cells.push(
                 <PowerCell key={i} allocated={isAllocated} />
             );
         }
-        // Reverse to show available cells at bottom
-        return cells.reverse();
-    }; if (!playerExists) {
+        return cells;
+    };if (!playerExists) {
         return null; // Hide completely when no player
     }
 

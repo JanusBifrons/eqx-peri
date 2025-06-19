@@ -42,6 +42,8 @@ export class GameEngine {
   private flightController: FlightController | null = null;  // Advanced flight control  // Zoom control properties
   private baseZoomLevel: number = 0.05; // Start much further out to see more of the battlefield
   private speedBasedZoomEnabled: boolean = true;
+  private lastManualZoomTime: number = 0; // Track when player last manually adjusted zoom
+  private manualZoomCooldown: number = 2000; // 2 seconds of reduced speed-based zoom after manual adjustment
   // private zoomSmoothingFactor: number = 0.02; // Smooth transitions - currently unused
 
   // Stats.js for FPS monitoring
@@ -182,6 +184,8 @@ export class GameEngine {
       switch (event.key.toLowerCase()) {
         case '1':
           this.spawnShip(Math.random() * 400 - 200, Math.random() * 400 - 200, false);
+          break;        case '3':
+          this.spawnDebris(Math.random() * 400 - 200, Math.random() * 400 - 200);
           break;
         case '4':
           this.spawnMissileCorvette(Math.random() * 400 - 200, Math.random() * 400 - 200, false);
@@ -334,18 +338,25 @@ export class GameEngine {
         // Replace the old assembly with new ones in our list
         const assemblyIndex = this.assemblies.findIndex(a => a === assembly);
         if (assemblyIndex !== -1) {
-          this.assemblies.splice(assemblyIndex, 1, ...newAssemblies);
-
-          // Add all new assemblies to physics world
+          this.assemblies.splice(assemblyIndex, 1, ...newAssemblies);          // Add all new assemblies to physics world
           newAssemblies.forEach((newAssembly, index) => {
             console.log(`  Assembly ${index}: ${newAssembly.entities.length} parts`);
-            Matter.World.add(this.world, newAssembly.rootBody);            // If this was the player assembly, reassign player control
+            Matter.World.add(this.world, newAssembly.rootBody);            
+            
+            // Convert single-part assemblies without cockpits to debris
+            if (newAssembly.entities.length === 1 && !newAssembly.hasControlCenter()) {
+              newAssembly.setTeam(-1); // Mark as neutral debris
+              newAssembly.setShipName(`${newAssembly.entities[0].type} Debris`);
+              console.log(`🗑️ Converted single part to debris: ${newAssembly.shipName}`);
+            }
+
+            // If this was the player assembly, reassign player control
             if (assembly.isPlayerControlled && newAssembly.isPlayerControlled) {
               this.playerAssembly = newAssembly;
               this.toastSystem.showWarning(`⚠️ Ship damaged! Control transferred to ${newAssembly.shipName}`);
               console.log('👤 Player control transferred to new assembly');
             }
-          });          // If original was player assembly but no new assembly has control, find one
+          });// If original was player assembly but no new assembly has control, find one
           if (assembly.isPlayerControlled && !this.playerAssembly) {
             const newPlayerAssembly = newAssemblies.find(a => a.hasControlCenter());
             if (newPlayerAssembly) {
@@ -761,6 +772,90 @@ export class GameEngine {
     }
   }
 
+  // Add debris spawning method
+  private spawnDebris(x: number, y: number, entityType?: EntityType): void {
+    try {
+      console.log(`🗑️ Spawning debris at (${x}, ${y})`);
+
+      // Pick a random entity type for debris if not specified
+      const debrisTypes: EntityType[] = ['Hull', 'Engine', 'Gun', 'PowerCell', 'HeavyHull', 'LargePowerCell'];
+      const selectedType = entityType || debrisTypes[Math.floor(Math.random() * debrisTypes.length)];
+
+      console.log(`🎲 Selected debris type: ${selectedType}`);
+
+      // Create debris config
+      const debrisConfig: EntityConfig = {
+        type: selectedType,
+        x: 0,
+        y: 0,
+        rotation: Math.floor(Math.random() * 4) * 90, // Random rotation (0, 90, 180, 270)
+        health: 1, // Very low health for debris
+        maxHealth: 10
+      };
+
+      const debrisAssembly = new Assembly([debrisConfig], { x, y });
+      console.log(`🔨 Created debris assembly with ID: ${debrisAssembly.id}`);
+
+      // Set as neutral team (no team affiliation for debris)
+      debrisAssembly.setTeam(-1);
+      debrisAssembly.setShipName(`${selectedType} Debris`);
+
+      // Add random initial velocity to make it float around
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 0.5 + Math.random() * 2; // Random speed between 0.5-2.5
+      Matter.Body.setVelocity(debrisAssembly.rootBody, {
+        x: Math.cos(angle) * speed,
+        y: Math.sin(angle) * speed
+      });
+
+      // Add random spin
+      Matter.Body.setAngularVelocity(debrisAssembly.rootBody, (Math.random() - 0.5) * 0.3);
+
+      this.assemblies.push(debrisAssembly);
+      Matter.World.add(this.world, debrisAssembly.rootBody);
+      console.log(`🌍 Added debris to world, total assemblies: ${this.assemblies.length}`);
+    } catch (error) {
+      console.error('❌ Error spawning debris:', error);
+    }
+  }
+  // Add method to spawn field of debris
+  private spawnDebrisField(centerX: number, centerY: number, count: number, radius: number): void {
+    console.log(`🗑️ Spawning debris field: ${count} pieces in ${radius} unit radius`);
+    
+    // Mix of random debris and broken ship parts
+    for (let i = 0; i < count; i++) {
+      // Random position within radius
+      const angle = Math.random() * Math.PI * 2;
+      const distance = Math.random() * radius;
+      const x = centerX + Math.cos(angle) * distance;
+      const y = centerY + Math.sin(angle) * distance;
+      
+      // 30% chance to spawn broken ship parts (multiple pieces together)
+      if (Math.random() < 0.3) {
+        this.spawnBrokenShipParts(x, y);
+      } else {
+        this.spawnDebris(x, y);
+      }
+    }
+  }
+
+  // Add method to spawn broken ship parts (simulates destroyed ship remains)
+  private spawnBrokenShipParts(x: number, y: number): void {
+    console.log(`💥 Spawning broken ship parts at (${x}, ${y})`);
+    
+    // Create 2-4 parts from a "destroyed" ship
+    const partCount = 2 + Math.floor(Math.random() * 3);
+    const baseTypes: EntityType[] = ['Hull', 'Engine', 'Gun', 'PowerCell'];
+    
+    for (let i = 0; i < partCount; i++) {
+      const offsetX = x + (Math.random() - 0.5) * 100; // Spread parts around
+      const offsetY = y + (Math.random() - 0.5) * 100;
+      const partType = baseTypes[Math.floor(Math.random() * baseTypes.length)];
+      
+      this.spawnDebris(offsetX, offsetY, partType);
+    }
+  }
+
   private setupMouseInteraction(): void {
     // Create mouse and mouse constraint for Matter.js
     this.mouse = Matter.Mouse.create(this.render.canvas);
@@ -869,25 +964,23 @@ export class GameEngine {
     // This method is called by the mousedown event handler, but targeting
     // is now handled in handleCanvasClick which is called by the click event
     console.log('🖱️ Right click detected - targeting handled by click event');
-  }
-  private handleMouseWheel(event: WheelEvent): void {
+  }  private handleMouseWheel(event: WheelEvent): void {
     // Zoom in/out based on wheel direction (inverted for natural feel)
     const zoomFactor = event.deltaY > 0 ? 0.9 : 1.1; // Wheel down = zoom out, wheel up = zoom in
-    this.zoomLevel *= zoomFactor;
+    
+    // Apply zoom to baseZoomLevel instead of zoomLevel so it persists and isn't overwritten by speed-based zoom
+    this.baseZoomLevel *= zoomFactor;
 
-    // Clamp zoom level
-    this.zoomLevel = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoomLevel));
+    // Clamp base zoom level
+    this.baseZoomLevel = Math.max(this.minZoom, Math.min(this.maxZoom, this.baseZoomLevel));
+    
+    // Record that the player manually adjusted zoom
+    this.lastManualZoomTime = Date.now();
+    
+    console.log(`🔍 Mouse Wheel Zoom: ${this.baseZoomLevel.toFixed(3)}`);
 
-    // Apply zoom to render bounds
-    const centerX = (this.render.bounds.min.x + this.render.bounds.max.x) / 2;
-    const centerY = (this.render.bounds.min.y + this.render.bounds.max.y) / 2;
-    const width = this.render.canvas.width / this.zoomLevel;
-    const height = this.render.canvas.height / this.zoomLevel;
-
-    Matter.Render.lookAt(this.render, {
-      min: { x: centerX - width / 2, y: centerY - height / 2 },
-      max: { x: centerX + width / 2, y: centerY + height / 2 }
-    });
+    // The actual zoom application will happen in updateCameraWithMouse() which uses this.zoomLevel
+    // this.zoomLevel is calculated in updateSpeedBasedZoom() based on baseZoomLevel
   }
   private updateCameraWithMouse(): void {
     if (!this.playerAssembly || this.playerAssembly.destroyed) return;
@@ -1239,10 +1332,11 @@ export class GameEngine {
     this.spawnTeam(0, -800, 0, 1, true); // Only spawn 1 player ship
 
     // Spawn enemy team (Team 1) - Red team on the right
-    this.spawnTeam(1, 800, 0, 1, false); // 1 enemy AI ship
-
-    console.log('⚔️ Battle initialized with player and AI teams!');
-    this.toastSystem.showSuccess("Teams deployed - engage!");
+    this.spawnTeam(1, 800, 0, 1, false); // 1 enemy AI ship    console.log('⚔️ Battle initialized with player and AI teams!');
+    this.toastSystem.showSuccess("Teams deployed - engage!");    // Add floating debris to make the sector more interesting
+    console.log('🗑️ Adding sector debris...');
+    this.spawnDebrisField(0, 0, 12, 2000); // 12 pieces of debris scattered across 2000 unit radius
+    this.toastSystem.showGameEvent("Debris field detected in sector");
   }
   private spawnTeam(team: number, centerX: number, centerY: number, count: number, hasPlayer: boolean): void {
     const ships = shipsData.ships;
@@ -1298,8 +1392,10 @@ export class GameEngine {
       isPlayer: assembly.isPlayerControlled,
       id: assembly.id,
       shipName: assembly.shipName,
-      shipType: assembly.isPlayerControlled ? 'Player Ship' : 'AI Ship',
-      isDebris: assembly.entities.length === 1 && !assembly.hasControlCenter() // Single part without cockpit = debris
+      shipType: assembly.isPlayerControlled ? 'Player Ship' : 
+                assembly.team === -1 ? 'Debris' :
+                'AI Ship',
+      isDebris: assembly.entities.length === 1 && !assembly.hasControlCenter() || assembly.team === -1 // Single part without cockpit OR neutral team = debris
     }));
 
     return radarData;
@@ -1614,19 +1710,22 @@ export class GameEngine {
       this.playerAssembly!.applyThrust(thrustInput);
     }
   }
-
   // Zoom control methods
   public zoomIn(): void {
     this.baseZoomLevel = Math.min(this.baseZoomLevel * 1.5, this.maxZoom);
+    this.lastManualZoomTime = Date.now();
     console.log(`🔍 Zoom In: ${this.baseZoomLevel.toFixed(2)}`);
   }
 
   public zoomOut(): void {
     this.baseZoomLevel = Math.max(this.baseZoomLevel * 0.67, this.minZoom);
+    this.lastManualZoomTime = Date.now();
     console.log(`🔍 Zoom Out: ${this.baseZoomLevel.toFixed(2)}`);
-  } public resetZoom(): void {
-    this.baseZoomLevel = 0.05;
-    console.log(`🔍 Reset Zoom: ${this.baseZoomLevel.toFixed(2)}`);
+  }  public resetZoom(): void {
+    // Reset to the calculated default zoom for the current window size
+    this.calculateDefaultZoom(this.render.canvas.width, this.render.canvas.height);
+    this.lastManualZoomTime = Date.now();
+    console.log(`🔍 Reset Zoom to calculated default: ${this.baseZoomLevel.toFixed(3)}`);
   }
 
   public toggleSpeedBasedZoom(): boolean {
@@ -1654,17 +1753,31 @@ export class GameEngine {
   }  // Update zoom based on speed - call this in the update loop
   private updateSpeedBasedZoom(): void {
     if (!this.speedBasedZoomEnabled || !this.playerAssembly) {
+      // When speed-based zoom is disabled, use the player's chosen base zoom level
       this.zoomLevel = this.baseZoomLevel;
       return;
     }
 
-    const speed = this.getCurrentSpeed();    // Calculate speed-based zoom adjustment as a percentage (max 15% zoom out)
-    const maxSpeedZoomPercent = 0.15; // Maximum 15% zoom out
-    const speedThreshold = 15; // Reduced from 50 to 15 - speed at which max zoom out is reached
+    const currentTime = Date.now();
+    const timeSinceManualZoom = currentTime - this.lastManualZoomTime;
+    
+    // If player recently manually adjusted zoom, reduce or disable speed-based zoom temporarily
+    let speedZoomInfluence = 1.0;
+    if (timeSinceManualZoom < this.manualZoomCooldown) {
+      // Gradually fade in speed-based zoom over the cooldown period
+      speedZoomInfluence = timeSinceManualZoom / this.manualZoomCooldown;
+    }
+
+    const speed = this.getCurrentSpeed();    
+
+    // Calculate speed-based zoom adjustment as a percentage (max 15% zoom out)
+    const maxSpeedZoomPercent = 0.15 * speedZoomInfluence; // Reduced by manual zoom influence
+    const speedThreshold = 15; // Speed at which max zoom out is reached
     const speedPercent = Math.min(speed / speedThreshold, 1.0);
     const zoomOutPercent = speedPercent * maxSpeedZoomPercent;
 
-    // Apply the zoom out percentage to the base zoom level
+    // Apply the zoom out percentage to the player's chosen base zoom level
+    // This way, speed-based zoom works as an offset from the player's preference
     const targetZoom = this.baseZoomLevel * (1 - zoomOutPercent);
     const clampedTargetZoom = Math.max(this.minZoom, targetZoom);
 
@@ -1673,8 +1786,8 @@ export class GameEngine {
     this.zoomLevel += (clampedTargetZoom - this.zoomLevel) * smoothingFactor;
 
     // Debug logging (uncomment to see zoom changes)
-    // if (speed > 1) {
-    //   console.log(`🔍 Speed: ${speed.toFixed(1)}, ZoomOut%: ${(zoomOutPercent * 100).toFixed(1)}%, Target: ${clampedTargetZoom.toFixed(3)}, Current: ${this.zoomLevel.toFixed(3)}`);
+    // if (speed > 1 || speedZoomInfluence < 1) {
+    //   console.log(`🔍 Speed: ${speed.toFixed(1)}, BaseZoom: ${this.baseZoomLevel.toFixed(3)}, Influence: ${(speedZoomInfluence * 100).toFixed(0)}%, ZoomOut%: ${(zoomOutPercent * 100).toFixed(1)}%, Target: ${clampedTargetZoom.toFixed(3)}, Current: ${this.zoomLevel.toFixed(3)}`);
     // }
   }
 

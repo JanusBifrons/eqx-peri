@@ -467,9 +467,7 @@ export class Assembly {
     this.destroyed = true;
 
     // Create completely new assemblies for each component
-    const newAssemblies: Assembly[] = [];
-
-    components.forEach((component) => {
+    const newAssemblies: Assembly[] = [];    components.forEach((component) => {
       const newAssembly = this.createNewAssemblyFromComponent(
         component,
         currentPosition,
@@ -477,6 +475,18 @@ export class Assembly {
         currentAngularVelocity,
         currentAngle
       );
+      
+      // Set team and naming for broken parts
+      if (component.length === 1 && !newAssembly.hasControlCenter()) {
+        // Single part without cockpit = debris
+        newAssembly.setTeam(-1); // Neutral debris
+        newAssembly.setShipName(`${component[0].type} Debris`);
+      } else {
+        // Multi-part assembly or has cockpit = maintains original team
+        newAssembly.setTeam(this.team);
+        newAssembly.setShipName(`${this.shipName} Fragment`);
+      }
+      
       // Transfer player control to first assembly with a cockpit
       if (wasPlayerControlled && newAssembly.hasControlCenter() && !newAssemblies.some(a => a.isPlayerControlled)) {
         newAssembly.isPlayerControlled = true;
@@ -739,10 +749,9 @@ export class Assembly {
         rotation: (entity.body.angle * 180) / Math.PI,
         health: entity.health,
         maxHealth: entity.maxHealth
-      };
-
-      const debrisAssembly = new Assembly([debrisConfig], entity.body.position);
-      debrisAssembly.setTeam(this.team);
+      };      const debrisAssembly = new Assembly([debrisConfig], entity.body.position);
+      debrisAssembly.setTeam(-1); // Mark as neutral debris
+      debrisAssembly.setShipName(`${entity.type} Debris`);
 
       // Add some random velocity to make it look like an explosion
       const angle = Math.random() * Math.PI * 2;
