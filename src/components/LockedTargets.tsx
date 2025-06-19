@@ -159,9 +159,7 @@ const LockedTargets: React.FC<LockedTargetsProps> = ({ gameEngine }) => {
         return () => clearInterval(interval);
     }, [gameEngine]);
 
-    if (!gameEngine) return null;
-
-    return (<Paper
+    if (!gameEngine) return null; return (<Paper
         elevation={2}
         sx={{
             backgroundColor: 'rgba(0, 0, 0, 0.85)',
@@ -173,7 +171,8 @@ const LockedTargets: React.FC<LockedTargetsProps> = ({ gameEngine }) => {
             maxHeight: '60vh',
             overflowY: 'auto',
             display: 'flex',
-            flexDirection: 'column'
+            flexDirection: 'column',
+            pointerEvents: 'auto' // Allow pointer events only on this component
         }}
     >
         <Typography

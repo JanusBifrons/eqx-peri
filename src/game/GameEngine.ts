@@ -379,10 +379,16 @@ export class GameEngine {
     Matter.Runner.stop(this.runner);
     Matter.Engine.clear(this.engine);
   } private gameLoop(): void {
-    if (!this.running) return;    // Calculate delta time
+    if (!this.running) return;
+
+    // Calculate delta time
     const currentTime = performance.now();
     const deltaTime = (currentTime - (this.lastFrameTime || currentTime)) / 1000; // Convert ms to seconds
     this.lastFrameTime = currentTime;
+
+    // Update cursor position for weapon aiming (every frame)
+    this.updateCursorWorldPosition();
+
     // Update controllers (handles both player input and AI)
     const newBullets = this.controllerManager.update(deltaTime, this.assemblies);
 
@@ -734,19 +740,9 @@ export class GameEngine {
       this.mousePosition = {
         x: event.clientX - rect.left,
         y: event.clientY - rect.top
-      };
-
-      // Update cursor position for weapon aiming if we have a player
+      };      // Update cursor position for weapon aiming if we have a player
       if (this.playerAssembly && !this.playerAssembly.destroyed) {
-        // Convert screen coordinates to world coordinates
-        // Account for zoom level in the coordinate conversion
-        const zoomFactor = this.render.options.hasBounds ?
-          (this.render.bounds.max.x - this.render.bounds.min.x) / this.render.canvas.width : 1;
-
-        const worldX = this.render.bounds.min.x + this.mousePosition.x * zoomFactor;
-        const worldY = this.render.bounds.min.y + this.mousePosition.y * zoomFactor;
-
-        this.playerAssembly.cursorPosition = { x: worldX, y: worldY };
+        this.updateCursorWorldPosition();
       }
 
       // Update hovered assembly
@@ -1755,6 +1751,8 @@ export class GameEngine {
         const zoomForHeight = containerHeight / (shipHeight * paddingFactor);
         const suggestedZoom = Math.min(zoomForWidth, zoomForHeight);
 
+
+
         // Clamp to reasonable bounds and make it even more zoomed out for large ships
         const largeShipZoom = Math.max(this.minZoom, Math.min(suggestedZoom * 0.6, this.baseZoomLevel * 0.5));
 
@@ -2080,5 +2078,19 @@ export class GameEngine {
     });
 
     ctx.restore();
+  }
+
+  private updateCursorWorldPosition(): void {
+    if (!this.playerAssembly || this.playerAssembly.destroyed) return;
+
+    // Convert screen coordinates to world coordinates
+    // Account for zoom level in the coordinate conversion
+    const zoomFactor = this.render.options.hasBounds ?
+      (this.render.bounds.max.x - this.render.bounds.min.x) / this.render.canvas.width : 1;
+
+    const worldX = this.render.bounds.min.x + this.mousePosition.x * zoomFactor;
+    const worldY = this.render.bounds.min.y + this.mousePosition.y * zoomFactor;
+
+    this.playerAssembly.cursorPosition = { x: worldX, y: worldY };
   }
 }

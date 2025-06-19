@@ -36,6 +36,7 @@ const CompactPaper = styled(Paper)(() => ({
     maxHeight: '60vh',
     backgroundColor: 'rgba(0, 0, 0, 0.85)',
     border: '1px solid #333',
+    pointerEvents: 'auto', // Allow pointer events only on this component
     '& .MuiTableCell-root': {
         padding: '4px 8px',
         fontSize: '0.75rem',

@@ -133,9 +133,7 @@ const App: React.FC = () => {
           width: '100%',
           height: '100%',
           border: '2px solid #333'
-        }} />
-
-        {/* Compact Controls Panel */}
+        }} />        {/* Compact Controls Panel */}
         <Paper
           elevation={3}
           sx={{
@@ -145,6 +143,7 @@ const App: React.FC = () => {
             maxWidth: 300,
             p: 1.5,
             borderRadius: 2,
+            pointerEvents: 'auto' // Allow pointer events only on this component
           }}
         >
           <Box sx={{ mb: 1 }}>
@@ -241,7 +240,8 @@ const App: React.FC = () => {
             flexDirection: 'row',
             gap: 1,
             alignItems: 'flex-start',
-            zIndex: 1000
+            zIndex: 1000,
+            pointerEvents: 'none' // Disable pointer events on container
           }}
         >
           {/* Locked Targets Component */}
@@ -249,7 +249,7 @@ const App: React.FC = () => {
 
           {/* Radar Component */}
           <Radar gameEngine={gameEngine} />
-        </Box>        {/* Power Management - Always visible at bottom */}
+        </Box>{/* Power Management - Always visible at bottom */}
         <PowerManagement gameEngine={gameEngine} />
       </div>
     </ThemeProvider>

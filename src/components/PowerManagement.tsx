@@ -47,7 +47,8 @@ const PowerContainer = styled(Box)(() => ({
     borderRadius: 8,
     padding: '8px 16px',
     backdropFilter: 'blur(10px)',
-    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.6)'
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.6)',
+    pointerEvents: 'auto' // Allow pointer events only on this component
 }));
 
 // Individual power bar component (icon + slots)
