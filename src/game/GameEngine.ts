@@ -1305,18 +1305,44 @@ export class GameEngine {
     }
   }  // Method to get radar data for the UI
   public getRadarData() {
-    const radarData = this.assemblies.map(assembly => ({
-      x: assembly.rootBody.position.x,
-      y: assembly.rootBody.position.y,
-      team: assembly.team,
-      isPlayer: assembly.isPlayerControlled,
-      id: assembly.id,
-      shipName: assembly.shipName,
-      shipType: assembly.isPlayerControlled ? 'Player Ship' :
-        assembly.team === -1 ? 'Debris' :
-          'AI Ship',
-      isDebris: assembly.entities.length === 1 && !assembly.hasControlCenter() || assembly.team === -1 // Single part without cockpit OR neutral team = debris
-    }));
+    const radarData: any[] = [];
+
+    // Add all assemblies (ships and debris)
+    this.assemblies.forEach(assembly => {
+      radarData.push({
+        x: assembly.rootBody.position.x,
+        y: assembly.rootBody.position.y,
+        team: assembly.team,
+        isPlayer: assembly.isPlayerControlled,
+        id: assembly.id,
+        shipName: assembly.shipName,
+        shipType: assembly.isPlayerControlled ? 'Player Ship' :
+          assembly.team === -1 ? 'Debris' :
+            'AI Ship',
+        isDebris: assembly.entities.length === 1 && !assembly.hasControlCenter() || assembly.team === -1, // Single part without cockpit OR neutral team = debris
+        objectType: 'ship'
+      });
+    });
+
+    // Add all missiles
+    const missiles = this.missileSystem.getMissiles();
+    missiles.forEach((missile, index) => {
+      if (!missile.destroyed) {
+        radarData.push({
+          x: missile.body.position.x,
+          y: missile.body.position.y,
+          team: -2, // Special team for missiles
+          isPlayer: false,
+          id: `missile-${index}-${missile.sourceAssemblyId}`,
+          shipName: `${missile.config.type.toUpperCase()} Missile`,
+          shipType: 'Missile',
+          isDebris: false,
+          isMissile: true,
+          objectType: 'missile',
+          sourceAssemblyId: missile.sourceAssemblyId
+        });
+      }
+    });
 
     return radarData;
   }

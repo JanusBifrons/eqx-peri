@@ -31,6 +31,20 @@ interface RadarProps {
     gameEngine: GameEngine | null;
 }
 
+// Helper function to format distance
+const formatDistance = (distance: number): string => {
+    if (distance >= 1000000) {
+        return `${(distance / 1000000).toFixed(1)}M`;
+    } else if (distance >= 1000) {
+        return `${(distance / 1000).toFixed(1)}k`;
+    }
+    return Math.round(distance).toString();
+};
+
+interface RadarProps {
+    gameEngine: GameEngine | null;
+}
+
 const CompactPaper = styled(Paper)(() => ({
     width: 280,
     maxHeight: '60vh',
@@ -49,20 +63,28 @@ const CompactPaper = styled(Paper)(() => ({
     }
 }));
 
-const RadarDot = styled('div')<{ team: number; isPlayer: boolean; isSelected: boolean; isDebris: boolean }>(({ team, isPlayer, isSelected, isDebris }) => {
-    // Color logic: Blue for friendly (team 0), Red for enemy (team 1), Green for player, Gray for debris
+const RadarDot = styled('div')<{ team: number; isPlayer: boolean; isSelected: boolean; isDebris: boolean; isMissile?: boolean }>(({ team, isPlayer, isSelected, isDebris, isMissile }) => {
+    // Color logic: Blue for friendly (team 0), Red for enemy (team 1), Green for player, Gray for debris, Yellow for missiles
     const getColor = () => {
         if (isDebris) return '#888888'; // Gray for debris
+        if (isMissile) return '#ffff00'; // Yellow for missiles
         if (isPlayer) return '#00ff00'; // Bright green for player
         if (team === 0) return '#0088ff'; // Blue for friendly team
         if (team === 1) return '#ff4444'; // Red for enemy team
         return '#ffffff'; // White fallback
     };
 
+    const getSize = () => {
+        if (isDebris) return 4; // Smaller dots for debris
+        if (isMissile) return 3; // Very small dots for missiles
+        return 8; // Normal size for ships
+    };
+
+    const size = getSize();
     return {
-        width: isDebris ? 4 : 8, // Smaller dots for debris
-        height: isDebris ? 4 : 8,
-        borderRadius: isDebris ? '50%' : '2px', // Circles for debris, squares for ships
+        width: size,
+        height: size,
+        borderRadius: isMissile ? '50%' : (isDebris ? '50%' : '2px'), // Circles for missiles and debris, squares for ships
         backgroundColor: getColor(),
         border: isSelected ? '2px solid #ffff00' : (isPlayer ? '1px solid #ffffff' : 'none'),
         margin: '0 auto',
@@ -297,9 +319,7 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
                             AUTO
                         </Button>
                     </Box>
-                </Box>
-
-                {/* Radar Legend */}
+                </Box>                {/* Radar Legend */}
                 <Box sx={{ mb: 1, display: 'flex', justifyContent: 'space-around', alignItems: 'center' }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                         <Box sx={{ width: 8, height: 8, backgroundColor: '#00ff00', borderRadius: '2px', boxShadow: '0 0 2px #00ff00' }} />
@@ -316,6 +336,10 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                         <Box sx={{ width: 4, height: 4, backgroundColor: '#888888', borderRadius: '50%' }} />
                         <Typography variant="caption" sx={{ fontSize: '0.6rem', color: '#888888' }}>DEBRIS</Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Box sx={{ width: 3, height: 3, backgroundColor: '#ffff00', borderRadius: '50%' }} />
+                        <Typography variant="caption" sx={{ fontSize: '0.6rem', color: '#ffff00' }}>MISSILE</Typography>
                     </Box>
                 </Box>
 
@@ -340,7 +364,7 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
                         borderRadius: 0.25
                     }}>
                         {(1 / currentZoom).toFixed(0)}x
-                    </Typography>                    {radarData.map((ship) => {
+                    </Typography>                    {radarData.map((item) => {
                         const playerShip = radarData.find(s => s.isPlayer);
                         if (!playerShip) return null;
 
@@ -349,34 +373,36 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
                         const centerY = 60;
                         const radarRange = 10000; // Fixed radar range in game units
                         const radarScale = 50 / radarRange; // Fixed scale: 50 pixels = 10000 units
-                        const x = centerX + (ship.x - playerShip.x) * radarScale;
-                        const y = centerY + (ship.y - playerShip.y) * radarScale;
+                        const x = centerX + (item.x - playerShip.x) * radarScale;
+                        const y = centerY + (item.y - playerShip.y) * radarScale;
 
                         // Keep dots within bounds
                         const clampedX = Math.max(8, Math.min(272, x));
-                        const clampedY = Math.max(8, Math.min(112, y)); return (
+                        const clampedY = Math.max(8, Math.min(112, y));
+
+                        const dotSize = item.isMissile ? 3 : (item.isDebris ? 4 : 8);
+                        return (
                             <RadarDot
-                                key={ship.id}
-                                team={ship.team}
-                                isPlayer={ship.isPlayer}
-                                isSelected={selectedShip?.id === ship.id}
-                                isDebris={ship.isDebris || false}
+                                key={item.id}
+                                team={item.team}
+                                isPlayer={item.isPlayer}
+                                isSelected={selectedShip?.id === item.id}
+                                isDebris={item.isDebris || false}
+                                isMissile={item.isMissile || false}
                                 style={{
                                     position: 'absolute',
-                                    left: clampedX - (ship.isDebris ? 2 : 4), // Adjust positioning for smaller debris dots
-                                    top: clampedY - (ship.isDebris ? 2 : 4)
+                                    left: clampedX - (dotSize / 2),
+                                    top: clampedY - (dotSize / 2)
                                 }}
                             />
                         );
                     })}
                 </Box>
 
-                <Divider sx={{ borderColor: '#333', mb: 1 }} />
-
-                {/* Sector Objects Table */}
+                <Divider sx={{ borderColor: '#333', mb: 1 }} />                {/* Sector Objects Table */}
                 <Typography variant="subtitle2" sx={{ color: '#00ccff', fontSize: '0.8rem', mb: 1 }}>
-                    Sector Objects
-                </Typography>                <TableContainer sx={{ maxHeight: '25vh', overflow: 'auto' }}>
+                    Sector Objects ({radarData.length})
+                </Typography><TableContainer sx={{ maxHeight: '30vh', overflow: 'auto' }}>
                     <Table size="small" stickyHeader>
                         <TableHead>
                             <TableRow>
@@ -384,63 +410,85 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
                                 <TableCell align="right">Dist</TableCell>
                                 <TableCell align="center">Type</TableCell>
                             </TableRow>
-                        </TableHead>
-                        <TableBody>
-                            {radarData.slice(0, 8).map((ship) => (
+                        </TableHead>                        <TableBody>
+                            {radarData.slice(0, 20).map((item) => (
                                 <TableRow
-                                    key={ship.id}
+                                    key={item.id}
                                     hover
                                     onClick={(event) => {
                                         event.preventDefault();
                                         event.stopPropagation();
-                                        handleShipSelect(ship);
+                                        // Only allow selection of ships (not missiles)
+                                        if (!item.isMissile) {
+                                            handleShipSelect(item);
+                                        }
                                     }}
                                     sx={{
-                                        cursor: 'pointer',
-                                        '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.05)' }
+                                        cursor: item.isMissile ? 'default' : 'pointer',
+                                        '&:hover': { backgroundColor: item.isMissile ? 'inherit' : 'rgba(255, 255, 255, 0.05)' }
                                     }}
-                                >                                    <TableCell>
+                                >
+                                    <TableCell>
                                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                             <RadarDot
-                                                team={ship.team}
-                                                isPlayer={ship.isPlayer}
-                                                isSelected={selectedShip?.id === ship.id}
-                                                isDebris={ship.isDebris || false}
+                                                team={item.team}
+                                                isPlayer={item.isPlayer}
+                                                isSelected={selectedShip?.id === item.id}
+                                                isDebris={item.isDebris || false}
+                                                isMissile={item.isMissile || false}
                                             />
                                             <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
-                                                {ship.isDebris ? 'Debris' : (ship.shipName || `Ship-${ship.id.slice(-4)}`)}
+                                                {item.isMissile ? item.shipName :
+                                                    item.isDebris ? 'Debris' : 
+                                                    (item.shipName || `Ship-${item.id.slice(-4)}`)}
                                             </Typography>
-                                        </Box>                                    </TableCell>
+                                        </Box>
+                                    </TableCell>
                                     <TableCell align="right">
                                         <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
-                                            {ship.distance ? Math.round(ship.distance) : 0}
+                                            {item.distance ? formatDistance(item.distance) : '0'}
                                         </Typography>
                                     </TableCell>
                                     <TableCell align="center">
                                         <Chip
                                             label={
-                                                ship.isDebris ? 'DBR' :
-                                                    ship.isPlayer ? 'PLR' :
-                                                        ship.team === 0 ? 'ALLY' : 'ENMY'
+                                                item.isMissile ? 'MSL' :
+                                                    item.isDebris ? 'DBR' :
+                                                        item.isPlayer ? 'PLR' :
+                                                            item.team === 0 ? 'ALLY' : 'ENMY'
                                             }
                                             size="small"
                                             variant="outlined"
                                             sx={{
                                                 height: 16,
                                                 fontSize: '0.6rem',
-                                                color: ship.isDebris ? '#888888' :
-                                                    ship.isPlayer ? '#00ff00' :
-                                                        ship.team === 0 ? '#0088ff' : '#ff4444',
-                                                borderColor: ship.isDebris ? '#888888' :
-                                                    ship.isPlayer ? '#00ff00' :
-                                                        ship.team === 0 ? '#0088ff' : '#ff4444'
+                                                color: item.isMissile ? '#ffff00' :
+                                                    item.isDebris ? '#888888' :
+                                                        item.isPlayer ? '#00ff00' :
+                                                            item.team === 0 ? '#0088ff' : '#ff4444',
+                                                borderColor: item.isMissile ? '#ffff00' :
+                                                    item.isDebris ? '#888888' :
+                                                        item.isPlayer ? '#00ff00' :
+                                                            item.team === 0 ? '#0088ff' : '#ff4444'
                                             }}
                                         />
-                                    </TableCell></TableRow>
-                            ))}
-                        </TableBody>
+                                    </TableCell>
+                                </TableRow>
+                            ))}                        </TableBody>
                     </Table>
-                </TableContainer>                {/* Selected Ship Info */}
+                </TableContainer>
+
+                {radarData.length > 20 && (
+                    <Typography variant="caption" sx={{ 
+                        fontSize: '0.6rem', 
+                        color: '#666', 
+                        textAlign: 'center', 
+                        display: 'block',
+                        mt: 0.5
+                    }}>
+                        Showing 20 of {radarData.length} objects
+                    </Typography>
+                )}{/* Selected Ship Info */}
                 {selectedShip && (
                     <>
                         <Divider sx={{ borderColor: '#333', my: 1 }} />
