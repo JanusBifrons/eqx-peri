@@ -3,7 +3,6 @@ import Stats from 'stats.js';
 import { Assembly } from './Assembly';
 import { Entity } from './Entity';
 import { EntityConfig, GRID_SIZE, ENTITY_DEFINITIONS, EntityType } from '../types/GameTypes';
-import { getBlockDefinition, BLOCK_SIZE } from './BlockSystem';
 import shipsData from '../data/ships.json';
 import { ControllerManager } from './ControllerManager';
 import { FlightController } from './FlightController';
@@ -1098,107 +1097,11 @@ export class GameEngine {
 
     // Restore canvas state
     ctx.restore();
-  } private renderEntityConnectionPoints(ctx: CanvasRenderingContext2D, entity: Entity, bounds: Matter.Bounds): void {
-    const definition = getBlockDefinition(entity.type);
-    if (!definition) return;
-
-    const worldPos = entity.body.position;
-    const blockSizeWorld = BLOCK_SIZE * definition.size.width; // World size of the block
-
-    // Calculate screen scaling factor
-    const screenScale = this.render.canvas.width / (bounds.max.x - bounds.min.x);
-
-    // Draw connection points
-    definition.connectionPoints.forEach((cp: any) => {
-      // Calculate connection point position relative to entity center
-      const cpWorldX = worldPos.x + (cp.position.x * BLOCK_SIZE);
-      const cpWorldY = worldPos.y + (cp.position.y * BLOCK_SIZE);
-
-      // Convert to screen coordinates
-      const cpScreenX = (cpWorldX - bounds.min.x) * this.render.canvas.width / (bounds.max.x - bounds.min.x);
-      const cpScreenY = (cpWorldY - bounds.min.y) * this.render.canvas.height / (bounds.max.y - bounds.min.y);
-
-      // Calculate extension distance beyond block edge
-      const baseExtension = BLOCK_SIZE * 0.3; // How far beyond block edge
-      const extensionWorld = baseExtension;
-
-      // Calculate extended position based on direction
-      let extendedWorldX = cpWorldX;
-      let extendedWorldY = cpWorldY;
-
-      switch (cp.direction) {
-        case 'north': extendedWorldY -= extensionWorld; break;
-        case 'south': extendedWorldY += extensionWorld; break;
-        case 'east': extendedWorldX += extensionWorld; break;
-        case 'west': extendedWorldX -= extensionWorld; break;
-      }
-
-      // Convert extended position to screen coordinates
-      const extScreenX = (extendedWorldX - bounds.min.x) * this.render.canvas.width / (bounds.max.x - bounds.min.x);
-      const extScreenY = (extendedWorldY - bounds.min.y) * this.render.canvas.height / (bounds.max.y - bounds.min.y);
-
-      // Scale connection point size with zoom level
-      const baseRadius = Math.max(4, blockSizeWorld * 0.12 * screenScale);
-      const radius = Math.min(baseRadius, 15); // Cap maximum size
-
-      // Set color based on connection direction with brighter colors
-      let color = '#ffffff';
-      let glowColor = '#ffffff';
-      switch (cp.direction) {
-        case 'north':
-          color = '#00ff66';
-          glowColor = '#88ffaa';
-          break;
-        case 'east':
-          color = '#ff3366';
-          glowColor = '#ff88aa';
-          break;
-        case 'south':
-          color = '#3366ff';
-          glowColor = '#88aaff';
-          break;
-        case 'west':
-          color = '#ffff33';
-          glowColor = '#ffff88';
-          break;
-      }      // Draw connection line from block edge to extended point (almost invisible)
-      ctx.strokeStyle = color;
-      ctx.lineWidth = Math.max(1, radius * 0.1);
-      ctx.setLineDash([]);
-      ctx.globalAlpha = 0.05; // Almost invisible
-      ctx.beginPath();
-      ctx.moveTo(cpScreenX, cpScreenY);
-      ctx.lineTo(extScreenX, extScreenY);
-      ctx.stroke();
-
-      // Draw glow effect around connection point (barely visible)
-      ctx.globalAlpha = 0.03;
-      ctx.fillStyle = glowColor;
-      ctx.beginPath();
-      ctx.arc(extScreenX, extScreenY, radius * 1.2, 0, 2 * Math.PI);
-      ctx.fill();
-
-      // Draw outer circle (connection point) at extended position (very subtle)
-      ctx.globalAlpha = 0.08;
-      ctx.fillStyle = color;
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = Math.max(0.5, radius * 0.05);
-      ctx.beginPath();
-      ctx.arc(extScreenX, extScreenY, radius * 0.4, 0, 2 * Math.PI);
-      ctx.fill();
-      ctx.stroke();
-
-      // Draw inner dot for better visibility (much smaller and more transparent)
-      ctx.globalAlpha = 0.1;
-      ctx.fillStyle = '#000000';
-      ctx.beginPath();
-      ctx.arc(extScreenX, extScreenY, radius * 0.1, 0, 2 * Math.PI);
-      ctx.fill();
-
-      // Reset alpha
-      ctx.globalAlpha = 1.0;
-    });
-  } private renderShipHighlights(): void {
+  }  private renderEntityConnectionPoints(_ctx: CanvasRenderingContext2D, _entity: Entity, _bounds: Matter.Bounds): void {
+    // Connection point rendering temporarily disabled during refactor
+    // TODO: Implement using ENTITY_DEFINITIONS attachment points instead of BlockSystem
+    return;
+  }private renderShipHighlights(): void {
     const ctx = this.render.canvas.getContext('2d');
     if (!ctx) return;
 

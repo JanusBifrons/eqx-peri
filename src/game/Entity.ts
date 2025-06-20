@@ -1,5 +1,5 @@
 import * as Matter from 'matter-js';
-import { EntityType, EntityConfig, ENTITY_DEFINITIONS, Vector2, GRID_SIZE } from '../types/GameTypes';
+import { EntityConfig, EntityType, ENTITY_DEFINITIONS, Vector2, GRID_SIZE, AttachmentConnection } from '../types/GameTypes';
 
 export class Entity {
   public id: string;
@@ -26,6 +26,15 @@ export class Entity {
   public targetAimAngle: number = 0; // Desired turret angle
   public aimRotationSpeed: number = 0.005; // Radians per second rotation speed - extremely slow for testing
 
+  // Connection tracking system
+  public attachmentConnections: AttachmentConnection[] = [];
+
+  // Side-based connection tracking - what entity is attached to each logical side
+  public northConnection: string | null = null;
+  public southConnection: string | null = null;
+  public eastConnection: string | null = null;
+  public westConnection: string | null = null;
+
   constructor(config: EntityConfig) {
     this.id = Math.random().toString(36).substr(2, 9);
     this.type = config.type;
@@ -35,13 +44,21 @@ export class Entity {
     const definition = ENTITY_DEFINITIONS[this.type];
     if (!definition) {
       throw new Error(`Unknown entity type: ${this.type}`);
-    } this.maxHealth = config.maxHealth || definition.defaultHealth;
+    }
+
+    // Initialize connection tracking for each attachment point
+    this.attachmentConnections = definition.attachmentPoints.map(() => ({
+      connectedEntity: null,
+      attachmentPointIndex: -1
+    }));
+
+    this.maxHealth = config.maxHealth || definition.defaultHealth;
     this.health = config.health || this.maxHealth;
 
     // Debug logging for cockpits
     if (this.type === 'Cockpit' || this.type === 'LargeCockpit' || this.type === 'CapitalCore') {
       console.log(`🛡️ Created ${this.type} with health: ${this.health}/${this.maxHealth} (default: ${definition.defaultHealth})`);
-    }// Create Matter.js body at exact position with enhanced physics and visual styling
+    }    // Create Matter.js body at exact position with enhanced physics and visual styling
     this.body = Matter.Bodies.rectangle(
       config.x,
       config.y,
@@ -54,9 +71,9 @@ export class Entity {
         restitution: 0.2, // Low bounce - space debris doesn't bounce much
         inertia: definition.mass * (definition.width * definition.width + definition.height * definition.height) / 12, // Realistic rotational inertia
         render: {
-          fillStyle: this.makeTransparent(definition.color, 0.6), // Semi-transparent background
-          strokeStyle: this.brightenColor(definition.color), // Brighter border color
-          lineWidth: 5 // Much thicker border for better visibility
+          fillStyle: this.getSolidHullColor(this.type), // Solid grey hull colors
+          strokeStyle: this.getHullStrokeColor(this.type), // Darker grey borders for depth
+          lineWidth: 3 // Moderate border thickness for solid appearance
         }
       }
     );
@@ -132,108 +149,80 @@ export class Entity {
     // Traditional engines
     if ((this.type === 'Engine' || this.type === 'LargeEngine' || this.type === 'CapitalEngine') && !this.destroyed) {
       return true;
-    }
-
-    // Cockpit engines - can provide thrust if nothing is connected on top
+    }    // Cockpit engines - can provide thrust if nothing is connected on bottom/south
     if ((this.type === 'Cockpit' || this.type === 'LargeCockpit' || this.type === 'CapitalCore') && !this.destroyed) {
       return this.canUseCockpitEngine();
     }
 
     return false;
   }  /**
-   * Check if cockpit can use its built-in weapon (nothing connected on top/north)
+   * Check if cockpit can use its built-in weapon (nothing connected on north side)
    */
   private canUseCockpitWeapon(): boolean {
-    if (!this.body.assembly) return false;
-
-    // Check if there's anything connected on the top (north) attachment point
-    return !this.hasConnectionOnSide('north');
-  }
-  /**
-   * Check if cockpit can use its built-in engine (nothing connected on bottom/south) 
-   */
-  private canUseCockpitEngine(): boolean {
-    if (!this.body.assembly) return false;
-
-    // Check if there's anything connected on the bottom (south) attachment point
-    return !this.hasConnectionOnSide('south');
-  }
-  /**
-   * Check if there's a connection on a specific side of this entity using attachment points
-   * This is a more robust system that uses the defined attachment points rather than distance
-   */
-  private hasConnectionOnSide(side: 'north' | 'south' | 'east' | 'west'): boolean {
-    if (!this.body.assembly) return false;
-
-    const assembly = this.body.assembly;
-    const myDefinition = ENTITY_DEFINITIONS[this.type];
-    if (!myDefinition) return false;
-
-    // Get my attachment points for the specified side
-    const myAttachmentPoints = this.getAttachmentPointsForSide(side);
-    if (myAttachmentPoints.length === 0) return false;
-
-    // Convert my attachment points to world coordinates
-    const myWorldPos = this.body.position;
-    const myWorldAttachmentPoints = myAttachmentPoints.map(point => ({
-      x: myWorldPos.x + point.x * GRID_SIZE,
-      y: myWorldPos.y + point.y * GRID_SIZE
-    }));
-
-    // Check all other entities in the assembly
-    for (const otherEntity of assembly.entities) {
-      if (otherEntity.id === this.id) continue;
-
-      const otherDefinition = ENTITY_DEFINITIONS[otherEntity.type];
-      if (!otherDefinition) continue;
-
-      // Get all attachment points of the other entity
-      const otherEntityPos = otherEntity.body.position;
-      const otherWorldAttachmentPoints = otherDefinition.attachmentPoints.map(point => ({
-        x: otherEntityPos.x + point.x * GRID_SIZE,
-        y: otherEntityPos.y + point.y * GRID_SIZE
-      }));
-
-      // Check if any of my side's attachment points align with any of the other entity's attachment points
-      for (const myPoint of myWorldAttachmentPoints) {
-        for (const otherPoint of otherWorldAttachmentPoints) {
-          const distance = Math.sqrt(
-            Math.pow(myPoint.x - otherPoint.x, 2) +
-            Math.pow(myPoint.y - otherPoint.y, 2)
-          );
-
-          // If attachment points are very close (within 2 pixels), they're connected
-          if (distance < 2) {
-            return true;
-          }
+    // Simple check: iterate through attachment connections and see if any north-side attachment points are connected
+    for (let i = 0; i < this.attachmentConnections.length; i++) {
+      const connection = this.attachmentConnections[i];
+      if (connection.connectedEntity !== null) {
+        const side = this.getLogicalSideForAttachmentPoint(i);
+        if (side === 'north') {
+          console.log(`🔫 ${this.type} weapon blocked: attachment point ${i} (${side} side) is connected`);
+          return false; // Something is connected on the north side
         }
       }
     }
-
-    return false;
+    
+    console.log(`🔫 ${this.type} weapon available: no north connections found`);
+    return true; // No north connections found
   }
 
   /**
-   * Get attachment points for a specific side of this entity
+   * Check if cockpit can use its built-in engine (nothing connected on south side)
    */
-  private getAttachmentPointsForSide(side: 'north' | 'south' | 'east' | 'west'): Vector2[] {
+  private canUseCockpitEngine(): boolean {
+    // Simple check: iterate through attachment connections and see if any south-side attachment points are connected
+    for (let i = 0; i < this.attachmentConnections.length; i++) {
+      const connection = this.attachmentConnections[i];
+      if (connection.connectedEntity !== null) {
+        const side = this.getLogicalSideForAttachmentPoint(i);
+        if (side === 'south') {
+          console.log(`🚀 ${this.type} engine blocked: attachment point ${i} (${side} side) is connected`);
+          return false; // Something is connected on the south side
+        }
+      }
+    }
+    
+    console.log(`🚀 ${this.type} engine available: no south connections found`);
+    return true; // No south connections found
+  }
+
+  /**
+   * Transform a local attachment point to world coordinates, accounting for rotation
+   */
+  private transformAttachmentPointToWorld(localPoint: Vector2): Vector2 {
+    const worldPos = this.body.position;
+    const angle = this.body.angle;
+    
+    // Apply rotation transformation
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    
+    const scaledLocalX = localPoint.x * GRID_SIZE;
+    const scaledLocalY = localPoint.y * GRID_SIZE;
+    
+    return {
+      x: worldPos.x + (scaledLocalX * cos - scaledLocalY * sin),
+      y: worldPos.y + (scaledLocalX * sin + scaledLocalY * cos)
+    };
+  }  /**
+   * Get all attachment points in world coordinates for this entity
+   */
+  public getWorldAttachmentPoints(): Vector2[] {
     const definition = ENTITY_DEFINITIONS[this.type];
     if (!definition) return [];
-
-    return definition.attachmentPoints.filter(point => {
-      switch (side) {
-        case 'north': // Top - negative Y
-          return point.y < 0;
-        case 'south': // Bottom - positive Y
-          return point.y > 0;
-        case 'east': // Right - positive X
-          return point.x > 0;
-        case 'west': // Left - negative X
-          return point.x < 0;
-        default:
-          return false;
-      }
-    });
+    
+    return definition.attachmentPoints.map(point => 
+      this.transformAttachmentPointToWorld(point)
+    );
   }
 
   private interpolateColor(color1: string, color2: string, factor: number): string {
@@ -259,23 +248,78 @@ export class Entity {
     } : null;
   }
 
-  private makeTransparent(color: string, alpha: number): string {
-    // Convert hex color to rgba with transparency
-    const hex = color.replace('#', '');
-    const r = parseInt(hex.substr(0, 2), 16);
-    const g = parseInt(hex.substr(2, 2), 16);
-    const b = parseInt(hex.substr(4, 2), 16);
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+
+  private getSolidHullColor(entityType: EntityType): string {
+    // Return solid grey colors for different entity types to make ships look more realistic
+    switch (entityType) {
+      case 'Hull':
+      case 'HeavyHull':
+      case 'MegaHull':
+        return '#707070'; // Medium grey for basic hull
+      
+      case 'Cockpit':
+      case 'LargeCockpit':
+      case 'CapitalCore':
+        return '#808080'; // Slightly lighter grey for cockpits
+      
+      case 'Engine':
+      case 'LargeEngine':
+      case 'CapitalEngine':
+        return '#606060'; // Darker grey for engines
+      
+      case 'Gun':
+      case 'LargeGun':
+      case 'CapitalWeapon':
+      case 'MissileLauncher':
+      case 'LargeMissileLauncher':
+      case 'CapitalMissileLauncher':
+        return '#656565'; // Dark grey for weapons
+      
+      case 'PowerCell':
+      case 'LargePowerCell':
+      case 'PowerReactor':
+        return '#757575'; // Medium-light grey for power systems
+      
+      default:
+        return '#707070'; // Default medium grey
+    }
   }
 
-  private brightenColor(color: string, factor: number = 0.3): string {
-    // Convert hex to RGB and brighten
-    const hex = color.replace('#', '');
-    const r = Math.min(255, parseInt(hex.substr(0, 2), 16) + Math.round(255 * factor));
-    const g = Math.min(255, parseInt(hex.substr(2, 2), 16) + Math.round(255 * factor));
-    const b = Math.min(255, parseInt(hex.substr(4, 2), 16) + Math.round(255 * factor));
-    return `rgb(${r}, ${g}, ${b})`;
-  } public triggerCollisionFlash(): void {
+  private getHullStrokeColor(entityType: EntityType): string {
+    // Return darker stroke colors for depth and definition
+    switch (entityType) {
+      case 'Hull':
+      case 'HeavyHull':
+      case 'MegaHull':
+        return '#404040'; // Dark grey stroke for hull
+      
+      case 'Cockpit':
+      case 'LargeCockpit':
+      case 'CapitalCore':
+        return '#505050'; // Medium-dark grey for cockpits
+      
+      case 'Engine':
+      case 'LargeEngine':
+      case 'CapitalEngine':
+        return '#303030'; // Very dark grey for engines
+      
+      case 'Gun':
+      case 'LargeGun':
+      case 'CapitalWeapon':
+      case 'MissileLauncher':
+      case 'LargeMissileLauncher':
+      case 'CapitalMissileLauncher':
+        return '#353535'; // Dark grey for weapons
+      
+      case 'PowerCell':
+      case 'LargePowerCell':
+      case 'PowerReactor':
+        return '#454545'; // Medium-dark grey for power systems
+      
+      default:
+        return '#404040'; // Default dark grey stroke
+    }
+  }  public triggerCollisionFlash(): void {
     this.isFlashing = true;
     this.flashTimer = 200; // Reduced flash duration (200ms instead of 400ms)
     // Store original colors if not already stored
@@ -283,12 +327,11 @@ export class Entity {
       this.originalFillStyle = this.body.render.fillStyle || '';
     }
 
-    // Set more subtle flash colors
-    this.body.render.fillStyle = 'rgba(255, 255, 255, 0.7)'; // Less intense white
-    this.body.render.strokeStyle = '#88ccff'; // Softer cyan
-    this.body.render.lineWidth = 6; // Thinner border during flash (was 10)
-  }
-  public updateFlash(deltaTime: number): void {
+    // Set solid flash colors for better visibility
+    this.body.render.fillStyle = '#ffffff'; // Solid white flash
+    this.body.render.strokeStyle = '#88ccff'; // Softer cyan border
+    this.body.render.lineWidth = 5; // Moderate border during flash
+  }  public updateFlash(deltaTime: number): void {
     if (!this.isFlashing) return;
 
     this.flashTimer -= deltaTime;
@@ -301,43 +344,40 @@ export class Entity {
       // Restore colors based on current health state
       this.updateVisualState();
     } else {
-      // Create more subtle pulsing effect during flash
-      const flashIntensity = Math.sin((200 - this.flashTimer) * 0.05) * 0.3 + 0.7; // Reduced intensity
-      const alpha = 0.5 + (flashIntensity * 0.2); // Less dramatic alpha changes
-
-      // Softer color transitions
-      const cyclePosition = (200 - this.flashTimer) * 0.008; // Slower cycling
-      const colorMix = Math.sin(cyclePosition) * 0.3 + 0.7; // Less dramatic color mixing
+      // Create pulsing effect during flash with solid colors
+      const flashIntensity = Math.sin((200 - this.flashTimer) * 0.05) * 0.3 + 0.7;
+      
+      // Solid color transitions for better visibility
+      const cyclePosition = (200 - this.flashTimer) * 0.008;
+      const colorMix = Math.sin(cyclePosition) * 0.3 + 0.7;
 
       if (colorMix > 0.5) {
-        this.body.render.fillStyle = `rgba(255, 255, 255, ${alpha})`;
-        this.body.render.strokeStyle = '#00ffff';
+        this.body.render.fillStyle = '#ffffff'; // Solid white
+        this.body.render.strokeStyle = '#00ccff';
       } else {
-        this.body.render.fillStyle = `rgba(0, 255, 255, ${alpha})`;
-        this.body.render.strokeStyle = '#ffffff';
-      }
-
-      // Pulsing border thickness
-      this.body.render.lineWidth = 8 + Math.round(flashIntensity * 4);
+        this.body.render.fillStyle = '#cccccc'; // Light grey
+        this.body.render.strokeStyle = '#0088cc';
+      }      // Pulsing border thickness
+      this.body.render.lineWidth = 4 + Math.round(flashIntensity * 3);
     }
   }
+
   private updateVisualState(): void {
     const healthRatio = this.health / this.maxHealth;
-    const definition = ENTITY_DEFINITIONS[this.type];
+    
+    // Start with solid hull colors
+    let fillColor = this.getSolidHullColor(this.type);
+    let strokeColor = this.getHullStrokeColor(this.type);
+    let lineWidth = 3;
 
-    // Base colors
-    let fillColor = definition.color;
-    let strokeColor = this.brightenColor(definition.color);
-    let lineWidth = 5;
-    let alpha = 0.6;    // Apply engine thrust effects - make VERY obvious with directional indicators
+    // Apply engine thrust effects - make VERY obvious with directional indicators
     if (this.canProvideThrust() && this.thrustLevel > 0) {
       const thrustIntensity = this.thrustLevel;
 
       // Make engines EXTREMELY bright when thrusting
       fillColor = '#ffff00'; // Bright yellow fill
       strokeColor = '#ff6600'; // Orange stroke
-      alpha = 0.95; // Almost opaque
-      lineWidth = 8 + Math.round(thrustIntensity * 8); // Very thick border
+      lineWidth = 6 + Math.round(thrustIntensity * 6); // Thick border when thrusting
 
       // Add directional thrust indicator by modifying the stroke pattern
       // We'll make the "exhaust" side much brighter
@@ -356,16 +396,14 @@ export class Entity {
     if (this.canFire() && this.isFiring) {
       fillColor = '#ffff00'; // Bright yellow flash
       strokeColor = '#ffffff'; // White border
-      alpha = 0.9;
-      lineWidth = 8;
+      lineWidth = 6;
     }
 
     // Apply cockpit weapon effects when firing
     if (this.isControlCenter() && this.canFire() && this.isFiring) {
       fillColor = '#ff8800'; // Orange flash for cockpit weapon
       strokeColor = '#ffffff'; // White border
-      alpha = 0.9;
-      lineWidth = 8;
+      lineWidth = 6;
     }
 
     // Apply cockpit engine effects when thrusting
@@ -375,32 +413,34 @@ export class Entity {
       // Cockpit engines get a different color scheme
       fillColor = '#88ff88'; // Light green for cockpit thrust
       strokeColor = '#44ff44'; // Bright green stroke
-      alpha = 0.8 + (thrustIntensity * 0.2);
-      lineWidth = 6 + Math.round(thrustIntensity * 4);
+      lineWidth = 5 + Math.round(thrustIntensity * 3);
     }
 
-    // Apply health-based damage coloring
+    // Apply health-based damage coloring - keep hull solid but show damage
     if (this.destroyed) {
-      this.body.render.fillStyle = this.makeTransparent('#330000', 0.5);
-      this.body.render.strokeStyle = '#ff0000';
-      this.body.render.lineWidth = 5;
+      this.body.render.fillStyle = '#330000'; // Dark red solid for destroyed parts
+      this.body.render.strokeStyle = '#ff0000'; // Red border
+      this.body.render.lineWidth = 3;
     } else if (healthRatio > 0.75) {
-      this.body.render.fillStyle = this.makeTransparent(fillColor, alpha);
+      this.body.render.fillStyle = fillColor; // Use solid hull colors
       this.body.render.strokeStyle = strokeColor;
       this.body.render.lineWidth = lineWidth;
     } else if (healthRatio > 0.5) {
-      const damagedColor = this.interpolateColor(fillColor, '#ff9900', (1 - healthRatio) * 2);
-      this.body.render.fillStyle = this.makeTransparent(damagedColor, alpha + 0.1);
-      this.body.render.strokeStyle = this.brightenColor('#ffaa00');
+      // Lightly damaged - mix in some brown/rust
+      const damagedColor = this.interpolateColor(fillColor, '#8B4513', (1 - healthRatio) * 2);
+      this.body.render.fillStyle = damagedColor;
+      this.body.render.strokeStyle = '#654321'; // Brown stroke
       this.body.render.lineWidth = lineWidth + 1;
     } else if (healthRatio > 0.25) {
-      const damagedColor = this.interpolateColor('#ff9900', '#ff3300', (0.5 - healthRatio) * 4);
-      this.body.render.fillStyle = this.makeTransparent(damagedColor, alpha + 0.2);
-      this.body.render.strokeStyle = this.brightenColor('#ff6600');
+      // Moderately damaged - more brown/rust
+      const damagedColor = this.interpolateColor('#8B4513', '#A0522D', (0.5 - healthRatio) * 4);
+      this.body.render.fillStyle = damagedColor;
+      this.body.render.strokeStyle = '#8B4513'; // Dark brown stroke
       this.body.render.lineWidth = lineWidth + 1;
     } else if (healthRatio > 0) {
-      this.body.render.fillStyle = this.makeTransparent('#ff0000', alpha + 0.3);
-      this.body.render.strokeStyle = this.brightenColor('#ff0000');
+      // Heavily damaged - dark red but still solid
+      this.body.render.fillStyle = '#800000'; // Dark red solid
+      this.body.render.strokeStyle = '#FF0000'; // Bright red stroke
       this.body.render.lineWidth = lineWidth + 2;
     }
   }
@@ -578,6 +618,120 @@ export class Entity {
     this.invulnerableUntil = Date.now() + durationMs;
     console.log(`🛡️ ${this.type} is now invulnerable for ${durationMs}ms`);
   }
+  /**
+   * Connect this entity to another entity at specific attachment points
+   */
+  public connectTo(otherEntity: Entity, myAttachmentIndex: number, theirAttachmentIndex: number): void {
+    // Set my connection
+    this.attachmentConnections[myAttachmentIndex] = {
+      connectedEntity: otherEntity.id,
+      attachmentPointIndex: theirAttachmentIndex
+    };
+
+    // Set their connection
+    otherEntity.attachmentConnections[theirAttachmentIndex] = {
+      connectedEntity: this.id,
+      attachmentPointIndex: myAttachmentIndex
+    };
+  }
+
+  /**
+   * Disconnect from an entity
+   */
+  public disconnectFrom(otherEntity: Entity): void {
+    // Clear connections to this entity
+    this.attachmentConnections.forEach(connection => {
+      if (connection.connectedEntity === otherEntity.id) {
+        connection.connectedEntity = null;
+        connection.attachmentPointIndex = -1;
+      }
+    });
+
+    // Clear their connections to this entity
+    otherEntity.attachmentConnections.forEach(connection => {
+      if (connection.connectedEntity === this.id) {
+        connection.connectedEntity = null;
+        connection.attachmentPointIndex = -1;
+      }
+    });
+  }
+
+  /**
+   * Set what entity is connected to a specific side
+   */
+  public setConnectionOnSide(side: 'north' | 'south' | 'east' | 'west', entityId: string | null): void {
+    switch (side) {
+      case 'north': this.northConnection = entityId; break;
+      case 'south': this.southConnection = entityId; break;
+      case 'east': this.eastConnection = entityId; break;
+      case 'west': this.westConnection = entityId; break;
+    }
+  }
+
+  /**
+   * Get the entity ID connected to a specific side
+   */
+  public getConnectionOnSide(side: 'north' | 'south' | 'east' | 'west'): string | null {
+    switch (side) {
+      case 'north': return this.northConnection;
+      case 'south': return this.southConnection;
+      case 'east': return this.eastConnection;
+      case 'west': return this.westConnection;
+      default: return null;
+    }
+  }
+
+  /**
+   * Clear all side-based connections
+   */
+  public clearAllSideConnections(): void {
+    this.northConnection = null;
+    this.southConnection = null;
+    this.eastConnection = null;
+    this.westConnection = null;
+  }
+  /**
+   * Get the logical side of an attachment point considering entity rotation
+   */
+  public getLogicalSideForAttachmentPoint(attachmentIndex: number): 'north' | 'south' | 'east' | 'west' | null {
+    const definition = ENTITY_DEFINITIONS[this.type];
+    if (!definition || attachmentIndex >= definition.attachmentPoints.length) return null;
+    
+    const point = definition.attachmentPoints[attachmentIndex];
+    
+    // Determine the original side based on coordinates
+    let originalSide: 'north' | 'south' | 'east' | 'west';
+    if (point.y < 0) originalSide = 'north';
+    else if (point.y > 0) originalSide = 'south';
+    else if (point.x > 0) originalSide = 'east';
+    else if (point.x < 0) originalSide = 'west';
+    else return null; // Center point, no side
+    
+    // Apply rotation to determine current logical side
+    const rotationSteps = (this.rotation / 90) % 4;
+    const sides: ('north' | 'south' | 'east' | 'west')[] = ['north', 'east', 'south', 'west'];
+    const originalIndex = sides.indexOf(originalSide);
+    const currentIndex = (originalIndex + rotationSteps) % 4;
+    
+    return sides[currentIndex];
+  }
+  /**
+   * Check if a specific logical side has any connections
+   */
+  public hasConnectionOnSide(side: 'north' | 'south' | 'east' | 'west'): boolean {
+    return this.getConnectionOnSide(side) !== null;
+  }
+
+  /**
+   * Get all entities connected to this entity
+   */
+  public getConnectedEntities(): string[] {
+    return this.attachmentConnections
+      .filter(connection => connection.connectedEntity !== null)
+      .map(connection => connection.connectedEntity!);
+  }
+
+  // ...existing methods...
 }
 
 // Extend Matter.js Body type to include our entity reference

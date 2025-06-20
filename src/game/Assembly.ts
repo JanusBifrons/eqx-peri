@@ -1,7 +1,6 @@
 import * as Matter from 'matter-js';
 import { Entity } from './Entity';
 import { EntityConfig, Vector2, EntityType, ENTITY_DEFINITIONS } from '../types/GameTypes';
-import { ConnectionDetector } from './BlockSystem';
 import { PowerSystem } from './PowerSystem';
 import { MissileType } from './Missile';
 
@@ -38,6 +37,9 @@ export class Assembly {
 
     // Create entities
     this.entities = entityConfigs.map(config => new Entity(config));
+
+    // Build connection graph between entities
+    this.buildConnectionGraph();
 
     // Calculate expected total mass
     const expectedTotalMass = this.entities.reduce((sum, e) => sum + e.body.mass, 0);    // Assembly created with combined mass
@@ -500,7 +502,6 @@ export class Assembly {
     });
     return newAssemblies;
   }
-
   private createFreshBody(): void {
     // Store the current position before recreating
     const currentPosition = this.rootBody ? this.rootBody.position : { x: 0, y: 0 };
@@ -519,7 +520,12 @@ export class Assembly {
       };
       newEntities.push(new Entity(config));
     });
-    this.entities = newEntities;    // Create new root body with realistic physics settings
+    this.entities = newEntities;
+
+    // Rebuild connection graph for the new entities
+    this.buildConnectionGraph();
+
+    // Create new root body with realistic physics settings
     this.rootBody = Matter.Body.create({
       parts: this.entities.map(e => e.body),
       isStatic: false,
@@ -529,50 +535,49 @@ export class Assembly {
     });
 
     // Restore position
-    Matter.Body.setPosition(this.rootBody, currentPosition);    // Store reference
+    Matter.Body.setPosition(this.rootBody, currentPosition);
+
+    // Store reference
     this.rootBody.assembly = this;
 
     // Also set assembly reference on individual entity bodies
     this.entities.forEach(entity => {
       entity.body.assembly = this;
     });
-  } private createNewAssemblyFromComponent(component: Entity[], basePosition: Vector2, velocity: Vector2, angularVelocity: number, baseAngle: number): Assembly {
-    // Calculate the center offset of this component relative to original assembly
-    const avgOffsetX = component.reduce((sum, e) => sum + e.localOffset.x, 0) / component.length;
-    const avgOffsetY = component.reduce((sum, e) => sum + e.localOffset.y, 0) / component.length;
+  }
 
-    // Rotate the average offset by the assembly's current angle to get world offset
-    const cos = Math.cos(baseAngle);
-    const sin = Math.sin(baseAngle);
-    const worldOffsetX = avgOffsetX * cos - avgOffsetY * sin;
-    const worldOffsetY = avgOffsetX * sin + avgOffsetY * cos;
+  private createNewAssemblyFromComponent(component: Entity[], _basePosition: Vector2, velocity: Vector2, angularVelocity: number, baseAngle: number): Assembly {
+    // Calculate the center of mass for this component using CURRENT positions
+    const avgCurrentX = component.reduce((sum, e) => sum + e.body.position.x, 0) / component.length;
+    const avgCurrentY = component.reduce((sum, e) => sum + e.body.position.y, 0) / component.length;
 
-    // Create configs with positions relative to the NEW assembly's center (not the original)
+    // Create configs with positions relative to the component's current center of mass
     const configs: EntityConfig[] = component.map(entity => ({
       type: entity.type,
-      x: entity.localOffset.x - avgOffsetX, // Make relative to new assembly center
-      y: entity.localOffset.y - avgOffsetY, // Make relative to new assembly center
+      x: entity.body.position.x - avgCurrentX, // Relative to component center
+      y: entity.body.position.y - avgCurrentY, // Relative to component center
       rotation: entity.rotation,
       health: entity.health,
       maxHealth: entity.maxHealth
     }));
 
-    // Position the new assembly at the component's world position
+    // Position the new assembly at the component's current center of mass
     const newPosition = {
-      x: basePosition.x + worldOffsetX,
-      y: basePosition.y + worldOffsetY
+      x: avgCurrentX,
+      y: avgCurrentY
     };
 
-    console.log(`🔧 Creating new assembly at(${newPosition.x}, ${newPosition.y}) with ${component.length} parts`); const newAssembly = new Assembly(configs, newPosition);
+    console.log(`🔧 Creating new assembly at (${newPosition.x.toFixed(1)}, ${newPosition.y.toFixed(1)}) with ${component.length} parts`);    const newAssembly = new Assembly(configs, newPosition);
+    
     // Set the assembly's rotation to match the original
     Matter.Body.setAngle(newAssembly.rootBody, baseAngle);
 
-    // Conserve all energy - inherit full velocity and angular momentum
+    // Conserve momentum - inherit velocity and angular momentum
     Matter.Body.setVelocity(newAssembly.rootBody, velocity);
     Matter.Body.setAngularVelocity(newAssembly.rootBody, angularVelocity);
 
     // Add small explosion force for dramatic effect
-    const explosionForce = 0.5; // Small explosion magnitude
+    const explosionForce = 0.5;
     const randomAngle = Math.random() * Math.PI * 2;
     const explosionVelocity = {
       x: Math.cos(randomAngle) * explosionForce,
@@ -588,12 +593,18 @@ export class Assembly {
     Matter.Body.setVelocity(newAssembly.rootBody, finalVelocity);
 
     return newAssembly;
-  } private findConnectedComponents(): Entity[][] {
+  }  private findConnectedComponents(): Entity[][] {
     if (this.entities.length <= 1) return [this.entities];
 
+    // Debug logging for Titan Dreadnought
+    if (this.shipName === 'Titan Dreadnought') {
+      console.log(`🔍 Finding connected components for ${this.shipName} with ${this.entities.length} entities`);
+      this.entities.forEach(entity => {
+        console.log(`  - ${entity.type} at (${entity.body.position.x}, ${entity.body.position.y})`);
+      });
+    }
 
-
-    // Build connectivity graph
+    // Build connectivity graph using the tracked connections
     const graph = new Map<string, Set<string>>();
 
     // Initialize graph
@@ -601,14 +612,26 @@ export class Assembly {
       graph.set(entity.id, new Set());
     });
 
-    // Check connections between all pairs
-    for (let i = 0; i < this.entities.length; i++) {
-      for (let j = i + 1; j < this.entities.length; j++) {
-        if (this.areEntitiesConnected(this.entities[i], this.entities[j])) {
-          graph.get(this.entities[i].id)!.add(this.entities[j].id);
-          graph.get(this.entities[j].id)!.add(this.entities[i].id);
+    // Use the tracked connections to build the graph
+    let connectionCount = 0;
+    this.entities.forEach(entity => {
+      const connectedEntityIds = entity.getConnectedEntities();
+      connectedEntityIds.forEach(connectedId => {
+        const connectedEntity = this.entities.find(e => e.id === connectedId);
+        if (connectedEntity) {
+          graph.get(entity.id)!.add(connectedId);
+          graph.get(connectedId)!.add(entity.id);
+          connectionCount++;
+          
+          if (this.shipName === 'Titan Dreadnought') {
+            console.log(`  ✅ ${entity.type} <-> ${connectedEntity.type} CONNECTED (tracked)`);
+          }
         }
-      }
+      });
+    });
+
+    if (this.shipName === 'Titan Dreadnought') {
+      console.log(`🔍 Found ${connectionCount} total tracked connections`);
     }
 
     // Find connected components using DFS
@@ -620,36 +643,18 @@ export class Assembly {
         const component: Entity[] = [];
         this.dfsComponent(entity.id, graph, visited, component);
         components.push(component);
-
       }
     });
 
-
-    return components;
-  } private areEntitiesConnected(entity1: Entity, entity2: Entity): boolean {
-    // Use the robust connection detection system
-    // Create temporary objects with the required structure for the connection detector
-    const entityData1 = {
-      type: entity1.type,
-      x: entity1.body.position.x,
-      y: entity1.body.position.y
-    };
-
-    const entityData2 = {
-      type: entity2.type,
-      x: entity2.body.position.x,
-      y: entity2.body.position.y
-    };
-
-    const isConnected = ConnectionDetector.areEntitiesConnected(entityData1, entityData2);
-
-    // Debug logging for troubleshooting
-    if (isConnected) {
-
+    // Debug logging for Titan Dreadnought
+    if (this.shipName === 'Titan Dreadnought') {
+      console.log(`🔍 Found ${components.length} connected components:`);
+      components.forEach((component, index) => {
+        console.log(`  Component ${index}: ${component.map(e => e.type).join(', ')}`);
+      });
     }
 
-    return isConnected;
-  }
+    return components;  }
 
   private dfsComponent(
     entityId: string,
@@ -967,6 +972,114 @@ export class Assembly {
         weapon.setTargetAimAngle(0);
       }
     });
+  }
+  /**
+   * Build the connection graph between entities using spatial attachment point detection
+   * This populates each entity's attachmentConnections array
+   */  private buildConnectionGraph(): void {
+    console.log(`🔗 Building connection graph for ${this.shipName} with ${this.entities.length} entities`);
+    
+    // Clear existing connections
+    this.entities.forEach(entity => {
+      entity.attachmentConnections.forEach(connection => {
+        connection.connectedEntity = null;
+        connection.attachmentPointIndex = -1;
+      });
+      entity.clearAllSideConnections(); // Clear side-based connections too
+    });
+
+    // Check all pairs of entities for connections
+    let connectionCount = 0;
+    for (let i = 0; i < this.entities.length; i++) {
+      for (let j = i + 1; j < this.entities.length; j++) {
+        const entity1 = this.entities[i];
+        const entity2 = this.entities[j];
+        
+        console.log(`🔍 Checking connection between ${entity1.type} at (${entity1.body.position.x.toFixed(1)}, ${entity1.body.position.y.toFixed(1)}) and ${entity2.type} at (${entity2.body.position.x.toFixed(1)}, ${entity2.body.position.y.toFixed(1)})`);
+        
+        const originalConnectionCount = entity1.getConnectedEntities().length;
+        this.detectAndRecordConnection(entity1, entity2);
+        const newConnectionCount = entity1.getConnectedEntities().length;
+        
+        if (newConnectionCount > originalConnectionCount) {
+          connectionCount++;
+        }
+      }
+    }
+    
+    console.log(`🔗 Connection graph complete: ${connectionCount} connections found`);
+    this.entities.forEach(entity => {
+      const connected = entity.getConnectedEntities();
+      console.log(`  ${entity.type}: connected to ${connected.length} entities [${connected.join(', ')}]`);
+    });
+  }  /**
+   * Detect if two entities are connected and record the connection
+   */
+  private detectAndRecordConnection(entity1: Entity, entity2: Entity): void {
+    const def1 = ENTITY_DEFINITIONS[entity1.type];
+    const def2 = ENTITY_DEFINITIONS[entity2.type];
+    
+    if (!def1 || !def2) {
+      console.log(`❌ Missing definitions for ${entity1.type} or ${entity2.type}`);
+      return;
+    }
+
+    // Check mutual compatibility first
+    if (!def1.canAttachTo.includes(entity2.type) || !def2.canAttachTo.includes(entity1.type)) {
+      console.log(`❌ ${entity1.type} and ${entity2.type} cannot attach to each other`);
+      console.log(`  ${entity1.type} canAttachTo:`, def1.canAttachTo);
+      console.log(`  ${entity2.type} canAttachTo:`, def2.canAttachTo);
+      return;
+    }
+
+    // Get world positions of all attachment points for both entities
+    const entity1Points = entity1.getWorldAttachmentPoints();
+    const entity2Points = entity2.getWorldAttachmentPoints();
+
+    console.log(`  ${entity1.type} attachment points:`, entity1Points.map(p => `(${p.x.toFixed(1)}, ${p.y.toFixed(1)})`));
+    console.log(`  ${entity2.type} attachment points:`, entity2Points.map(p => `(${p.x.toFixed(1)}, ${p.y.toFixed(1)})`));
+
+    // Check for close attachment points
+    for (let i = 0; i < entity1Points.length; i++) {
+      for (let j = 0; j < entity2Points.length; j++) {
+        const point1 = entity1Points[i];
+        const point2 = entity2Points[j];
+        
+        const distance = Math.sqrt(
+          Math.pow(point1.x - point2.x, 2) + 
+          Math.pow(point1.y - point2.y, 2)
+        );
+
+        console.log(`    Distance between point ${i} and point ${j}: ${distance.toFixed(2)}`);
+
+        // If attachment points are very close, record the connection
+        if (distance <= 66) { // Allow for larger blocks
+          entity1.connectTo(entity2, i, j);
+          
+          // Also record side-based connections
+          const entity1Side = entity1.getLogicalSideForAttachmentPoint(i);
+          const entity2Side = entity2.getLogicalSideForAttachmentPoint(j);
+          
+          if (entity1Side) {
+            entity1.setConnectionOnSide(entity1Side, entity2.id);
+          }
+          if (entity2Side) {
+            entity2.setConnectionOnSide(entity2Side, entity1.id);
+          }
+          
+          console.log(`🔗 Connected ${entity1.type} (${entity1Side}) to ${entity2.type} (${entity2Side}), distance: ${distance.toFixed(2)}`);
+          return; // Only connect once per entity pair
+        }
+      }
+    }
+    
+    // Debug: Log when entities can't connect
+    if (entity1Points.length > 0 && entity2Points.length > 0) {
+      const minDistance = Math.min(...entity1Points.flatMap(p1 => 
+        entity2Points.map(p2 => Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2)))
+      ));
+      console.log(`❌ ${entity1.type} and ${entity2.type} too far apart: min distance ${minDistance.toFixed(2)} (need ≤66)`);
+    }
   }
 }
 

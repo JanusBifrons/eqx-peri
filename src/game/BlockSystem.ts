@@ -11,7 +11,7 @@
  * - Dependency Inversion: Depends on abstractions, not concrete implementations
  */
 
-import { EntityType } from '../types/GameTypes';
+import { EntityType, ENTITY_DEFINITIONS, GRID_SIZE } from '../types/GameTypes';
 
 // Base unit for all positioning and sizing
 export const BLOCK_SIZE = 16;
@@ -173,55 +173,63 @@ export class ShipValidator {
     }
 
     return visited.size === design.blocks.length;
-  }
-  /**
- * Check if two blocks can connect at their given positions
- */
+  }  /**
+   * Check if two blocks can connect at their given positions
+   * Updated to use the existing ENTITY_DEFINITIONS system
+   */
   static canBlocksConnect(block1: BlockPlacement, block2: BlockPlacement): boolean {
-    const def1 = BlockRegistry.get(block1.type);
-    const def2 = BlockRegistry.get(block2.type);
+    const def1 = ENTITY_DEFINITIONS[block1.type];
+    const def2 = ENTITY_DEFINITIONS[block2.type];
 
     if (!def1 || !def2) return false;
+
+    // Check mutual compatibility using the existing canAttachTo system
+    if (!def1.canAttachTo.includes(block2.type) || !def2.canAttachTo.includes(block1.type)) {
+      return false;
+    }
 
     // Calculate the actual distance between block centers
     const dx = block2.gridPosition.x - block1.gridPosition.x;
     const dy = block2.gridPosition.y - block1.gridPosition.y;
 
-    // Calculate expected distance for edge-to-edge connection
-    // For blocks to connect, they need to be adjacent (edge touching)
-    const expectedDistanceX = (def1.size.width + def2.size.width) / 2;
-    const expectedDistanceY = (def1.size.height + def2.size.height) / 2;
-
-    // Check if blocks are properly adjacent (not overlapping, not too far apart)
-    const isAdjacentX = Math.abs(dx) === expectedDistanceX && dy === 0;
-    const isAdjacentY = Math.abs(dy) === expectedDistanceY && dx === 0;
+    // For the existing system, blocks are considered adjacent if they're exactly 1 grid unit apart
+    const isAdjacentX = Math.abs(dx) === 1 && dy === 0;
+    const isAdjacentY = Math.abs(dy) === 1 && dx === 0;
 
     if (!(isAdjacentX || isAdjacentY)) {
       return false; // Not properly adjacent
     }
 
-    // Determine the connection direction from block1 to block2
-    let direction: ConnectionDirection;
-    if (isAdjacentX) {
-      direction = dx > 0 ? ConnectionDirection.EAST : ConnectionDirection.WEST;
-    } else {
-      direction = dy > 0 ? ConnectionDirection.SOUTH : ConnectionDirection.NORTH;
+    // Convert to world coordinates to check attachment points
+    const pos1 = CoordinateSystem.gridToWorld(block1.gridPosition);
+    const pos2 = CoordinateSystem.gridToWorld(block2.gridPosition);
+
+    // Check if any attachment points are close enough to connect
+    for (const ap1 of def1.attachmentPoints) {
+      const worldAP1 = {
+        x: pos1.x + ap1.x * GRID_SIZE,
+        y: pos1.y + ap1.y * GRID_SIZE
+      };
+
+      for (const ap2 of def2.attachmentPoints) {
+        const worldAP2 = {
+          x: pos2.x + ap2.x * GRID_SIZE,
+          y: pos2.y + ap2.y * GRID_SIZE
+        };
+
+        const distance = Math.sqrt(
+          Math.pow(worldAP1.x - worldAP2.x, 2) + 
+          Math.pow(worldAP1.y - worldAP2.y, 2)
+        );
+
+        // If attachment points are very close, they can connect
+        if (distance <= 2) {
+          return true;
+        }
+      }
     }
 
-    // Check if block1 has a connection point in that direction that accepts block2's type
-    const connectionPoint = def1.connectionPoints.find(cp => cp.direction === direction);
-    if (!connectionPoint || !connectionPoint.canConnectTo.includes(block2.type)) {
-      return false;
-    }
-
-    // Check reverse connection (block2 should accept block1's type)
-    const reverseDirection = this.getReverseDirection(direction);
-    const reverseConnectionPoint = def2.connectionPoints.find(cp => cp.direction === reverseDirection);
-    if (!reverseConnectionPoint || !reverseConnectionPoint.canConnectTo.includes(block1.type)) {
-      return false;
-    }
-
-    return true;
+    return false;
   }
 
   private static buildAdjacencyMap(design: ShipDesign): Map<string, string[]> {
@@ -248,18 +256,8 @@ export class ShipValidator {
 
     return map;
   }
-
   private static getBlockKey(block: BlockPlacement): string {
     return `${block.gridPosition.x},${block.gridPosition.y}`;
-  }
-
-  private static getReverseDirection(direction: ConnectionDirection): ConnectionDirection {
-    switch (direction) {
-      case ConnectionDirection.NORTH: return ConnectionDirection.SOUTH;
-      case ConnectionDirection.EAST: return ConnectionDirection.WEST;
-      case ConnectionDirection.SOUTH: return ConnectionDirection.NORTH;
-      case ConnectionDirection.WEST: return ConnectionDirection.EAST;
-    }
   }
 }
 
@@ -541,92 +539,72 @@ export function getBlockDefinition(type: EntityType): BlockDefinition | undefine
  * Robust connection detection for ship entities
  * Uses grid-based positioning with proper adjacency rules
  */
-export class ConnectionDetector {  /**
+export class ConnectionDetector {
+  /**
    * Check if two entities are properly connected
    * This is the main function that should be used for connection detection
    */
   static areEntitiesConnected(entity1: any, entity2: any): boolean {
-    const def1 = BlockRegistry.get(entity1.type);
-    const def2 = BlockRegistry.get(entity2.type);
+    const def1 = ENTITY_DEFINITIONS[entity1.type as EntityType];
+    const def2 = ENTITY_DEFINITIONS[entity2.type as EntityType];
 
     if (!def1 || !def2) {
       return false;
     }
 
-    // Convert entity positions to grid coordinates
-    const grid1 = CoordinateSystem.worldToGrid({ x: entity1.x, y: entity1.y });
-    const grid2 = CoordinateSystem.worldToGrid({ x: entity2.x, y: entity2.y });
-
-    // Calculate grid distance
-    const dx = Math.abs(grid1.x - grid2.x);
-    const dy = Math.abs(grid1.y - grid2.y);
-
-    // For proper adjacency, entities must be exactly 1 grid unit apart in one direction
-    // and aligned in the other direction (Manhattan distance = 1)
-    const isProperlyAdjacent = (dx === 1 && dy === 0) || (dx === 0 && dy === 1);
-
-    if (!isProperlyAdjacent) {
+    // Check if the entities can actually connect to each other (mutual compatibility)
+    if (!def1.canAttachTo.includes(entity2.type) || !def2.canAttachTo.includes(entity1.type)) {
       return false;
     }
 
-    // Determine connection direction from entity1 to entity2
-    const direction = this.getConnectionDirection(grid1, grid2);
-    if (!direction) {
+    // Use the entity's built-in attachment point transformation methods
+    let entity1WorldPoints = [];
+    let entity2WorldPoints = [];
+
+    // Check if these are actual Entity objects with the getWorldAttachmentPoints method
+    if (typeof entity1.getWorldAttachmentPoints === 'function') {
+      entity1WorldPoints = entity1.getWorldAttachmentPoints();
+    } else {
+      // Fallback for plain config objects - transform manually
+      const pos1 = { x: entity1.x, y: entity1.y };
+      entity1WorldPoints = def1.attachmentPoints.map(ap => ({
+        x: pos1.x + ap.x * GRID_SIZE,
+        y: pos1.y + ap.y * GRID_SIZE
+      }));
+    }
+
+    if (typeof entity2.getWorldAttachmentPoints === 'function') {
+      entity2WorldPoints = entity2.getWorldAttachmentPoints();
+    } else {
+      // Fallback for plain config objects - transform manually
+      const pos2 = { x: entity2.x, y: entity2.y };
+      entity2WorldPoints = def2.attachmentPoints.map(ap => ({
+        x: pos2.x + ap.x * GRID_SIZE,
+        y: pos2.y + ap.y * GRID_SIZE
+      }));
+    }
+
+    if (entity1WorldPoints.length === 0 || entity2WorldPoints.length === 0) {
       return false;
     }
 
-    // Check if both entities can connect in the determined direction
-    const canConnect = this.canConnectInDirection(def1, def2, direction);
+    // Check all attachment point pairs for connection
+    for (const point1 of entity1WorldPoints) {
+      for (const point2 of entity2WorldPoints) {
+        const distance = Math.sqrt(
+          Math.pow(point1.x - point2.x, 2) + 
+          Math.pow(point1.y - point2.y, 2)
+        );
 
-    return canConnect;
-  }
-
-  /**
-   * Get the direction from grid1 to grid2
-   */
-  private static getConnectionDirection(grid1: GridPosition, grid2: GridPosition): ConnectionDirection | null {
-    const dx = grid2.x - grid1.x;
-    const dy = grid2.y - grid1.y;
-
-    if (dx === 1 && dy === 0) return ConnectionDirection.EAST;
-    if (dx === -1 && dy === 0) return ConnectionDirection.WEST;
-    if (dx === 0 && dy === 1) return ConnectionDirection.SOUTH;
-    if (dx === 0 && dy === -1) return ConnectionDirection.NORTH;
-
-    return null;
-  }
-
-  /**
-   * Check if two block definitions can connect in a specific direction
-   */
-  private static canConnectInDirection(def1: BlockDefinition, def2: BlockDefinition, direction: ConnectionDirection): boolean {
-    // Find connection point on entity1 that faces the connection direction
-    const cp1 = def1.connectionPoints.find(cp => cp.direction === direction);
-    if (!cp1 || !cp1.canConnectTo.includes(def2.type)) {
-      return false;
+        // Allow for connections within a reasonable distance
+        // For large blocks (4x4 = 64px), adjacent blocks can have attachment points up to ~90px apart
+        if (distance <= 66) {
+          return true;
+        }
+      }
     }
-
-    // Find connection point on entity2 that faces the opposite direction
-    const reverseDirection = this.getReverseDirection(direction);
-    const cp2 = def2.connectionPoints.find(cp => cp.direction === reverseDirection);
-    if (!cp2 || !cp2.canConnectTo.includes(def1.type)) {
-      return false;
-    }
-
-    return true;
-  }
-
-  /**
-   * Get the opposite direction
-   */
-  private static getReverseDirection(direction: ConnectionDirection): ConnectionDirection {
-    switch (direction) {
-      case ConnectionDirection.NORTH: return ConnectionDirection.SOUTH;
-      case ConnectionDirection.SOUTH: return ConnectionDirection.NORTH;
-      case ConnectionDirection.EAST: return ConnectionDirection.WEST;
-      case ConnectionDirection.WEST: return ConnectionDirection.EAST;
-    }
-  }
+    
+    return false;  }
 }
 
 /**

@@ -9,21 +9,17 @@ import {
   ShipDesign,
   BlockPlacement,
   CoordinateSystem,
-  BlockRegistry,
-  ShipValidator,
-  initializeBlockRegistry
+  ShipValidator
 } from './BlockSystem';
-import { EntityConfig } from '../types/GameTypes';
+import { EntityConfig, ENTITY_DEFINITIONS } from '../types/GameTypes';
 
 export class ShipDesignManager {
   private static initialized = false;
 
   /**
    * Initialize the system
-   */
-  static initialize(): void {
+   */  static initialize(): void {
     if (!this.initialized) {
-      initializeBlockRegistry();
       this.initialized = true;
     }
   }
@@ -37,11 +33,9 @@ export class ShipDesignManager {
     // Validate the design first
     if (!ShipValidator.isValidDesign(design)) {
       throw new Error(`Invalid ship design: ${design.name} - blocks are not properly connected`);
-    }
-
-    return design.blocks.map(block => {
+    }    return design.blocks.map(block => {
       const worldPos = CoordinateSystem.gridToWorld(block.gridPosition);
-      const blockDef = BlockRegistry.get(block.type);
+      const blockDef = ENTITY_DEFINITIONS[block.type];
 
       if (!blockDef) {
         throw new Error(`Unknown block type: ${block.type}`);
@@ -52,8 +46,8 @@ export class ShipDesignManager {
         x: worldPos.x,
         y: worldPos.y,
         rotation: block.rotation,
-        health: blockDef.health,
-        maxHealth: blockDef.health
+        health: blockDef.defaultHealth,
+        maxHealth: blockDef.defaultHealth
       };
     });
   }

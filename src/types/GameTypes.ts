@@ -34,6 +34,12 @@ export interface EntityTypeDefinition {
   attachmentPoints: Vector2[]; // relative to center, in grid units
 }
 
+// Connection information for tracking what's attached to each attachment point
+export interface AttachmentConnection {
+  connectedEntity: string | null; // Entity ID that's connected to this point
+  attachmentPointIndex: number; // Which attachment point index this connects to
+}
+
 export const GRID_SIZE = 16;
 
 export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
