@@ -140,37 +140,23 @@ export class Entity {
     }
 
     return false;
-  }
-  /**
+  }  /**
    * Check if cockpit can use its built-in weapon (nothing connected on top/north)
    */
   private canUseCockpitWeapon(): boolean {
-    if (!this.body.assembly) {
-      console.log(`🔍 canUseCockpitWeapon: No assembly reference for ${this.type}`);
-      return false;
-    }
+    if (!this.body.assembly) return false;
 
-    const hasNorthConnection = this.hasConnectionOnSide('north');
-    console.log(`🔍 ${this.type} canUseCockpitWeapon: assembly entities=${this.body.assembly.entities.length}, hasNorthConnection=${hasNorthConnection}`);
-    
     // Check if there's anything connected on the top (north) attachment point
-    return !hasNorthConnection;
+    return !this.hasConnectionOnSide('north');
   }
-
   /**
    * Check if cockpit can use its built-in engine (nothing connected on bottom/south) 
    */
   private canUseCockpitEngine(): boolean {
-    if (!this.body.assembly) {
-      console.log(`🔍 canUseCockpitEngine: No assembly reference for ${this.type}`);
-      return false;
-    }
+    if (!this.body.assembly) return false;
 
-    const hasSouthConnection = this.hasConnectionOnSide('south');
-    console.log(`🔍 ${this.type} canUseCockpitEngine: assembly entities=${this.body.assembly.entities.length}, hasSouthConnection=${hasSouthConnection}`);
-    
     // Check if there's anything connected on the bottom (south) attachment point
-    return !hasSouthConnection;
+    return !this.hasConnectionOnSide('south');
   }
   /**
    * Check if there's a connection on a specific side of this entity using attachment points

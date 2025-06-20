@@ -60,7 +60,7 @@ export class Assembly {
     // Set position
     Matter.Body.setPosition(this.rootBody, position);    // Store reference to this assembly in the body
     this.rootBody.assembly = this;
-    
+
     // Also set assembly reference on individual entity bodies
     this.entities.forEach(entity => {
       entity.body.assembly = this;
@@ -531,7 +531,7 @@ export class Assembly {
     // Restore position
     Matter.Body.setPosition(this.rootBody, currentPosition);    // Store reference
     this.rootBody.assembly = this;
-    
+
     // Also set assembly reference on individual entity bodies
     this.entities.forEach(entity => {
       entity.body.assembly = this;
@@ -744,7 +744,7 @@ export class Assembly {
     const ejectEntities = this.entities.filter(e => !e.isControlCenter());
 
     console.log(`💥 EXPLOSION! Ejecting ${ejectEntities.length} parts with explosive force from cockpit origin`);
-    
+
     // Create new assemblies for ejected parts (each part becomes its own debris)
     const newAssemblies: Assembly[] = [];
     const cockpitPos = controlCenter.body.position;
@@ -826,17 +826,13 @@ export class Assembly {
       rotation: (controlCenter.body.angle * 180) / Math.PI,
       health: controlCenter.health,
       maxHealth: controlCenter.maxHealth
-    };
-
-    const cockpitAssembly = new Assembly([cockpitConfig], controlCenter.body.position);
+    }; const cockpitAssembly = new Assembly([cockpitConfig], controlCenter.body.position);
     cockpitAssembly.setTeam(this.team);
     cockpitAssembly.isPlayerControlled = this.isPlayerControlled;
-    cockpitAssembly.setShipName(`${this.shipName} (Cockpit)`);    // Debug: Check if the cockpit can move and fire after ejection
-    const cockpitEntity = cockpitAssembly.entities[0];
-    console.log(`🔍 Cockpit after ejection - canProvideThrust: ${cockpitEntity.canProvideThrust()}, canFire: ${cockpitEntity.canFire()}`);
-    console.log(`🔍 Cockpit assembly entities count: ${cockpitAssembly.entities.length}`);
+    cockpitAssembly.setShipName(`${this.shipName} (Cockpit)`);
 
     // Make cockpit briefly invulnerable after ejection to prevent immediate damage
+    const cockpitEntity = cockpitAssembly.entities[0];
     if (cockpitEntity) {
       cockpitEntity.setInvulnerable(2000); // 2 seconds of invulnerability
     }
