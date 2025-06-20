@@ -1,38 +1,7 @@
 {
-  "ships": [    {      "name": "Simple Test Ship",
-      "category": "Fighter", 
-      "size": "small",
-      "parts": [
-        {
-          "type": "Cockpit",
-          "x": -1,
-          "y": 0,
-          "rotation": 0,
-          "health": 100,
-          "maxHealth": 100
-        },
-        {
-          "type": "PowerCell",
-          "x": 0,
-          "y": 0,
-          "rotation": 0,
-          "health": 40,
-          "maxHealth": 40
-        },
-        {
-          "type": "Hull",
-          "x": 1,
-          "y": 0,
-          "rotation": 0,
-          "health": 120,
-          "maxHealth": 120
-        }
-      ]
-    },
+  "ships": [
     {
       "name": "Long Scout",
-      "category": "Fighter",
-      "size": "small",
       "parts": [
         {
           "type": "Engine",
@@ -62,7 +31,9 @@
           "type": "Cockpit",
           "x": 0,
           "y": 0,
-          "rotation": 0
+          "rotation": 0,
+          "health": 1000,
+          "maxHealth": 1000
         },
         {
           "type": "Hull",
@@ -92,8 +63,6 @@
     },
     {
       "name": "Wide Fighter",
-      "category": "Fighter",
-      "size": "small",
       "parts": [
         {
           "type": "Engine",
@@ -115,7 +84,9 @@
           "type": "Cockpit",
           "x": 0,
           "y": 0,
-          "rotation": 0
+          "rotation": 0,
+          "health": 1000,
+          "maxHealth": 1000
         },
         {
           "type": "Hull",
@@ -185,8 +156,6 @@
     },
     {
       "name": "Long Cruiser",
-      "category": "Cruiser",
-      "size": "medium",
       "parts": [
         {
           "type": "Engine",
@@ -224,7 +193,9 @@
           "type": "Cockpit",
           "x": 0,
           "y": 0,
-          "rotation": 0
+          "rotation": 0,
+          "health": 1000,
+          "maxHealth": 1000
         },
         {
           "type": "Hull",
@@ -326,8 +297,6 @@
     },
     {
       "name": "Wide Battleship",
-      "category": "Battleship",
-      "size": "medium",
       "parts": [
         {
           "type": "Engine",
@@ -357,7 +326,9 @@
           "type": "Cockpit",
           "x": 0,
           "y": 0,
-          "rotation": 0
+          "rotation": 0,
+          "health": 1000,
+          "maxHealth": 1000
         },
         {
           "type": "Hull",
@@ -482,506 +453,11 @@
       ]
     },
     {
-      "name": "Titan Dreadnought",
-      "category": "Capital Ship",
-      "size": "large",
-      "parts": [
-        {
-          "type": "CapitalCore",
-          "x": 0,
-          "y": 0,
-          "rotation": 0,
-          "health": 10000,
-          "maxHealth": 10000
-        },
-        {
-          "type": "MegaHull",
-          "x": -64,
-          "y": 0,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "MegaHull",
-          "x": 64,
-          "y": 0,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "CapitalEngine",
-          "x": -128,
-          "y": 0,
-          "rotation": 180,
-          "health": 800,
-          "maxHealth": 800
-        },
-        {
-          "type": "CapitalEngine",
-          "x": -128,
-          "y": -64,
-          "rotation": 180,
-          "health": 800,
-          "maxHealth": 800
-        },
-        {
-          "type": "CapitalEngine",
-          "x": -128,
-          "y": 64,
-          "rotation": 180,
-          "health": 800,
-          "maxHealth": 800
-        },
-        {
-          "type": "CapitalWeapon",
-          "x": 128,
-          "y": 0,
-          "rotation": 0,
-          "health": 600,
-          "maxHealth": 600
-        },
-        {
-          "type": "CapitalWeapon",
-          "x": 128,
-          "y": -64,
-          "rotation": 0,
-          "health": 600,
-          "maxHealth": 600
-        },
-        {
-          "type": "CapitalWeapon",
-          "x": 128,
-          "y": 64,
-          "rotation": 0,
-          "health": 600,
-          "maxHealth": 600
-        },
-        {
-          "type": "PowerReactor",
-          "x": 0,
-          "y": -64,
-          "rotation": 0,
-          "health": 400,
-          "maxHealth": 400
-        },
-        {
-          "type": "PowerReactor",
-          "x": 0,
-          "y": 64,
-          "rotation": 0,
-          "health": 400,
-          "maxHealth": 400
-        },
-        {
-          "type": "MegaHull",
-          "x": -64,
-          "y": -64,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "MegaHull",
-          "x": -64,
-          "y": 64,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "MegaHull",
-          "x": 64,
-          "y": -64,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "MegaHull",
-          "x": 64,
-          "y": 64,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        }
-      ]
-    },
-    {
-      "name": "Leviathan Carrier",
-      "category": "Capital Ship",
-      "size": "large",
-      "parts": [
-        {
-          "type": "CapitalCore",
-          "x": 0,
-          "y": 0,
-          "rotation": 0,
-          "health": 10000,
-          "maxHealth": 10000
-        },
-        {
-          "type": "MegaHull",
-          "x": -64,
-          "y": 0,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "MegaHull",
-          "x": 64,
-          "y": 0,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "MegaHull",
-          "x": 128,
-          "y": 0,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "MegaHull",
-          "x": 192,
-          "y": 0,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "CapitalEngine",
-          "x": -128,
-          "y": 0,
-          "rotation": 180,
-          "health": 800,
-          "maxHealth": 800
-        },
-        {
-          "type": "CapitalEngine",
-          "x": -128,
-          "y": -64,
-          "rotation": 180,
-          "health": 800,
-          "maxHealth": 800
-        },
-        {
-          "type": "CapitalEngine",
-          "x": -128,
-          "y": 64,
-          "rotation": 180,
-          "health": 800,
-          "maxHealth": 800
-        },
-        {
-          "type": "CapitalWeapon",
-          "x": 256,
-          "y": 0,
-          "rotation": 0,
-          "health": 600,
-          "maxHealth": 600
-        },
-        {
-          "type": "PowerReactor",
-          "x": 0,
-          "y": -64,
-          "rotation": 0,
-          "health": 400,
-          "maxHealth": 400
-        },
-        {
-          "type": "PowerReactor",
-          "x": 0,
-          "y": 64,
-          "rotation": 0,
-          "health": 400,
-          "maxHealth": 400
-        },
-        {
-          "type": "PowerReactor",
-          "x": 128,
-          "y": -64,
-          "rotation": 0,
-          "health": 400,
-          "maxHealth": 400
-        },
-        {
-          "type": "PowerReactor",
-          "x": 128,
-          "y": 64,
-          "rotation": 0,
-          "health": 400,
-          "maxHealth": 400
-        },
-        {
-          "type": "MegaHull",
-          "x": -64,
-          "y": -64,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "MegaHull",
-          "x": -64,
-          "y": 64,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "MegaHull",
-          "x": 64,
-          "y": -64,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "MegaHull",
-          "x": 64,
-          "y": 64,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "MegaHull",
-          "x": 128,
-          "y": -64,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "MegaHull",
-          "x": 128,
-          "y": 64,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "MegaHull",
-          "x": 192,
-          "y": -64,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "MegaHull",
-          "x": 192,
-          "y": 64,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        }
-      ]
-    },
-    {
-      "name": "Behemoth Fortress",
-      "category": "Capital Ship",
-      "size": "large",
-      "parts": [
-        {
-          "type": "CapitalCore",
-          "x": 0,
-          "y": 0,
-          "rotation": 0,
-          "health": 10000,
-          "maxHealth": 10000
-        },
-        {
-          "type": "MegaHull",
-          "x": -64,
-          "y": 0,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "MegaHull",
-          "x": 64,
-          "y": 0,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "MegaHull",
-          "x": 0,
-          "y": -64,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "MegaHull",
-          "x": 0,
-          "y": 64,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "MegaHull",
-          "x": 0,
-          "y": -128,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "MegaHull",
-          "x": 0,
-          "y": 128,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "CapitalEngine",
-          "x": -128,
-          "y": 0,
-          "rotation": 180,
-          "health": 800,
-          "maxHealth": 800
-        },
-        {
-          "type": "CapitalWeapon",
-          "x": 128,
-          "y": 0,
-          "rotation": 0,
-          "health": 600,
-          "maxHealth": 600
-        },
-        {
-          "type": "CapitalWeapon",
-          "x": 0,
-          "y": -192,
-          "rotation": 270,
-          "health": 600,
-          "maxHealth": 600
-        },
-        {
-          "type": "CapitalWeapon",
-          "x": 0,
-          "y": 192,
-          "rotation": 90,
-          "health": 600,
-          "maxHealth": 600
-        },
-        {
-          "type": "PowerReactor",
-          "x": -64,
-          "y": -64,
-          "rotation": 0,
-          "health": 400,
-          "maxHealth": 400
-        },
-        {
-          "type": "PowerReactor",
-          "x": -64,
-          "y": 64,
-          "rotation": 0,
-          "health": 400,
-          "maxHealth": 400
-        },
-        {
-          "type": "PowerReactor",
-          "x": 64,
-          "y": -64,
-          "rotation": 0,
-          "health": 400,
-          "maxHealth": 400
-        },
-        {
-          "type": "PowerReactor",
-          "x": 64,
-          "y": 64,
-          "rotation": 0,
-          "health": 400,
-          "maxHealth": 400
-        },
-        {
-          "type": "MegaHull",
-          "x": -64,
-          "y": -64,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "MegaHull",
-          "x": -64,
-          "y": 64,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "MegaHull",
-          "x": 64,
-          "y": -64,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "MegaHull",
-          "x": 64,
-          "y": 64,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "MegaHull",
-          "x": -64,
-          "y": -128,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "MegaHull",
-          "x": -64,
-          "y": 128,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "MegaHull",
-          "x": 64,
-          "y": -128,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        },
-        {
-          "type": "MegaHull",
-          "x": 64,
-          "y": 128,
-          "rotation": 0,
-          "health": 1200,
-          "maxHealth": 1200
-        }
-      ]
-    },
-    {
-      "name": "Missile Corvette",
-      "category": "Fighter",
-      "size": "small",
+      "name": "B52 Bomber",
       "parts": [
         {
           "type": "Engine",
-          "x": -48,
+          "x": -64,
           "y": 0,
           "rotation": 180,
           "health": 80,
@@ -989,7 +465,7 @@
         },
         {
           "type": "Hull",
-          "x": -32,
+          "x": -48,
           "y": 0,
           "rotation": 0,
           "health": 120,
@@ -997,33 +473,27 @@
         },
         {
           "type": "PowerCell",
-          "x": -16,
+          "x": -32,
           "y": 0,
           "rotation": 0,
           "health": 40,
           "maxHealth": 40
         },
         {
+          "type": "Hull",
+          "x": -16,
+          "y": 0,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
           "type": "Cockpit",
           "x": 0,
           "y": 0,
-          "rotation": 0
-        },
-        {
-          "type": "MissileLauncher",
-          "x": 0,
-          "y": -16,
           "rotation": 0,
-          "health": 70,
-          "maxHealth": 70
-        },
-        {
-          "type": "MissileLauncher",
-          "x": 0,
-          "y": 16,
-          "rotation": 0,
-          "health": 70,
-          "maxHealth": 70
+          "health": 1000,
+          "maxHealth": 1000
         },
         {
           "type": "Hull",
@@ -1034,12 +504,324 @@
           "maxHealth": 120
         },
         {
-          "type": "Gun",
+          "type": "Hull",
           "x": 32,
+          "y": 0,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Gun",
+          "x": 48,
           "y": 0,
           "rotation": 0,
           "health": 60,
           "maxHealth": 60
+        },
+        {
+          "type": "Hull",
+          "x": -16,
+          "y": -16,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": 0,
+          "y": -16,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": 16,
+          "y": -16,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": -16,
+          "y": -32,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": 0,
+          "y": -32,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": 16,
+          "y": -32,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": -16,
+          "y": -48,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": 0,
+          "y": -48,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": 16,
+          "y": -48,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Gun",
+          "x": -16,
+          "y": -64,
+          "rotation": 0,
+          "health": 60,
+          "maxHealth": 60
+        },
+        {
+          "type": "Gun",
+          "x": 0,
+          "y": -64,
+          "rotation": 0,
+          "health": 60,
+          "maxHealth": 60
+        },
+        {
+          "type": "Gun",
+          "x": 16,
+          "y": -64,
+          "rotation": 0,
+          "health": 60,
+          "maxHealth": 60
+        },
+        {
+          "type": "Hull",
+          "x": -16,
+          "y": 16,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": 0,
+          "y": 16,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": 16,
+          "y": 16,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": -16,
+          "y": 32,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": 0,
+          "y": 32,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": 16,
+          "y": 32,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": -16,
+          "y": 48,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": 0,
+          "y": 48,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": 16,
+          "y": 48,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Gun",
+          "x": -16,
+          "y": 64,
+          "rotation": 0,
+          "health": 60,
+          "maxHealth": 60
+        },
+        {
+          "type": "Gun",
+          "x": 0,
+          "y": 64,
+          "rotation": 0,
+          "health": 60,
+          "maxHealth": 60
+        },
+        {
+          "type": "Gun",
+          "x": 16,
+          "y": 64,
+          "rotation": 0,
+          "health": 60,
+          "maxHealth": 60
+        },
+        {
+          "type": "PowerCell",
+          "x": -32,
+          "y": -16,
+          "rotation": 0,
+          "health": 40,
+          "maxHealth": 40
+        },
+        {
+          "type": "PowerCell",
+          "x": -32,
+          "y": 16,
+          "rotation": 0,
+          "health": 40,
+          "maxHealth": 40
+        },
+        {
+          "type": "PowerCell",
+          "x": -32,
+          "y": -32,
+          "rotation": 0,
+          "health": 40,
+          "maxHealth": 40
+        },
+        {
+          "type": "PowerCell",
+          "x": -32,
+          "y": 32,
+          "rotation": 0,
+          "health": 40,
+          "maxHealth": 40
+        },
+        {
+          "type": "PowerCell",
+          "x": -48,
+          "y": -16,
+          "rotation": 0,
+          "health": 40,
+          "maxHealth": 40
+        },
+        {
+          "type": "PowerCell",
+          "x": -48,
+          "y": 16,
+          "rotation": 0,
+          "health": 40,
+          "maxHealth": 40
+        },
+        {
+          "type": "Engine",
+          "x": -48,
+          "y": -32,
+          "rotation": 180,
+          "health": 80,
+          "maxHealth": 80
+        },
+        {
+          "type": "Engine",
+          "x": -48,
+          "y": 32,
+          "rotation": 180,
+          "health": 80,
+          "maxHealth": 80
+        },
+        {
+          "type": "Engine",
+          "x": -32,
+          "y": -48,
+          "rotation": 0,
+          "health": 80,
+          "maxHealth": 80
+        },
+        {
+          "type": "Engine",
+          "x": -32,
+          "y": 48,
+          "rotation": 0,
+          "health": 80,
+          "maxHealth": 80
+        },
+        {
+          "type": "Engine",
+          "x": 32,
+          "y": -16,
+          "rotation": 0,
+          "health": 80,
+          "maxHealth": 80
+        },
+        {
+          "type": "Engine",
+          "x": 32,
+          "y": 16,
+          "rotation": 0,
+          "health": 80,
+          "maxHealth": 80
+        },
+        {
+          "type": "Engine",
+          "x": 32,
+          "y": -32,
+          "rotation": 0,
+          "health": 80,
+          "maxHealth": 80
+        },
+        {
+          "type": "Engine",
+          "x": 32,
+          "y": 32,
+          "rotation": 0,
+          "health": 80,
+          "maxHealth": 80
         }
       ]
     }

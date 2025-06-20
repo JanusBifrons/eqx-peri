@@ -220,10 +220,8 @@ export class ShipValidator {
         const distance = Math.sqrt(
           Math.pow(worldAP1.x - worldAP2.x, 2) + 
           Math.pow(worldAP1.y - worldAP2.y, 2)
-        );
-
-        // If attachment points are very close, they can connect
-        if (distance <= 2) {
+        );        // If attachment points are close enough (within 1 grid unit), they can connect
+        if (distance <= GRID_SIZE + 1) {
           return true;
         }
       }

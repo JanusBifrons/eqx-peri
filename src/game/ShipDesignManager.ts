@@ -152,6 +152,72 @@ export class ShipDesignManager {
           { type: 'Engine', gridPosition: { x: 2, y: -1 }, rotation: 0 }, // Forward left engine
           { type: 'Hull', gridPosition: { x: 1, y: 1 }, rotation: 0 },
           { type: 'Engine', gridPosition: { x: 2, y: 1 }, rotation: 0 } // Forward right engine
+        ]      }, {
+        name: "B52 Bomber",
+        blocks: [
+          // Main fuselage spine - central backbone
+          { type: 'Engine', gridPosition: { x: -4, y: 0 }, rotation: 180 },
+          { type: 'Hull', gridPosition: { x: -3, y: 0 }, rotation: 0 },
+          { type: 'PowerCell', gridPosition: { x: -2, y: 0 }, rotation: 0 },
+          { type: 'Hull', gridPosition: { x: -1, y: 0 }, rotation: 0 },
+          { type: 'Cockpit', gridPosition: { x: 0, y: 0 }, rotation: 0 },
+          { type: 'Hull', gridPosition: { x: 1, y: 0 }, rotation: 0 },
+          { type: 'Hull', gridPosition: { x: 2, y: 0 }, rotation: 0 },
+          { type: 'Gun', gridPosition: { x: 3, y: 0 }, rotation: 0 },
+          
+          // Extended port wing (left side, going up)
+          { type: 'Hull', gridPosition: { x: -1, y: -1 }, rotation: 0 },
+          { type: 'Hull', gridPosition: { x: 0, y: -1 }, rotation: 0 },
+          { type: 'Hull', gridPosition: { x: 1, y: -1 }, rotation: 0 },
+          { type: 'Hull', gridPosition: { x: -1, y: -2 }, rotation: 0 },
+          { type: 'Hull', gridPosition: { x: 0, y: -2 }, rotation: 0 },
+          { type: 'Hull', gridPosition: { x: 1, y: -2 }, rotation: 0 },
+          { type: 'Hull', gridPosition: { x: -1, y: -3 }, rotation: 0 },
+          { type: 'Hull', gridPosition: { x: 0, y: -3 }, rotation: 0 },
+          { type: 'Hull', gridPosition: { x: 1, y: -3 }, rotation: 0 },
+          
+          // Wing guns along the port wing
+          { type: 'Gun', gridPosition: { x: -1, y: -4 }, rotation: 0 },
+          { type: 'Gun', gridPosition: { x: 0, y: -4 }, rotation: 0 },
+          { type: 'Gun', gridPosition: { x: 1, y: -4 }, rotation: 0 },
+          
+          // Extended starboard wing (right side, going down)
+          { type: 'Hull', gridPosition: { x: -1, y: 1 }, rotation: 0 },
+          { type: 'Hull', gridPosition: { x: 0, y: 1 }, rotation: 0 },
+          { type: 'Hull', gridPosition: { x: 1, y: 1 }, rotation: 0 },
+          { type: 'Hull', gridPosition: { x: -1, y: 2 }, rotation: 0 },
+          { type: 'Hull', gridPosition: { x: 0, y: 2 }, rotation: 0 },
+          { type: 'Hull', gridPosition: { x: 1, y: 2 }, rotation: 0 },
+          { type: 'Hull', gridPosition: { x: -1, y: 3 }, rotation: 0 },
+          { type: 'Hull', gridPosition: { x: 0, y: 3 }, rotation: 0 },
+          { type: 'Hull', gridPosition: { x: 1, y: 3 }, rotation: 0 },
+          
+          // Wing guns along the starboard wing
+          { type: 'Gun', gridPosition: { x: -1, y: 4 }, rotation: 0 },
+          { type: 'Gun', gridPosition: { x: 0, y: 4 }, rotation: 0 },
+          { type: 'Gun', gridPosition: { x: 1, y: 4 }, rotation: 0 },
+          
+          // Power cells distributed throughout the wings
+          { type: 'PowerCell', gridPosition: { x: -2, y: -1 }, rotation: 0 },
+          { type: 'PowerCell', gridPosition: { x: -2, y: 1 }, rotation: 0 },
+          { type: 'PowerCell', gridPosition: { x: -2, y: -2 }, rotation: 0 },
+          { type: 'PowerCell', gridPosition: { x: -2, y: 2 }, rotation: 0 },
+          { type: 'PowerCell', gridPosition: { x: -3, y: -1 }, rotation: 0 },
+          { type: 'PowerCell', gridPosition: { x: -3, y: 1 }, rotation: 0 },
+          
+          // Wing-mounted engines for forward thrust
+          { type: 'Engine', gridPosition: { x: -3, y: -2 }, rotation: 180 },
+          { type: 'Engine', gridPosition: { x: -3, y: 2 }, rotation: 180 },
+          
+          // Reverse engines on wing tips for turning
+          { type: 'Engine', gridPosition: { x: -2, y: -3 }, rotation: 0 },
+          { type: 'Engine', gridPosition: { x: -2, y: 3 }, rotation: 0 },
+          
+          // Forward maneuvering engines
+          { type: 'Engine', gridPosition: { x: 2, y: -1 }, rotation: 0 },
+          { type: 'Engine', gridPosition: { x: 2, y: 1 }, rotation: 0 },
+          { type: 'Engine', gridPosition: { x: 2, y: -2 }, rotation: 0 },
+          { type: 'Engine', gridPosition: { x: 2, y: 2 }, rotation: 0 }
         ]
       }
     ];

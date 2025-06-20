@@ -726,7 +726,7 @@ export class GameEngine {
   } private toggleGrid(): void {
     this.showGrid = !this.showGrid;
   }
-
+  /*
   private spawnShip(x: number, y: number, isPlayer: boolean): void {
     try {
       console.log(`🔧 Spawning ship at (${x}, ${y}), isPlayer: ${isPlayer}`);
@@ -753,7 +753,8 @@ export class GameEngine {
     } catch (error) {
       console.error('❌ Error spawning ship:', error);
     }
-  } private spawnMissileCorvette(x: number, y: number, isPlayer: boolean): void {
+  }
+  */private spawnMissileCorvette(x: number, y: number, isPlayer: boolean): void {
     try {
       console.log(`🚀 Spawning Missile Corvette at (${x}, ${y}), isPlayer: ${isPlayer}`);
 
