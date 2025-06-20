@@ -176,14 +176,16 @@ export class GameEngine {
     console.log(`📷 Initial camera view set with zoom ${this.zoomLevel.toFixed(2)}`);
   }
 
-  private setupEventListeners(): void {
-    // Keyboard input
+  private setupEventListeners(): void {    // Keyboard input
     document.addEventListener('keydown', (event) => {
-      this.keys.add(event.key.toLowerCase());      // Handle special keys
+      this.keys.add(event.key.toLowerCase());
+      
+      // Handle special keys
       switch (event.key.toLowerCase()) {
         case '1':
-          this.spawnShip(Math.random() * 400 - 200, Math.random() * 400 - 200, false);
-          break; case '3':
+          this.spawnShipByName('Simple Test Ship', Math.random() * 400 - 200, Math.random() * 400 - 200, false);
+          break;
+        case '3':
           this.spawnDebris(Math.random() * 400 - 200, Math.random() * 400 - 200);
           break;
         case '4':
@@ -318,57 +320,71 @@ export class GameEngine {
     // Trigger flash effect on hit (whether destroyed or not)
     if (!entity.destroyed) {
       entity.triggerCollisionFlash();
-    }
-
-    // Apply damage - more damage to make breaking easier
-    const destroyed = entity.takeDamage(10); if (destroyed) {
+    }    // Apply damage - more damage to make breaking easier
+    const destroyed = entity.takeDamage(10);    if (destroyed) {
       // Find the assembly containing this entity
       const assembly = this.assemblies.find(a => a.entities.includes(entity));
       if (assembly) {
         console.log(`💥 Part destroyed in assembly with ${assembly.entities.length} parts`);
+        
+        // CRITICAL FIX: Remove the destroyed entity's physics body from the world
+        // This prevents the destroyed entity from participating in physics and connections
+        if (entity.body) {
+          Matter.World.remove(this.world, entity.body);
+          console.log(`🗑️ Removed destroyed ${entity.type} physics body from world`);
+        }
 
-        // Get new assemblies from the split BEFORE removing from physics world
+        // Get new assemblies from the split AFTER removing the destroyed entity from physics
         const newAssemblies = assembly.removeEntity(entity);
         console.log(`🔄 Split into ${newAssemblies.length} new assemblies`);
 
-        // Remove the old assembly from physics world (it's marked as destroyed now)
-        Matter.World.remove(this.world, assembly.rootBody);
+        // Only replace assemblies if the ship actually broke apart (more than 1 assembly)
+        if (newAssemblies.length > 1) {
+          // Ship broke apart - remove old assembly and add new ones
+          Matter.World.remove(this.world, assembly.rootBody);
 
-        // Replace the old assembly with new ones in our list
-        const assemblyIndex = this.assemblies.findIndex(a => a === assembly);
-        if (assemblyIndex !== -1) {
-          this.assemblies.splice(assemblyIndex, 1, ...newAssemblies);          // Add all new assemblies to physics world
-          newAssemblies.forEach((newAssembly, index) => {
-            console.log(`  Assembly ${index}: ${newAssembly.entities.length} parts`);
-            Matter.World.add(this.world, newAssembly.rootBody);
+          // Replace the old assembly with new ones in our list
+          const assemblyIndex = this.assemblies.findIndex(a => a === assembly);
+          if (assemblyIndex !== -1) {
+            this.assemblies.splice(assemblyIndex, 1, ...newAssemblies);
 
-            // Convert single-part assemblies without cockpits to debris
-            if (newAssembly.entities.length === 1 && !newAssembly.hasControlCenter()) {
-              newAssembly.setTeam(-1); // Mark as neutral debris
-              newAssembly.setShipName(`${newAssembly.entities[0].type} Debris`);
-              console.log(`🗑️ Converted single part to debris: ${newAssembly.shipName}`);
-            }
+            // Add all new assemblies to physics world
+            newAssemblies.forEach((newAssembly, index) => {
+              console.log(`  Assembly ${index}: ${newAssembly.entities.length} parts`);
+              Matter.World.add(this.world, newAssembly.rootBody);
 
-            // If this was the player assembly, reassign player control
-            if (assembly.isPlayerControlled && newAssembly.isPlayerControlled) {
-              this.playerAssembly = newAssembly;
-              this.toastSystem.showWarning(`⚠️ Ship damaged! Control transferred to ${newAssembly.shipName}`);
-              console.log('👤 Player control transferred to new assembly');
-            }
-          });// If original was player assembly but no new assembly has control, find one
-          if (assembly.isPlayerControlled && !this.playerAssembly) {
-            const newPlayerAssembly = newAssemblies.find(a => a.hasControlCenter());
-            if (newPlayerAssembly) {
-              this.playerAssembly = newPlayerAssembly;
-              newPlayerAssembly.isPlayerControlled = true;
-              this.toastSystem.showSuccess(`✅ Control established with ${newPlayerAssembly.shipName}`);
-              console.log('👤 Player control assigned to assembly with cockpit');
+              // Convert single-part assemblies without cockpits to debris
+              if (newAssembly.entities.length === 1 && !newAssembly.hasControlCenter()) {
+                newAssembly.setTeam(-1); // Mark as neutral debris
+                newAssembly.setShipName(`${newAssembly.entities[0].type} Debris`);
+                console.log(`🗑️ Converted single part to debris: ${newAssembly.shipName}`);
+              }              // If this was the player assembly, reassign player control
+              if (assembly.isPlayerControlled && newAssembly.isPlayerControlled) {
+                this.playerAssembly = newAssembly;
+                this.toastSystem.showWarning(`⚠️ Ship damaged! Control transferred to ${newAssembly.shipName}`);
+                console.log('👤 Player control transferred to new assembly');
+              }
+            });
+
+            // If original was player assembly but no new assembly has control, find one
+            if (assembly.isPlayerControlled && !this.playerAssembly) {
+              const newPlayerAssembly = newAssemblies.find(a => a.hasControlCenter());
+              if (newPlayerAssembly) {
+                this.playerAssembly = newPlayerAssembly;
+                newPlayerAssembly.isPlayerControlled = true;
+                this.toastSystem.showSuccess(`✅ Control established with ${newPlayerAssembly.shipName}`);
+                console.log('👤 Player control assigned to assembly with cockpit');
+              }
             }
           }
+        } else {
+          // Ship remained intact - no need to replace assemblies, the original assembly 
+          // has already been updated with createFreshBody() in the removeEntity method
+          console.log(`🔗 Ship remained intact, no assembly replacement needed`);
         }
       }
     }
-  } private handleMissileHit(missile: any, entity: Entity): void {
+  }private handleMissileHit(missile: any, entity: Entity): void {
     // Use the missile system to handle the hit
     this.missileSystem.handleMissileHit(missile, entity);
   }
@@ -1235,8 +1251,8 @@ export class GameEngine {
     this.spawnTeam(0, -800, 0, 1, true); // Only spawn 1 player ship
 
     // Spawn enemy team (Team 1) - Red team on the right
-    this.spawnTeam(1, 800, 0, 1, false); // 1 enemy AI ship    console.log('⚔️ Battle initialized with player and AI teams!');
-    this.toastSystem.showSuccess("Teams deployed - engage!");    // Add floating debris to make the sector more interesting
+    // DISABLED FOR TESTING: this.spawnTeam(1, 800, 0, 1, false); // 1 enemy AI ship    console.log('⚔️ Battle initialized in TESTING MODE - Player only!');
+    this.toastSystem.showSuccess("Player ship deployed - Testing Mode!");// Add floating debris to make the sector more interesting
     console.log('🗑️ Adding sector debris...');
     this.spawnDebrisField(0, 0, 12, 2000); // 12 pieces of debris scattered across 2000 unit radius
     this.toastSystem.showGameEvent("Debris field detected in sector");
@@ -1689,6 +1705,7 @@ export class GameEngine {
     this.zoomLevel += (clampedTargetZoom - this.zoomLevel) * smoothingFactor;
 
     // Debug logging (uncomment to see zoom changes)
+   
     // if (speed > 1 || speedZoomInfluence < 1) {
     //   console.log(`🔍 Speed: ${speed.toFixed(1)}, BaseZoom: ${this.baseZoomLevel.toFixed(3)}, Influence: ${(speedZoomInfluence * 100).toFixed(0)}%, ZoomOut%: ${(zoomOutPercent * 100).toFixed(1)}%, Target: ${clampedTargetZoom.toFixed(3)}, Current: ${this.zoomLevel.toFixed(3)}`);
     // }
@@ -2181,5 +2198,48 @@ export class GameEngine {
     const worldY = this.render.bounds.min.y + this.mousePosition.y * zoomFactor;
 
     this.playerAssembly.cursorPosition = { x: worldX, y: worldY };
+  }
+  private spawnShipByName(shipName: string, x: number, y: number, isPlayer: boolean): void {
+    try {
+      console.log(`🔧 Spawning specific ship "${shipName}" at (${x}, ${y}), isPlayer: ${isPlayer}`);
+
+      // Find the specific ship from the JSON data
+      const ships = shipsData.ships;
+      const selectedShip = ships.find(ship => ship.name === shipName);
+
+      if (!selectedShip) {
+        console.error(`❌ Ship "${shipName}" not found in ships data`);
+        return;
+      }
+
+      console.log(`🎯 Found ship: ${selectedShip.name} with ${selectedShip.parts.length} parts`);      // Convert grid coordinates to world coordinates for entity creation
+      const GRID_SIZE = 16;
+      const entityConfigs: EntityConfig[] = selectedShip.parts.map(part => ({
+        type: part.type as EntityType,
+        x: part.x * GRID_SIZE, // Convert grid to world coordinates
+        y: part.y * GRID_SIZE,
+        rotation: part.rotation,
+        health: part.health,
+        maxHealth: part.maxHealth
+      }));
+
+      const assembly = new Assembly(entityConfigs, { x, y });
+      assembly.setShipName(selectedShip.name);
+      console.log(`🔨 Created assembly with ID: ${assembly.id}`);
+
+      this.assemblies.push(assembly);
+      Matter.World.add(this.world, assembly.rootBody);
+      console.log(`🌍 Added to world, total assemblies: ${this.assemblies.length}`);
+
+      // Set as player if requested
+      if (isPlayer && (!this.playerAssembly || this.playerAssembly.destroyed)) {
+        this.playerAssembly = assembly;
+        assembly.isPlayerControlled = true;
+        this.flightController = new FlightController(assembly);
+        console.log('👤 Set as player assembly with flight controller');
+      }
+    } catch (error) {
+      console.error(`❌ Error spawning ship "${shipName}":`, error);
+    }
   }
 }

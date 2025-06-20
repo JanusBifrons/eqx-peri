@@ -68,11 +68,11 @@ export class Assembly {
       entity.body.assembly = this;
     });
   }
-
   public update(): void {
     if (this.destroyed) return;
 
-    // Update visual effects for all entities
+    // Update visual effects for ALL entities (including destroyed ones that are still flashing)
+    // This allows destroyed entities to complete their flash animation before being removed
     this.entities.forEach(entity => {
       entity.updateVisualEffects(16); // Assuming ~60fps, 16ms per frame
     });
@@ -81,7 +81,7 @@ export class Assembly {
     const hasControlCenter = this.entities.some(e => e.isControlCenter());
 
     // Remove destroyed entities and rebuild if needed
-    const activeEntities = this.entities.filter(e => !e.destroyed); if (activeEntities.length !== this.entities.length) {
+    const activeEntities = this.entities.filter(e => !e.destroyed);if (activeEntities.length !== this.entities.length) {
       // Some entities were destroyed - we need to rebuild completely
       this.entities = activeEntities;
 
@@ -435,45 +435,51 @@ export class Assembly {
     (laser as any).sourceAssemblyId = this.id; // Store which assembly fired this laser
 
     return laser;
-  }
-  public removeEntity(entity: Entity): Assembly[] {
+  }  public removeEntity(entity: Entity): Assembly[] {
     const entityIndex = this.entities.findIndex(e => e.id === entity.id);
-    if (entityIndex === -1) return [this];
+    if (entityIndex === -1) {
+      return [this];
+    }
 
     // Store current physics state before destroying
     const currentVelocity = this.rootBody.velocity;
     const currentAngularVelocity = this.rootBody.angularVelocity;
     const currentPosition = this.rootBody.position;
     const currentAngle = this.rootBody.angle;
-    const wasPlayerControlled = this.isPlayerControlled;
+    const wasPlayerControlled = this.isPlayerControlled;// CRITICAL FIX: Clean up all connection references to the destroyed entity
+    this.entities.forEach(otherEntity => {
+      if (otherEntity !== entity) {
+        otherEntity.disconnectFrom(entity);
+      }
+    });
 
     // Remove the destroyed entity
-    this.entities.splice(entityIndex, 1);
+    this.entities.splice(entityIndex, 1);    // ADDITIONAL FIX: Completely rebuild the connection graph for remaining entities
+    // This ensures we have accurate connectivity information after the removal
+    console.log(`🔧 DEBUG: Rebuilding connections for remaining ${this.entities.length} entities:`);
+    this.entities.forEach((entity, index) => {
+      console.log(`  ${index}: ${entity.type} at (${entity.body.position.x.toFixed(1)}, ${entity.body.position.y.toFixed(1)})`);
+    });
+    this.buildConnectionGraph();
 
     if (this.entities.length === 0) {
       this.destroy();
       return [];
-    }
-
-    // Find connected components from remaining entities
-    const components = this.findConnectedComponents();
-
-    // If there's only one component, the ship remains intact - no need to break apart
+    }    // Find connected components from remaining entities
+    const components = this.findConnectedComponents();    // If there's only one component, the ship remains intact - no need to break apart
     if (components.length === 1) {
-      console.log(`🔗 Ship remains intact after losing ${entity.type} - all parts still connected`);
       // Recreate the assembly body without the destroyed entity to update physics
+      // Note: The destroyed entity's physics body has already been removed from the world by GameEngine
       this.createFreshBody();
       return [this];
     }
 
     // Multiple components found - ship breaks apart
-    console.log(`💥 Ship breaking into ${components.length} components after losing ${entity.type} `);
-
     // Mark this assembly as destroyed since it's being split
-    this.destroyed = true;
-
-    // Create completely new assemblies for each component
-    const newAssemblies: Assembly[] = []; components.forEach((component) => {
+    this.destroyed = true;// Create completely new assemblies for each component
+    const newAssemblies: Assembly[] = [];
+    
+    components.forEach((component) => {
       const newAssembly = this.createNewAssemblyFromComponent(
         component,
         currentPosition,
@@ -501,25 +507,40 @@ export class Assembly {
       newAssemblies.push(newAssembly);
     });
     return newAssemblies;
-  }
-  private createFreshBody(): void {
-    // Store the current position before recreating
+  }  private createFreshBody(world?: Matter.World): void {
+    // Store the current position and physics state before recreating
     const currentPosition = this.rootBody ? this.rootBody.position : { x: 0, y: 0 };
+    const currentVelocity = this.rootBody ? this.rootBody.velocity : { x: 0, y: 0 };
+    const currentAngularVelocity = this.rootBody ? this.rootBody.angularVelocity : 0;
+    const currentAngle = this.rootBody ? this.rootBody.angle : 0;
 
-    // Create completely new entities with fresh bodies
+    // Remove individual destroyed entity bodies from the physics world
+    if (world) {
+      this.entities.forEach(entity => {
+        if (entity.destroyed && entity.body) {
+          Matter.World.remove(world, entity.body);
+          console.log(`🗑️ Removed destroyed ${entity.type} body from physics world`);
+        }
+      });
+    }
+
+    // Create completely new entities with fresh bodies (excluding destroyed ones)
     const newEntities: Entity[] = [];
 
     this.entities.forEach(oldEntity => {
-      const config: EntityConfig = {
-        type: oldEntity.type,
-        x: oldEntity.localOffset.x,
-        y: oldEntity.localOffset.y,
-        rotation: oldEntity.rotation,
-        health: oldEntity.health,
-        maxHealth: oldEntity.maxHealth
-      };
-      newEntities.push(new Entity(config));
+      if (!oldEntity.destroyed) {
+        const config: EntityConfig = {
+          type: oldEntity.type,
+          x: oldEntity.localOffset.x,
+          y: oldEntity.localOffset.y,
+          rotation: oldEntity.rotation,
+          health: oldEntity.health,
+          maxHealth: oldEntity.maxHealth
+        };
+        newEntities.push(new Entity(config));
+      }
     });
+    
     this.entities = newEntities;
 
     // Rebuild connection graph for the new entities
@@ -534,8 +555,11 @@ export class Assembly {
       restitution: 0.2 // Low bounce for realistic space debris
     });
 
-    // Restore position
+    // Restore position and physics state
     Matter.Body.setPosition(this.rootBody, currentPosition);
+    Matter.Body.setVelocity(this.rootBody, currentVelocity);
+    Matter.Body.setAngularVelocity(this.rootBody, currentAngularVelocity);
+    Matter.Body.setAngle(this.rootBody, currentAngle);
 
     // Store reference
     this.rootBody.assembly = this;
@@ -567,7 +591,9 @@ export class Assembly {
       y: avgCurrentY
     };
 
-    console.log(`🔧 Creating new assembly at (${newPosition.x.toFixed(1)}, ${newPosition.y.toFixed(1)}) with ${component.length} parts`);    const newAssembly = new Assembly(configs, newPosition);
+    console.log(`🔧 Creating new assembly at (${newPosition.x.toFixed(1)}, ${newPosition.y.toFixed(1)}) with ${component.length} parts`);
+
+    const newAssembly = new Assembly(configs, newPosition);
     
     // Set the assembly's rotation to match the original
     Matter.Body.setAngle(newAssembly.rootBody, baseAngle);
@@ -972,113 +998,117 @@ export class Assembly {
         weapon.setTargetAimAngle(0);
       }
     });
-  }
-  /**
-   * Build the connection graph between entities using spatial attachment point detection
-   * This populates each entity's attachmentConnections array
+  }  /**
+   * Build the connection graph between entities using grid-based adjacency
+   * This method checks all entities against each other to determine which should be connected
+   * based on grid adjacency (N/S/E/W neighbors only).
    */  private buildConnectionGraph(): void {
-    console.log(`🔗 Building connection graph for ${this.shipName} with ${this.entities.length} entities`);
-    
     // Clear existing connections
     this.entities.forEach(entity => {
       entity.attachmentConnections.forEach(connection => {
         connection.connectedEntity = null;
         connection.attachmentPointIndex = -1;
       });
-      entity.clearAllSideConnections(); // Clear side-based connections too
+      entity.clearAllSideConnections();
     });
 
-    // Check all pairs of entities for connections
-    let connectionCount = 0;
-    for (let i = 0; i < this.entities.length; i++) {
-      for (let j = i + 1; j < this.entities.length; j++) {
-        const entity1 = this.entities[i];
-        const entity2 = this.entities[j];
-        
-        console.log(`🔍 Checking connection between ${entity1.type} at (${entity1.body.position.x.toFixed(1)}, ${entity1.body.position.y.toFixed(1)}) and ${entity2.type} at (${entity2.body.position.x.toFixed(1)}, ${entity2.body.position.y.toFixed(1)})`);
-        
-        const originalConnectionCount = entity1.getConnectedEntities().length;
-        this.detectAndRecordConnection(entity1, entity2);
-        const newConnectionCount = entity1.getConnectedEntities().length;
-        
-        if (newConnectionCount > originalConnectionCount) {
-          connectionCount++;
-        }
-      }
-    }
-    
-    console.log(`🔗 Connection graph complete: ${connectionCount} connections found`);
+    // Create a grid map for quick adjacency lookup
+    const gridMap = new Map<string, Entity>();
     this.entities.forEach(entity => {
-      const connected = entity.getConnectedEntities();
-      console.log(`  ${entity.type}: connected to ${connected.length} entities [${connected.join(', ')}]`);
+      const gridPos = this.worldToGrid({ x: entity.body.position.x, y: entity.body.position.y });
+      const key = `${gridPos.x},${gridPos.y}`;
+      gridMap.set(key, entity);
     });
-  }  /**
-   * Detect if two entities are connected and record the connection
+
+    // Check all entities for grid-adjacent connections
+    let connectionCount = 0;
+    this.entities.forEach(entity => {
+      const entityGridPos = this.worldToGrid({ x: entity.body.position.x, y: entity.body.position.y });
+      
+      // Check all four cardinal directions for adjacent entities
+      const directions = [
+        { dx: 0, dy: -1, side: 'north' },   // North
+        { dx: 1, dy: 0, side: 'east' },     // East
+        { dx: 0, dy: 1, side: 'south' },    // South
+        { dx: -1, dy: 0, side: 'west' }     // West
+      ];
+
+      directions.forEach(dir => {
+        const adjacentPos = {
+          x: entityGridPos.x + dir.dx,
+          y: entityGridPos.y + dir.dy
+        };
+        const adjacentKey = `${adjacentPos.x},${adjacentPos.y}`;
+        const adjacentEntity = gridMap.get(adjacentKey);
+
+        if (adjacentEntity && this.canEntitiesConnect(entity, adjacentEntity)) {
+          if (this.createGridConnection(entity, adjacentEntity, dir.side as 'north' | 'east' | 'south' | 'west')) {
+            connectionCount++;
+          }
+        }
+      });    });
+    
+    console.log(`🔗 ${this.shipName}: rebuilt connections using grid-based system, found ${connectionCount} connections between ${this.entities.length} entities`);
+  }
+
+  /**
+   * Convert world coordinates to grid coordinates
    */
-  private detectAndRecordConnection(entity1: Entity, entity2: Entity): void {
+  private worldToGrid(worldPos: { x: number, y: number }): { x: number, y: number } {
+    const GRID_SIZE = 16; // From GameTypes.ts
+    return {
+      x: Math.round(worldPos.x / GRID_SIZE),
+      y: Math.round(worldPos.y / GRID_SIZE)
+    };
+  }
+
+  /**
+   * Check if two entities can connect based on their type compatibility
+   */
+  private canEntitiesConnect(entity1: Entity, entity2: Entity): boolean {
     const def1 = ENTITY_DEFINITIONS[entity1.type];
     const def2 = ENTITY_DEFINITIONS[entity2.type];
     
-    if (!def1 || !def2) {
-      console.log(`❌ Missing definitions for ${entity1.type} or ${entity2.type}`);
-      return;
+    if (!def1 || !def2) return false;
+
+    // Check mutual compatibility
+    return def1.canAttachTo.includes(entity2.type) && def2.canAttachTo.includes(entity1.type);
+  }
+
+  /**
+   * Create a grid-based connection between two adjacent entities
+   */
+  private createGridConnection(entity1: Entity, entity2: Entity, side: 'north' | 'east' | 'south' | 'west'): boolean {
+    // Avoid duplicate connections
+    if (entity1.getConnectedEntities().includes(entity2.id)) {
+      return false;
     }
 
-    // Check mutual compatibility first
-    if (!def1.canAttachTo.includes(entity2.type) || !def2.canAttachTo.includes(entity1.type)) {
-      console.log(`❌ ${entity1.type} and ${entity2.type} cannot attach to each other`);
-      console.log(`  ${entity1.type} canAttachTo:`, def1.canAttachTo);
-      console.log(`  ${entity2.type} canAttachTo:`, def2.canAttachTo);
-      return;
-    }
+    console.log(`🔗 Creating grid connection: ${entity1.type} (${side}) -> ${entity2.type}`);
 
-    // Get world positions of all attachment points for both entities
-    const entity1Points = entity1.getWorldAttachmentPoints();
-    const entity2Points = entity2.getWorldAttachmentPoints();
-
-    console.log(`  ${entity1.type} attachment points:`, entity1Points.map(p => `(${p.x.toFixed(1)}, ${p.y.toFixed(1)})`));
-    console.log(`  ${entity2.type} attachment points:`, entity2Points.map(p => `(${p.x.toFixed(1)}, ${p.y.toFixed(1)})`));
-
-    // Check for close attachment points
-    for (let i = 0; i < entity1Points.length; i++) {
-      for (let j = 0; j < entity2Points.length; j++) {
-        const point1 = entity1Points[i];
-        const point2 = entity2Points[j];
-        
-        const distance = Math.sqrt(
-          Math.pow(point1.x - point2.x, 2) + 
-          Math.pow(point1.y - point2.y, 2)
-        );
-
-        console.log(`    Distance between point ${i} and point ${j}: ${distance.toFixed(2)}`);
-
-        // If attachment points are very close, record the connection
-        if (distance <= 66) { // Allow for larger blocks
-          entity1.connectTo(entity2, i, j);
-          
-          // Also record side-based connections
-          const entity1Side = entity1.getLogicalSideForAttachmentPoint(i);
-          const entity2Side = entity2.getLogicalSideForAttachmentPoint(j);
-          
-          if (entity1Side) {
-            entity1.setConnectionOnSide(entity1Side, entity2.id);
-          }
-          if (entity2Side) {
-            entity2.setConnectionOnSide(entity2Side, entity1.id);
-          }
-          
-          console.log(`🔗 Connected ${entity1.type} (${entity1Side}) to ${entity2.type} (${entity2Side}), distance: ${distance.toFixed(2)}`);
-          return; // Only connect once per entity pair
-        }
-      }
-    }
+    // Create the connection using the first available attachment points
+    // Since we're grid-based, we just need to mark them as connected
+    entity1.connectTo(entity2, 0, 0); // Simplified - using first attachment points
     
-    // Debug: Log when entities can't connect
-    if (entity1Points.length > 0 && entity2Points.length > 0) {
-      const minDistance = Math.min(...entity1Points.flatMap(p1 => 
-        entity2Points.map(p2 => Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2)))
-      ));
-      console.log(`❌ ${entity1.type} and ${entity2.type} too far apart: min distance ${minDistance.toFixed(2)} (need ≤66)`);
+    // Set side-based connections for easier lookup
+    entity1.setConnectionOnSide(side, entity2.id);
+    
+    // Set the opposite side for entity2
+    const oppositeSide = this.getOppositeSide(side);
+    entity2.setConnectionOnSide(oppositeSide, entity1.id);
+    
+    return true;
+  }
+
+  /**
+   * Get the opposite side for a given side
+   */
+  private getOppositeSide(side: 'north' | 'east' | 'south' | 'west'): 'north' | 'east' | 'south' | 'west' {
+    switch (side) {
+      case 'north': return 'south';
+      case 'south': return 'north';
+      case 'east': return 'west';
+      case 'west': return 'east';
     }
   }
 }

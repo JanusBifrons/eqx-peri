@@ -1,5 +1,34 @@
 {
-  "ships": [
+  "ships": [    {      "name": "Simple Test Ship",
+      "category": "Fighter", 
+      "size": "small",
+      "parts": [
+        {
+          "type": "Cockpit",
+          "x": -1,
+          "y": 0,
+          "rotation": 0,
+          "health": 100,
+          "maxHealth": 100
+        },
+        {
+          "type": "PowerCell",
+          "x": 0,
+          "y": 0,
+          "rotation": 0,
+          "health": 40,
+          "maxHealth": 40
+        },
+        {
+          "type": "Hull",
+          "x": 1,
+          "y": 0,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        }
+      ]
+    },
     {
       "name": "Long Scout",
       "category": "Fighter",

@@ -113,14 +113,31 @@ export class Entity {
     }
 
     return false;
-  }
-
-  public destroy(): void {
+  }  public destroy(): void {
     this.destroyed = true;
     this.health = 0;
     this.isFlashing = false; // Stop any flashing
-    this.updateVisualState();
-  } public canFire(): boolean {
+    
+    // Make destroyed entities completely invisible
+    if (this.body.render) {
+      this.body.render.fillStyle = 'transparent';
+      this.body.render.strokeStyle = 'transparent';
+      this.body.render.visible = false;
+    }
+    
+    console.log(`💀 Entity ${this.type} destroyed and made invisible`);
+  }
+
+  /**
+   * Remove this entity's physics body from the Matter.js world
+   * This should be called by the Assembly when the entity is being removed
+   */
+  public removeFromWorld(world: Matter.World): void {
+    if (this.body) {
+      Matter.World.remove(world, this.body);
+      console.log(`🗑️ Entity ${this.type} body removed from physics world`);
+    }
+  }public canFire(): boolean {
     // Traditional weapons
     if ((this.type === 'Gun' || this.type === 'LargeGun' || this.type === 'CapitalWeapon') && !this.destroyed) {
       return true;
@@ -154,8 +171,9 @@ export class Entity {
       return this.canUseCockpitEngine();
     }
 
-    return false;
-  }  /**
+    return false;  }
+
+  /**
    * Check if cockpit can use its built-in weapon (nothing connected on north side)
    */
   private canUseCockpitWeapon(): boolean {
@@ -165,16 +183,13 @@ export class Entity {
       if (connection.connectedEntity !== null) {
         const side = this.getLogicalSideForAttachmentPoint(i);
         if (side === 'north') {
-          console.log(`🔫 ${this.type} weapon blocked: attachment point ${i} (${side} side) is connected`);
           return false; // Something is connected on the north side
         }
       }
     }
     
-    console.log(`🔫 ${this.type} weapon available: no north connections found`);
     return true; // No north connections found
   }
-
   /**
    * Check if cockpit can use its built-in engine (nothing connected on south side)
    */
@@ -185,13 +200,11 @@ export class Entity {
       if (connection.connectedEntity !== null) {
         const side = this.getLogicalSideForAttachmentPoint(i);
         if (side === 'south') {
-          console.log(`🚀 ${this.type} engine blocked: attachment point ${i} (${side} side) is connected`);
           return false; // Something is connected on the south side
         }
       }
     }
     
-    console.log(`🚀 ${this.type} engine available: no south connections found`);
     return true; // No south connections found
   }
 
@@ -361,8 +374,10 @@ export class Entity {
       this.body.render.lineWidth = 4 + Math.round(flashIntensity * 3);
     }
   }
-
   private updateVisualState(): void {
+    // Don't update visual state if currently flashing - let flash logic handle it
+    if (this.isFlashing) return;
+    
     const healthRatio = this.health / this.maxHealth;
     
     // Start with solid hull colors
