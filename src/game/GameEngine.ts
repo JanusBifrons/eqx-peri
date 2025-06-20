@@ -1,6 +1,6 @@
 import * as Matter from 'matter-js';
 import Stats from 'stats.js';
-import { Assembly, MissileLaunchRequest } from './Assembly';
+import { Assembly } from './Assembly';
 import { Entity } from './Entity';
 import { EntityConfig, GRID_SIZE, ENTITY_DEFINITIONS, EntityType } from '../types/GameTypes';
 import { getBlockDefinition, BLOCK_SIZE } from './BlockSystem';
@@ -8,8 +8,8 @@ import shipsData from '../data/ships.json';
 import { ControllerManager } from './ControllerManager';
 import { FlightController } from './FlightController';
 import { ControlInput } from './Controller';
-import { ToastSystem } from './ToastSystem';
 import { PowerSystem } from './PowerSystem';
+import { ToastSystem } from './ToastSystem';
 import { MissileSystem } from './MissileSystem';
 
 export class GameEngine {
@@ -184,7 +184,7 @@ export class GameEngine {
       switch (event.key.toLowerCase()) {
         case '1':
           this.spawnShip(Math.random() * 400 - 200, Math.random() * 400 - 200, false);
-          break;        case '3':
+          break; case '3':
           this.spawnDebris(Math.random() * 400 - 200, Math.random() * 400 - 200);
           break;
         case '4':
@@ -341,8 +341,8 @@ export class GameEngine {
           this.assemblies.splice(assemblyIndex, 1, ...newAssemblies);          // Add all new assemblies to physics world
           newAssemblies.forEach((newAssembly, index) => {
             console.log(`  Assembly ${index}: ${newAssembly.entities.length} parts`);
-            Matter.World.add(this.world, newAssembly.rootBody);            
-            
+            Matter.World.add(this.world, newAssembly.rootBody);
+
             // Convert single-part assemblies without cockpits to debris
             if (newAssembly.entities.length === 1 && !newAssembly.hasControlCenter()) {
               newAssembly.setTeam(-1); // Mark as neutral debris
@@ -821,7 +821,7 @@ export class GameEngine {
   // Add method to spawn field of debris
   private spawnDebrisField(centerX: number, centerY: number, count: number, radius: number): void {
     console.log(`🗑️ Spawning debris field: ${count} pieces in ${radius} unit radius`);
-    
+
     // Mix of random debris and broken ship parts
     for (let i = 0; i < count; i++) {
       // Random position within radius
@@ -829,7 +829,7 @@ export class GameEngine {
       const distance = Math.random() * radius;
       const x = centerX + Math.cos(angle) * distance;
       const y = centerY + Math.sin(angle) * distance;
-      
+
       // 30% chance to spawn broken ship parts (multiple pieces together)
       if (Math.random() < 0.3) {
         this.spawnBrokenShipParts(x, y);
@@ -842,16 +842,16 @@ export class GameEngine {
   // Add method to spawn broken ship parts (simulates destroyed ship remains)
   private spawnBrokenShipParts(x: number, y: number): void {
     console.log(`💥 Spawning broken ship parts at (${x}, ${y})`);
-    
+
     // Create 2-4 parts from a "destroyed" ship
     const partCount = 2 + Math.floor(Math.random() * 3);
     const baseTypes: EntityType[] = ['Hull', 'Engine', 'Gun', 'PowerCell'];
-    
+
     for (let i = 0; i < partCount; i++) {
       const offsetX = x + (Math.random() - 0.5) * 100; // Spread parts around
       const offsetY = y + (Math.random() - 0.5) * 100;
       const partType = baseTypes[Math.floor(Math.random() * baseTypes.length)];
-      
+
       this.spawnDebris(offsetX, offsetY, partType);
     }
   }
@@ -964,19 +964,19 @@ export class GameEngine {
     // This method is called by the mousedown event handler, but targeting
     // is now handled in handleCanvasClick which is called by the click event
     console.log('🖱️ Right click detected - targeting handled by click event');
-  }  private handleMouseWheel(event: WheelEvent): void {
+  } private handleMouseWheel(event: WheelEvent): void {
     // Zoom in/out based on wheel direction (inverted for natural feel)
     const zoomFactor = event.deltaY > 0 ? 0.9 : 1.1; // Wheel down = zoom out, wheel up = zoom in
-    
+
     // Apply zoom to baseZoomLevel instead of zoomLevel so it persists and isn't overwritten by speed-based zoom
     this.baseZoomLevel *= zoomFactor;
 
     // Clamp base zoom level
     this.baseZoomLevel = Math.max(this.minZoom, Math.min(this.maxZoom, this.baseZoomLevel));
-    
+
     // Record that the player manually adjusted zoom
     this.lastManualZoomTime = Date.now();
-    
+
     console.log(`🔍 Mouse Wheel Zoom: ${this.baseZoomLevel.toFixed(3)}`);
 
     // The actual zoom application will happen in updateCameraWithMouse() which uses this.zoomLevel
@@ -1392,9 +1392,9 @@ export class GameEngine {
       isPlayer: assembly.isPlayerControlled,
       id: assembly.id,
       shipName: assembly.shipName,
-      shipType: assembly.isPlayerControlled ? 'Player Ship' : 
-                assembly.team === -1 ? 'Debris' :
-                'AI Ship',
+      shipType: assembly.isPlayerControlled ? 'Player Ship' :
+        assembly.team === -1 ? 'Debris' :
+          'AI Ship',
       isDebris: assembly.entities.length === 1 && !assembly.hasControlCenter() || assembly.team === -1 // Single part without cockpit OR neutral team = debris
     }));
 
@@ -1721,7 +1721,7 @@ export class GameEngine {
     this.baseZoomLevel = Math.max(this.baseZoomLevel * 0.67, this.minZoom);
     this.lastManualZoomTime = Date.now();
     console.log(`🔍 Zoom Out: ${this.baseZoomLevel.toFixed(2)}`);
-  }  public resetZoom(): void {
+  } public resetZoom(): void {
     // Reset to the calculated default zoom for the current window size
     this.calculateDefaultZoom(this.render.canvas.width, this.render.canvas.height);
     this.lastManualZoomTime = Date.now();
@@ -1760,7 +1760,7 @@ export class GameEngine {
 
     const currentTime = Date.now();
     const timeSinceManualZoom = currentTime - this.lastManualZoomTime;
-    
+
     // If player recently manually adjusted zoom, reduce or disable speed-based zoom temporarily
     let speedZoomInfluence = 1.0;
     if (timeSinceManualZoom < this.manualZoomCooldown) {
@@ -1768,7 +1768,7 @@ export class GameEngine {
       speedZoomInfluence = timeSinceManualZoom / this.manualZoomCooldown;
     }
 
-    const speed = this.getCurrentSpeed();    
+    const speed = this.getCurrentSpeed();
 
     // Calculate speed-based zoom adjustment as a percentage (max 15% zoom out)
     const maxSpeedZoomPercent = 0.15 * speedZoomInfluence; // Reduced by manual zoom influence
@@ -1846,7 +1846,6 @@ export class GameEngine {
   public getPlayerDamagePercentage(): number {
     return this.playerAssembly ? this.playerAssembly.getDamagePercentage() : 0;
   }
-
   public ejectPlayer(): void {
     if (!this.playerAssembly || !this.playerAssembly.canEject()) {
       console.warn('⚠️ Cannot eject - conditions not met');
@@ -1855,12 +1854,18 @@ export class GameEngine {
 
     console.log('🚀 Player ejecting!');
 
+    // Store the old assembly ID to remove its controller
+    const oldAssemblyId = this.playerAssembly.id;
+
     // Remove current player assembly from world
     const playerIndex = this.assemblies.findIndex(a => a === this.playerAssembly);
     if (playerIndex !== -1) {
       Matter.World.remove(this.world, this.playerAssembly!.rootBody);
       this.assemblies.splice(playerIndex, 1);
     }
+
+    // Remove the old controller
+    this.controllerManager.removeController(oldAssemblyId);
 
     // Perform ejection
     const newAssemblies = this.playerAssembly!.ejectNonControlParts();
@@ -1875,8 +1880,14 @@ export class GameEngine {
       this.playerAssembly = cockpitAssembly;
       this.flightController = new FlightController(cockpitAssembly);
       this.controllerManager.createPlayerController(cockpitAssembly);
+      console.log('� Player control transferred to ejected cockpit'); console.log('🎮 New cockpit controller created');
+
+      // Update power system for the new cockpit assembly
+      const powerSystem = PowerSystem.getInstance();
+      powerSystem.setPlayerAssembly(cockpitAssembly);
+      console.log('⚡ Power system updated for cockpit');
+
       this.toastSystem.showWarning("🚀 Emergency ejection! Cockpit separated");
-      console.log('👤 Player control transferred to ejected cockpit');
     } else {
       this.toastSystem.showError("💀 Critical failure! No cockpit available");
       console.warn('⚠️ No cockpit assembly found after ejection');

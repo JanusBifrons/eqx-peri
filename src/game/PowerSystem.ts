@@ -30,7 +30,7 @@ export class PowerSystem {
             PowerSystem.instance = new PowerSystem();
         }
         return PowerSystem.instance;
-    }    public setPlayerAssembly(assembly: Assembly | null): void {
+    } public setPlayerAssembly(assembly: Assembly | null): void {
         // Only auto-allocate power if the assembly actually changed
         const assemblyChanged = this.playerAssembly !== assembly;
         this.playerAssembly = assembly;
@@ -42,18 +42,18 @@ export class PowerSystem {
 
     private autoAllocateInitialPower(): void {
         if (!this.playerAssembly) return;
-        
+
         const analysis = this.analyzeShipPower();
-        
+
         // Default engines to fully powered
         const enginePower = Math.min(analysis.maxEngines, analysis.totalPowerCells);
         const remainingPower = analysis.totalPowerCells - enginePower;
-        
+
         // Allocate remaining power to weapons first, then sensors
         const weaponPower = Math.min(analysis.maxWeapons, remainingPower);
         const finalRemaining = remainingPower - weaponPower;
         const sensorPower = Math.min(analysis.maxSensors, finalRemaining);
-        
+
         this.powerAllocation = {
             engines: enginePower,
             weapons: weaponPower,
@@ -73,41 +73,53 @@ export class PowerSystem {
         }
 
         const entities = this.playerAssembly.entities.filter(e => !e.destroyed);
-        
+
         // Count power cells (only non-destroyed ones provide power)
-        const powerCells = entities.filter(e => 
+        const powerCells = entities.filter(e =>
             e.type === 'PowerCell' || e.type === 'LargePowerCell' || e.type === 'PowerReactor'
         ).length;
-        
-        // Count engines
-        const engines = entities.filter(e => 
+        // Count engines (including cockpit built-in engines)
+        const traditionalEngines = entities.filter(e =>
             e.type === 'Engine' || e.type === 'LargeEngine' || e.type === 'CapitalEngine'
         ).length;
-        
-        // Count weapons
-        const weapons = entities.filter(e => 
+
+        // Count cockpit built-in engines (cockpits can provide thrust when isolated)
+        const cockpitEngines = entities.filter(e =>
+            (e.type === 'Cockpit' || e.type === 'LargeCockpit' || e.type === 'CapitalCore') &&
+            e.canProvideThrust()
+        ).length;
+
+        const totalEngines = traditionalEngines + cockpitEngines;
+        // Count weapons (including cockpit built-in weapons)
+        const traditionalWeapons = entities.filter(e =>
             e.type === 'Gun' || e.type === 'LargeGun' || e.type === 'CapitalWeapon'
         ).length;
-        
+
+        // Count cockpit built-in weapons (cockpits can fire when isolated)
+        const cockpitWeapons = entities.filter(e =>
+            (e.type === 'Cockpit' || e.type === 'LargeCockpit' || e.type === 'CapitalCore') &&
+            e.canFire()
+        ).length;
+
+        const totalWeapons = traditionalWeapons + cockpitWeapons;
+
         // Count sensors (for now, just 1 max - future feature)
         const maxSensors = 1;
-        
+
         // Cockpit backup power based on cockpit size
-        const cockpits = entities.filter(e => 
+        const cockpits = entities.filter(e =>
             e.type === 'Cockpit' || e.type === 'LargeCockpit' || e.type === 'CapitalCore'
         );
-        
+
         let cockpitBackupPower = 0;
         cockpits.forEach(cockpit => {
             if (cockpit.type === 'Cockpit') cockpitBackupPower += 2;
             else if (cockpit.type === 'LargeCockpit') cockpitBackupPower += 4;
             else if (cockpit.type === 'CapitalCore') cockpitBackupPower += 8;
-        });
-        
-        return {
+        }); return {
             totalPowerCells: powerCells + cockpitBackupPower,
-            maxEngines: engines,
-            maxWeapons: weapons,
+            maxEngines: totalEngines,
+            maxWeapons: totalWeapons,
             maxSensors: maxSensors,
             cockpitBackupPower: cockpitBackupPower
         };
@@ -115,14 +127,14 @@ export class PowerSystem {
 
     public setPowerAllocation(allocation: PowerAllocation): void {
         const analysis = this.analyzeShipPower();
-        
+
         // Validate allocation doesn't exceed limits
         const totalAllocated = allocation.engines + allocation.weapons + allocation.sensors;
         if (totalAllocated <= analysis.totalPowerCells &&
             allocation.engines <= analysis.maxEngines &&
             allocation.weapons <= analysis.maxWeapons &&
             allocation.sensors <= analysis.maxSensors) {
-            
+
             this.powerAllocation = { ...allocation };
         }
     }
@@ -137,9 +149,9 @@ export class PowerSystem {
 
     public getAvailablePower(): number {
         const analysis = this.analyzeShipPower();
-        const totalAllocated = this.powerAllocation.engines + 
-                              this.powerAllocation.weapons + 
-                              this.powerAllocation.sensors;
+        const totalAllocated = this.powerAllocation.engines +
+            this.powerAllocation.weapons +
+            this.powerAllocation.sensors;
         return analysis.totalPowerCells - totalAllocated;
     }
 
@@ -190,22 +202,22 @@ export class PowerSystem {
     // Method to update power allocation when ship components are destroyed
     public updatePowerAfterDamage(): void {
         if (!this.playerAssembly) return;
-        
+
         const analysis = this.analyzeShipPower();
-        
+
         // Reduce power allocation if we don't have enough power cells or components
         this.powerAllocation.engines = Math.min(
-            this.powerAllocation.engines, 
+            this.powerAllocation.engines,
             Math.min(analysis.maxEngines, analysis.totalPowerCells)
         );
-        
+
         this.powerAllocation.weapons = Math.min(
-            this.powerAllocation.weapons, 
+            this.powerAllocation.weapons,
             Math.min(analysis.maxWeapons, analysis.totalPowerCells - this.powerAllocation.engines)
         );
-        
+
         this.powerAllocation.sensors = Math.min(
-            this.powerAllocation.sensors, 
+            this.powerAllocation.sensors,
             Math.min(analysis.maxSensors, analysis.totalPowerCells - this.powerAllocation.engines - this.powerAllocation.weapons)
         );
     }

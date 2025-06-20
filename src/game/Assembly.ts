@@ -18,19 +18,20 @@ export class Assembly {
   public id: string;
   public rootBody: Matter.Body;
   public entities: Entity[] = [];
-  public shipName: string = 'Unknown Ship'; // Ship name for display
-  public isPlayerControlled: boolean = false;
+  public shipName: string = 'Unknown Ship'; public isPlayerControlled: boolean = false;
   public destroyed: boolean = false;
   public lastFireTime: number = 0;
-  public fireRate: number = 300; // 300ms between shots = 3.3 shots per second (faster firing)
-  public team: number = 0; // Team assignment for combat  // Targeting system properties
-  public lockedTargets: Set<string> = new Set(); // IDs of locked assemblies
-  public primaryTarget: Assembly | null = null; // Current primary target for auto-firing
-  public cursorPosition: Vector2 | null = null; // Mouse cursor position for weapon aiming
+  public fireRate: number = 300;
+  public team: number = 0;
+
+  // Targeting system properties
+  public lockedTargets: Set<string> = new Set();
+  public primaryTarget: Assembly | null = null;
+  public cursorPosition: Vector2 | null = null;
 
   // Kill tracking properties
-  public lastHitByPlayer: boolean = false; // Was last hit by player
-  public lastHitByAssemblyId: string | null = null; // ID of assembly that last hit this one
+  public lastHitByPlayer: boolean = false;
+  public lastHitByAssemblyId: string | null = null;
 
   constructor(entityConfigs: EntityConfig[], position: Vector2 = { x: 0, y: 0 }) {
     this.id = Math.random().toString(36).substr(2, 9);
@@ -53,14 +54,17 @@ export class Assembly {
     // Debug: Check if Matter.js calculated the mass correctly
     // Create the Matter.js compound body
     if (Math.abs(this.rootBody.mass - expectedTotalMass) > 0.1) {
-      console.warn(`⚠️ Mass mismatch! Matter.js mass: ${this.rootBody.mass}, calculated: ${expectedTotalMass}`);
+      console.warn(`⚠️ Mass mismatch! Matter.js mass: ${this.rootBody.mass}, calculated: ${expectedTotalMass} `);
     }
 
     // Set position
-    Matter.Body.setPosition(this.rootBody, position);
-
-    // Store reference to this assembly in the body
+    Matter.Body.setPosition(this.rootBody, position);    // Store reference to this assembly in the body
     this.rootBody.assembly = this;
+    
+    // Also set assembly reference on individual entity bodies
+    this.entities.forEach(entity => {
+      entity.body.assembly = this;
+    });
   }
 
   public update(): void {
@@ -119,7 +123,7 @@ export class Assembly {
 
     // Debug logging disabled to reduce spam
     // if (thrustMagnitude > 0) {
-    //   console.log(`🚀 Thrust Input: x=${thrustInput.x.toFixed(2)}, y=${thrustInput.y.toFixed(2)}, engines=${engines.length}`);
+    //   console.log(`🚀 Thrust Input: x = ${ thrustInput.x.toFixed(2) }, y = ${ thrustInput.y.toFixed(2) }, engines = ${ engines.length } `);
     // }    // SIMPLIFIED: Apply thrust directly in ship-local coordinates
     engines.forEach((engine) => {
       // Get engine thrust values
@@ -461,13 +465,13 @@ export class Assembly {
     }
 
     // Multiple components found - ship breaks apart
-    console.log(`💥 Ship breaking into ${components.length} components after losing ${entity.type}`);
+    console.log(`💥 Ship breaking into ${components.length} components after losing ${entity.type} `);
 
     // Mark this assembly as destroyed since it's being split
     this.destroyed = true;
 
     // Create completely new assemblies for each component
-    const newAssemblies: Assembly[] = [];    components.forEach((component) => {
+    const newAssemblies: Assembly[] = []; components.forEach((component) => {
       const newAssembly = this.createNewAssemblyFromComponent(
         component,
         currentPosition,
@@ -475,7 +479,7 @@ export class Assembly {
         currentAngularVelocity,
         currentAngle
       );
-      
+
       // Set team and naming for broken parts
       if (component.length === 1 && !newAssembly.hasControlCenter()) {
         // Single part without cockpit = debris
@@ -486,7 +490,7 @@ export class Assembly {
         newAssembly.setTeam(this.team);
         newAssembly.setShipName(`${this.shipName} Fragment`);
       }
-      
+
       // Transfer player control to first assembly with a cockpit
       if (wasPlayerControlled && newAssembly.hasControlCenter() && !newAssemblies.some(a => a.isPlayerControlled)) {
         newAssembly.isPlayerControlled = true;
@@ -525,10 +529,13 @@ export class Assembly {
     });
 
     // Restore position
-    Matter.Body.setPosition(this.rootBody, currentPosition);
-
-    // Store reference
+    Matter.Body.setPosition(this.rootBody, currentPosition);    // Store reference
     this.rootBody.assembly = this;
+    
+    // Also set assembly reference on individual entity bodies
+    this.entities.forEach(entity => {
+      entity.body.assembly = this;
+    });
   } private createNewAssemblyFromComponent(component: Entity[], basePosition: Vector2, velocity: Vector2, angularVelocity: number, baseAngle: number): Assembly {
     // Calculate the center offset of this component relative to original assembly
     const avgOffsetX = component.reduce((sum, e) => sum + e.localOffset.x, 0) / component.length;
@@ -556,7 +563,7 @@ export class Assembly {
       y: basePosition.y + worldOffsetY
     };
 
-    console.log(`🔧 Creating new assembly at (${newPosition.x}, ${newPosition.y}) with ${component.length} parts`); const newAssembly = new Assembly(configs, newPosition);
+    console.log(`🔧 Creating new assembly at(${newPosition.x}, ${newPosition.y}) with ${component.length} parts`); const newAssembly = new Assembly(configs, newPosition);
     // Set the assembly's rotation to match the original
     Matter.Body.setAngle(newAssembly.rootBody, baseAngle);
 
@@ -718,10 +725,11 @@ export class Assembly {
     const currentHealth = this.entities.reduce((sum, e) => sum + e.health, 0);
     return totalMaxHealth > 0 ? (1 - (currentHealth / totalMaxHealth)) * 100 : 0;
   }
-
   public canEject(): boolean {
-    // Can eject if there's a control center and damage is above 60%
-    return this.hasControlCenter() && this.getDamagePercentage() >= 60;
+    // Can eject if there's a control center and there are non-control parts to eject
+    const hasControlCenter = this.hasControlCenter();
+    const hasNonControlParts = this.entities.some(e => !e.isControlCenter());
+    return hasControlCenter && hasNonControlParts;
   }
   public ejectNonControlParts(): Assembly[] {
     console.log('🚀 EJECTING! Separating non-control parts from assembly');
@@ -735,10 +743,13 @@ export class Assembly {
     // Separate entities into cockpit and non-cockpit
     const ejectEntities = this.entities.filter(e => !e.isControlCenter());
 
-    console.log(`🚀 Ejecting ${ejectEntities.length} non-control parts, keeping cockpit`);
-
+    console.log(`💥 EXPLOSION! Ejecting ${ejectEntities.length} parts with explosive force from cockpit origin`);
+    
     // Create new assemblies for ejected parts (each part becomes its own debris)
     const newAssemblies: Assembly[] = [];
+    const cockpitPos = controlCenter.body.position;
+    const explosionForce = 0.005; // Force magnitude for Matter.js physics
+    const explosionRadius = 200; // Maximum effective radius of explosion
 
     ejectEntities.forEach(entity => {
       // Create individual debris assemblies for each ejected part
@@ -749,25 +760,65 @@ export class Assembly {
         rotation: (entity.body.angle * 180) / Math.PI,
         health: entity.health,
         maxHealth: entity.maxHealth
-      };      const debrisAssembly = new Assembly([debrisConfig], entity.body.position);
+      };
+
+      const debrisAssembly = new Assembly([debrisConfig], entity.body.position);
       debrisAssembly.setTeam(-1); // Mark as neutral debris
       debrisAssembly.setShipName(`${entity.type} Debris`);
 
-      // Add some random velocity to make it look like an explosion
-      const angle = Math.random() * Math.PI * 2;
-      const speed = 2 + Math.random() * 4; // Random speed between 2-6
-      Matter.Body.setVelocity(debrisAssembly.rootBody, {
-        x: Math.cos(angle) * speed,
-        y: Math.sin(angle) * speed
-      });
+      // Calculate explosion effect from cockpit origin using Matter.js forces
+      const entityPos = entity.body.position;
+      const explosionVector = {
+        x: entityPos.x - cockpitPos.x,
+        y: entityPos.y - cockpitPos.y
+      };
 
-      // Add some random spin
-      Matter.Body.setAngularVelocity(debrisAssembly.rootBody, (Math.random() - 0.5) * 0.2);
+      // Calculate distance from explosion center
+      const distance = Math.sqrt(explosionVector.x * explosionVector.x + explosionVector.y * explosionVector.y);
+
+      if (distance > 0) {
+        // Normalize the explosion vector
+        const normalizedVector = {
+          x: explosionVector.x / distance,
+          y: explosionVector.y / distance
+        };
+
+        // Calculate explosion force based on distance (closer = more force)
+        const distanceFactor = Math.max(0.1, 1 - (distance / explosionRadius));
+        const forceMultiplier = explosionForce * distanceFactor;
+
+        // Add some randomness to make it more organic (±30 degrees)
+        const randomAngle = (Math.random() - 0.5) * Math.PI / 3;
+        const forceAngle = Math.atan2(normalizedVector.y, normalizedVector.x) + randomAngle;
+
+        // Apply explosion force with some random variation
+        const forceVariation = 0.8 + Math.random() * 0.4; // 0.8x to 1.2x force
+        const force = {
+          x: Math.cos(forceAngle) * forceMultiplier * forceVariation,
+          y: Math.sin(forceAngle) * forceMultiplier * forceVariation
+        };
+
+        // Apply force at the center of mass - this is the proper Matter.js way
+        Matter.Body.applyForce(debrisAssembly.rootBody, debrisAssembly.rootBody.position, force);
+
+        console.log(`💥 Debris ${entity.type} ejected with force ${forceMultiplier.toFixed(4)} at distance ${distance.toFixed(1)} `);
+      } else {
+        // If entity is at exact same position as cockpit, use random direction
+        const randomAngle = Math.random() * Math.PI * 2;
+        const randomForce = explosionForce * (0.5 + Math.random() * 0.5);
+        const force = {
+          x: Math.cos(randomAngle) * randomForce,
+          y: Math.sin(randomAngle) * randomForce
+        };
+        Matter.Body.applyForce(debrisAssembly.rootBody, debrisAssembly.rootBody.position, force);
+      }
+
+      // Add random spin - we can still set angular velocity for this
+      const spinIntensity = 0.1 + Math.random() * 0.3;
+      Matter.Body.setAngularVelocity(debrisAssembly.rootBody, (Math.random() - 0.5) * spinIntensity);
 
       newAssemblies.push(debrisAssembly);
-    });
-
-    // Create new cockpit-only assembly
+    });    // Create new cockpit-only assembly
     const cockpitConfig: EntityConfig = {
       type: controlCenter.type,
       x: controlCenter.body.position.x,
@@ -780,14 +831,27 @@ export class Assembly {
     const cockpitAssembly = new Assembly([cockpitConfig], controlCenter.body.position);
     cockpitAssembly.setTeam(this.team);
     cockpitAssembly.isPlayerControlled = this.isPlayerControlled;
-    cockpitAssembly.setShipName(`${this.shipName} (Cockpit)`);
+    cockpitAssembly.setShipName(`${this.shipName} (Cockpit)`);    // Debug: Check if the cockpit can move and fire after ejection
+    const cockpitEntity = cockpitAssembly.entities[0];
+    console.log(`🔍 Cockpit after ejection - canProvideThrust: ${cockpitEntity.canProvideThrust()}, canFire: ${cockpitEntity.canFire()}`);
+    console.log(`🔍 Cockpit assembly entities count: ${cockpitAssembly.entities.length}`);
 
-    // Preserve the original velocity but reduce it slightly
+    // Make cockpit briefly invulnerable after ejection to prevent immediate damage
+    if (cockpitEntity) {
+      cockpitEntity.setInvulnerable(2000); // 2 seconds of invulnerability
+    }
+
+    // Apply gentle recoil to cockpit from explosion (much smaller than debris)
     const originalVel = this.rootBody.velocity;
+    const recoilForce = 1.5; // Much smaller than debris explosion force
+    const recoilAngle = Math.random() * Math.PI * 2; // Random direction
+
     Matter.Body.setVelocity(cockpitAssembly.rootBody, {
-      x: originalVel.x * 0.8,
-      y: originalVel.y * 0.8
+      x: originalVel.x * 0.8 + Math.cos(recoilAngle) * recoilForce,
+      y: originalVel.y * 0.8 + Math.sin(recoilAngle) * recoilForce
     });
+
+    console.log(`💥 Cockpit recoil applied: ${recoilForce} force at ${(recoilAngle * 180 / Math.PI).toFixed(1)}°`);
 
     // Mark this assembly as destroyed
     this.destroyed = true;
@@ -831,7 +895,7 @@ export class Assembly {
 
   public lockTarget(target: Assembly): void {
     this.lockedTargets.add(target.id);
-    console.log(`🔒 ${this.shipName} locked onto ${target.shipName}`);
+    console.log(`🔒 ${this.shipName} locked onto ${target.shipName} `);
   }
 
   public unlockTarget(target: Assembly): void {
@@ -839,14 +903,14 @@ export class Assembly {
     if (this.primaryTarget?.id === target.id) {
       this.primaryTarget = null;
     }
-    console.log(`🔓 ${this.shipName} unlocked ${target.shipName}`);
+    console.log(`🔓 ${this.shipName} unlocked ${target.shipName} `);
   }
 
   public setPrimaryTarget(target: Assembly | null): void {
     this.primaryTarget = target;
     if (target) {
       this.lockTarget(target);
-      console.log(`🎯 ${this.shipName} set primary target: ${target.shipName}`);
+      console.log(`🎯 ${this.shipName} set primary target: ${target.shipName} `);
     } else {
       console.log(`🎯 ${this.shipName} cleared primary target`);
     }

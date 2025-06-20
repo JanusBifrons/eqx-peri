@@ -10,13 +10,16 @@ export class Entity {
   public localOffset: { x: number; y: number };
   public rotation: number; public flashTimer: number = 0;
   public isFlashing: boolean = false;
-  private originalFillStyle: string = '';
-  // New properties for visual effects
+  private originalFillStyle: string = '';  // New properties for visual effects
   public thrustLevel: number = 0; // 0-1, how much thrust is being applied
   public isFiring: boolean = false;
   public fireFlashTimer: number = 0;
   public thrustParticles: Array<{ x: number, y: number, age: number, maxAge: number }> = [];
   private readonly MAX_PARTICLES = 4; // Reduced from 8
+
+  // Invulnerability system
+  public invulnerableUntil: number = 0; // Timestamp when invulnerability ends
+  public isInvulnerable: boolean = false;
 
   // Weapon aiming state for smooth turret rotation
   public currentAimAngle: number = 0; // Current turret angle relative to weapon's natural direction
@@ -67,6 +70,18 @@ export class Entity {
     }
   } public takeDamage(damage: number): boolean {
     if (this.destroyed) return false;
+
+    // Check invulnerability
+    const currentTime = Date.now();
+    if (this.isInvulnerable && currentTime < this.invulnerableUntil) {
+      console.log(`🛡️ ${this.type} is invulnerable, damage blocked`);
+      return false;
+    }
+
+    // Clear invulnerability if time has passed
+    if (currentTime >= this.invulnerableUntil) {
+      this.isInvulnerable = false;
+    }
 
     this.health -= damage;
 
@@ -130,20 +145,32 @@ export class Entity {
    * Check if cockpit can use its built-in weapon (nothing connected on top/north)
    */
   private canUseCockpitWeapon(): boolean {
-    if (!this.body.assembly) return false;
+    if (!this.body.assembly) {
+      console.log(`🔍 canUseCockpitWeapon: No assembly reference for ${this.type}`);
+      return false;
+    }
 
+    const hasNorthConnection = this.hasConnectionOnSide('north');
+    console.log(`🔍 ${this.type} canUseCockpitWeapon: assembly entities=${this.body.assembly.entities.length}, hasNorthConnection=${hasNorthConnection}`);
+    
     // Check if there's anything connected on the top (north) attachment point
-    return !this.hasConnectionOnSide('north');
+    return !hasNorthConnection;
   }
 
   /**
    * Check if cockpit can use its built-in engine (nothing connected on bottom/south) 
    */
   private canUseCockpitEngine(): boolean {
-    if (!this.body.assembly) return false;
+    if (!this.body.assembly) {
+      console.log(`🔍 canUseCockpitEngine: No assembly reference for ${this.type}`);
+      return false;
+    }
 
+    const hasSouthConnection = this.hasConnectionOnSide('south');
+    console.log(`🔍 ${this.type} canUseCockpitEngine: assembly entities=${this.body.assembly.entities.length}, hasSouthConnection=${hasSouthConnection}`);
+    
     // Check if there's anything connected on the bottom (south) attachment point
-    return !this.hasConnectionOnSide('south');
+    return !hasSouthConnection;
   }
   /**
    * Check if there's a connection on a specific side of this entity using attachment points
@@ -558,6 +585,12 @@ export class Entity {
     const weaponLocalAngle = this.rotation * Math.PI / 180;
     const weaponNaturalAngle = assemblyAngle + weaponLocalAngle;
     return weaponNaturalAngle + this.currentAimAngle;
+  }
+
+  public setInvulnerable(durationMs: number): void {
+    this.isInvulnerable = true;
+    this.invulnerableUntil = Date.now() + durationMs;
+    console.log(`🛡️ ${this.type} is now invulnerable for ${durationMs}ms`);
   }
 }
 

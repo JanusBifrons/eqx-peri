@@ -5,6 +5,7 @@ import LockedTargets from './components/LockedTargets';
 import PowerManagement from './components/PowerManagement';
 import ShipSelection from './components/ShipSelection';
 import PartsInfo from './components/PartsInfo';
+import EjectButton from './components/EjectButton';
 import {
   Paper,
   Typography,
@@ -175,7 +176,7 @@ const App: React.FC = () => {
                 <div>W/S - Thrust</div>
                 <div>A/D - Rotate</div>
                 <div>Space - Fire</div>
-                <div style={{ color: '#ff4444', fontWeight: 'bold' }}>E - Eject (60%+ damage)</div>
+                <div style={{ color: '#ff4444', fontWeight: 'bold' }}>E - Eject</div>
                 <div>R - Restart</div>
                 <div>G - Grid</div>
                 <div>1 - Add Ship</div>
@@ -249,8 +250,11 @@ const App: React.FC = () => {
 
           {/* Radar Component */}
           <Radar gameEngine={gameEngine} />
-        </Box>{/* Power Management - Always visible at bottom */}
+        </Box>        {/* Power Management - Always visible at bottom */}
         <PowerManagement gameEngine={gameEngine} />
+
+        {/* Eject Button - Prominent center bottom position */}
+        <EjectButton gameEngine={gameEngine} />
       </div>
     </ThemeProvider>
   );
