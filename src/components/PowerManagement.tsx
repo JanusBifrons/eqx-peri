@@ -7,7 +7,7 @@ import {
     FlashOn,
     RocketLaunch,
     Radar,
-    Battery90
+    BatteryFull
 } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
 import { GameEngine } from '../game/GameEngine';
@@ -33,82 +33,127 @@ interface PowerState {
     systems: PowerSystemUI[];
 }
 
-// Compact power management container
+// FTL-style power management container - bottom left
 const PowerContainer = styled(Box)(() => ({
     position: 'absolute',
-    bottom: 15,
-    left: '50%',
-    transform: 'translateX(-50%)',
+    bottom: 20,
+    left: 20,
     display: 'flex',
-    gap: 12,
     alignItems: 'flex-end',
-    backgroundColor: 'rgba(0, 0, 0, 0.9)',
-    border: '1px solid #444',
-    borderRadius: 8,
-    padding: '8px 16px',
-    backdropFilter: 'blur(10px)',
-    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.6)',
-    pointerEvents: 'auto' // Allow pointer events only on this component
+    gap: 24,
+    pointerEvents: 'auto',
+    zIndex: 1000
 }));
 
-// Individual power bar component (icon + slots)
-const PowerBar = styled(Box)(() => ({
+// Power available section - left side
+const PowerAvailableSection = styled(Box)(() => ({
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     gap: 4
 }));
 
-// Power slots container
-const PowerSlotsContainer = styled(Box)(() => ({
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 1
-}));
-
-// System icon
-const SystemIcon = styled(Box, {
-    shouldForwardProp: (prop) => prop !== 'color'
-})<{ color: string }>(({ color }) => ({
-    color: color,
+// Power icon button - non-clickable version
+const PowerIconDisplay = styled(Box)(() => ({
+    width: 48,
+    height: 48,
     display: 'flex',
     alignItems: 'center',
-    fontSize: 18,
-    opacity: 0.9
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    border: '2px solid #FFD700',
+    borderRadius: 8,
+    color: '#FFD700',
+    fontSize: 24,
+    boxShadow: '0 0 8px rgba(255, 215, 0, 0.4)',
+    // Non-clickable styling - no hover effects or cursor
 }));
 
-// Power slot (horizontal rectangle, same as power cells)
-const PowerSlot = styled(Box, {
-    shouldForwardProp: (prop) => prop !== 'filled' && prop !== 'color'
-})<{ filled: boolean; color: string }>(({ filled, color }) => ({
-    width: 40,
+// Remove the old power available container and text styles
+// Power available display with cells
+const PowerAvailableContainer = styled(Box)(() => ({
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 2,
+    marginTop: 4
+}));
+
+// Remove PowerAvailableText and PowerCellContainer - we'll use PowerBarContainer instead
+
+// Systems container - horizontal layout
+const SystemsContainer = styled(Box)(() => ({
+    display: 'flex',
+    gap: 16,
+    alignItems: 'flex-end'
+}));
+
+// System column container
+const SystemColumn = styled(Box)(() => ({
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 4
+}));
+
+// Large prominent icon button
+const SystemIconButton = styled(Box, {
+    shouldForwardProp: (prop) => prop !== 'color'
+})<{ color: string }>(({ color }) => ({
+    width: 48,
+    height: 48,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    border: `2px solid ${color}`,
+    borderRadius: 8,
+    color: color,
+    fontSize: 24,
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+    boxShadow: `0 0 8px ${color}40`,
+    '&:hover': {
+        backgroundColor: `${color}20`,
+        boxShadow: `0 0 16px ${color}60`,
+        transform: 'scale(1.05)'
+    },
+    '&:active': {
+        transform: 'scale(0.95)'
+    }
+}));
+
+// Power bar container - vertical bars for horizontal layout
+const PowerBarContainer = styled(Box)(() => ({
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 2,
+    marginTop: 4
+}));
+
+// Individual power bar segment - match icon width
+const PowerBarSegment = styled(Box, {
+    shouldForwardProp: (prop) => prop !== 'filled' && prop !== 'color' && prop !== 'isClickable'
+})<{ filled: boolean; color: string; isClickable: boolean }>(({ filled, color, isClickable }) => ({
+    width: 44, // Match icon width minus border/padding (48px - 4px)
     height: 12,
     backgroundColor: filled ? color : '#333',
     border: `1px solid ${filled ? color : '#555'}`,
     borderRadius: 2,
     transition: 'all 0.2s ease',
-    cursor: 'pointer',
-    boxShadow: filled ? `0 0 4px ${color}40` : 'none',
-    '&:hover': {
+    cursor: isClickable ? 'pointer' : 'default',
+    boxShadow: filled ? `0 0 3px ${color}40` : 'none',
+    '&:hover': isClickable ? {
         borderColor: color,
         backgroundColor: filled ? color : '#444',
         transform: 'scale(1.05)'
-    }
+    } : {}
 }));
 
 
 
-const PowerCell = styled(Box, {
-    shouldForwardProp: (prop) => prop !== 'allocated'
-})<{ allocated: boolean }>(({ allocated }) => ({
-    width: 40,
-    height: 12,
-    backgroundColor: allocated ? '#333' : '#FFD700',
-    border: `1px solid ${allocated ? '#555' : '#FFB000'}`,
-    borderRadius: 2,
-    transition: 'all 0.3s ease',
-    boxShadow: allocated ? 'none' : '0 0 6px rgba(255, 215, 0, 0.5)'
-}));
+
 
 const PowerManagement: React.FC<PowerManagementProps> = ({ gameEngine }) => {
     const powerSystem = GamePowerSystem.getInstance();
@@ -210,7 +255,6 @@ const PowerManagement: React.FC<PowerManagementProps> = ({ gameEngine }) => {
         const powerChange = newPower - system.currentPower;
 
         // Only check available power for positive changes (allocation)
-        // Negative changes (deallocation) should always be allowed
         if (powerChange > 0 && powerChange > powerSystem.getAvailablePower()) return;
 
         const newAllocation = {
@@ -219,75 +263,104 @@ const PowerManagement: React.FC<PowerManagementProps> = ({ gameEngine }) => {
         };
         powerSystem.setPowerAllocation(newAllocation);
         updatePowerState();
-    };    const renderPowerSlots = (system: PowerSystemUI) => {
-        const slots = [];
-        for (let i = 0; i < system.maxPower; i++) {
-            // Fill from bottom to top: bottom slots fill first
-            // So slot at index (maxPower - 1 - i) should be filled if we have enough power
-            const slotFromBottom = system.maxPower - 1 - i;
-            const filled = slotFromBottom < system.currentPower;
-            slots.push(
-                <PowerSlot
+    };
+
+    const allocatePowerToLevel = (systemId: string, targetLevel: number) => {
+        const currentAllocation = powerSystem.getPowerAllocation();
+        const system = powerState.systems.find(s => s.id === systemId);
+        if (!system) return;
+
+        const clampedTarget = Math.max(0, Math.min(system.maxPower, targetLevel));
+        const powerChange = clampedTarget - system.currentPower;
+
+        // Only check available power for positive changes (allocation)
+        if (powerChange > 0 && powerChange > powerSystem.getAvailablePower()) return;
+
+        const newAllocation = {
+            ...currentAllocation,
+            [systemId]: clampedTarget
+        };
+        powerSystem.setPowerAllocation(newAllocation);
+        updatePowerState();
+    };
+
+    const handleIconButtonClick = (systemId: string, isRightClick: boolean) => {
+        const amount = isRightClick ? -1 : 1;
+        allocatePower(systemId, amount);
+    };    const renderPowerBar = (system: PowerSystemUI) => {
+        const segments = [];
+        // Render from bottom to top (reverse order)
+        for (let i = system.maxPower - 1; i >= 0; i--) {
+            const filled = i < system.currentPower;
+            segments.push(
+                <PowerBarSegment
                     key={i}
                     filled={filled}
                     color={system.color}
-                    onClick={() => {
-                        if (filled) {
-                            allocatePower(system.id, -1);
-                        } else {
-                            allocatePower(system.id, 1);
-                        }
-                    }}
+                    isClickable={true}
+                    onClick={() => allocatePowerToLevel(system.id, i + 1)}
                 />
             );
         }
-        return slots;
-    };const renderPowerCells = () => {
-        const cells = [];
-        const allocatedPower = powerState.totalPower - powerState.availablePower;
-        
-        for (let i = 0; i < powerState.totalPower; i++) {
-            // Top cells should be allocated (dark) first
-            // Bottom cells should remain available (bright) until needed
-            const isAllocated = i < allocatedPower;
-            cells.push(
-                <PowerCell key={i} allocated={isAllocated} />
+        return segments;
+    };    const renderPowerCells = () => {
+        const segments = [];
+        // Render from bottom to top (reverse order) to match system power bars
+        for (let i = powerState.totalPower - 1; i >= 0; i--) {
+            const filled = i < powerState.availablePower;
+            segments.push(
+                <PowerBarSegment
+                    key={i}
+                    filled={filled}
+                    color="#FFD700"
+                    isClickable={false} // Power cells are not clickable
+                />
             );
         }
-        return cells;
+        return segments;
     };if (!playerExists) {
         return null; // Hide completely when no player
-    }
-
-    return (
+    }    return (
         <PowerContainer>
-            {/* Power Cells Bar */}
-            <PowerBar>
-                <PowerSlotsContainer>
+            {/* Power Available Section - Left Side */}
+            <PowerAvailableSection>
+                <PowerAvailableContainer>
                     {renderPowerCells()}
-                </PowerSlotsContainer>
-                <Tooltip title={`${powerState.availablePower}/${powerState.totalPower} Power Available`} placement="top">
-                    <SystemIcon color="#FFD700">
-                        <Battery90 />
-                    </SystemIcon>
-                </Tooltip>
-            </PowerBar>
-
-            {/* System Power Bars */}
-            {powerState.systems.map((system) => (
-                system.maxPower > 0 && (
-                    <PowerBar key={system.id}>
-                        <PowerSlotsContainer>
-                            {renderPowerSlots(system)}
-                        </PowerSlotsContainer>
-                        <Tooltip title={system.description} placement="top">
-                            <SystemIcon color={system.color}>
-                                {system.icon}
-                            </SystemIcon>
+                </PowerAvailableContainer>
+                <PowerIconDisplay>
+                    <BatteryFull />
+                </PowerIconDisplay>
+            </PowerAvailableSection>            {/* System Power Controls - Right Side */}
+            <SystemsContainer>
+                {powerState.systems.map((system) => (
+                    system.maxPower > 0 && (
+                        <Tooltip 
+                            key={system.id}
+                            title={`${system.name}: Left click +1, Right click -1`} 
+                            placement="top"
+                            enterDelay={1000}
+                            leaveDelay={200}
+                            arrow
+                        >
+                            <SystemColumn>
+                                <PowerBarContainer>
+                                    {renderPowerBar(system)}
+                                </PowerBarContainer>
+                                <SystemIconButton
+                                    color={system.color}
+                                    onClick={() => handleIconButtonClick(system.id, false)}
+                                    onContextMenu={(e) => {
+                                        e.preventDefault();
+                                        handleIconButtonClick(system.id, true);
+                                    }}
+                                >
+                                    {system.icon}
+                                </SystemIconButton>
+                            </SystemColumn>
                         </Tooltip>
-                    </PowerBar>
-                )
-            ))}
+                    )
+                ))}
+            </SystemsContainer>
         </PowerContainer>
     );
 };

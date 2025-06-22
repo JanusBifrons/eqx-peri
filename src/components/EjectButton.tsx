@@ -75,13 +75,11 @@ const EjectButton: React.FC<EjectButtonProps> = ({ gameEngine }) => {
 
     if (!gameEngine || !canEject) {
         return null; // Don't show button if can't eject
-    }
-
-    return (        <Box
+    }    return (        <Box
             sx={{
                 position: 'absolute',
                 bottom: 20,
-                left: 20,
+                right: 20,
                 zIndex: 1000,
                 pointerEvents: 'auto'
             }}
