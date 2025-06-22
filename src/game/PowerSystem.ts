@@ -89,10 +89,14 @@ export class PowerSystem {
             e.canProvideThrust()
         ).length;
 
-        const totalEngines = traditionalEngines + cockpitEngines;
-        // Count weapons (including cockpit built-in weapons)
+        const totalEngines = traditionalEngines + cockpitEngines;        // Count weapons (including cockpit built-in weapons and missile launchers)
         const traditionalWeapons = entities.filter(e =>
             e.type === 'Gun' || e.type === 'LargeGun' || e.type === 'CapitalWeapon'
+        ).length;
+
+        // Count missile launchers as weapons
+        const missileLaunchers = entities.filter(e =>
+            e.type === 'MissileLauncher' || e.type === 'LargeMissileLauncher' || e.type === 'CapitalMissileLauncher'
         ).length;
 
         // Count cockpit built-in weapons (cockpits can fire when isolated)
@@ -101,7 +105,7 @@ export class PowerSystem {
             e.canFire()
         ).length;
 
-        const totalWeapons = traditionalWeapons + cockpitWeapons;
+        const totalWeapons = traditionalWeapons + missileLaunchers + cockpitWeapons;
 
         // Count sensors (for now, just 1 max - future feature)
         const maxSensors = 1;
@@ -187,10 +191,13 @@ export class PowerSystem {
         const analysis = this.analyzeShipPower();
         if (analysis.maxSensors === 0) return 0;
         return this.powerAllocation.sensors / analysis.maxSensors;
+    }    // Weapon firing is only allowed if weapons have power
+    public canFireWeapons(): boolean {
+        return this.powerAllocation.weapons > 0;
     }
 
-    // Weapon firing is only allowed if weapons have power
-    public canFireWeapons(): boolean {
+    // Missile firing uses the same weapon power system
+    public canFireMissiles(): boolean {
         return this.powerAllocation.weapons > 0;
     }
 

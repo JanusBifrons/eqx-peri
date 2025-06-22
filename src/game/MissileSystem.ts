@@ -22,11 +22,9 @@ export class MissileSystem {
         this.missiles.push(missile);
         Matter.World.add(this.world, missile.body);
         return missile;
-    }
-
-    public update(deltaTime: number, assemblies: Assembly[]): void {
-        // Filter out non-destroyed, non-source assemblies for targeting
-        const availableTargets = assemblies.filter(a => !a.destroyed);
+    }    public update(deltaTime: number, assemblies: Assembly[]): void {
+        // Filter out non-destroyed assemblies (not including missiles as assemblies)
+        const availableTargets = assemblies.filter(a => !a.destroyed && a.entities && a.entities.length > 0);
 
         // Update all missiles
         for (let i = this.missiles.length - 1; i >= 0; i--) {
@@ -42,11 +40,16 @@ export class MissileSystem {
             // Update missile logic
             missile.update(deltaTime, availableTargets);
         }
-    }
+    }    public handleMissileHit(missile: Missile, targetEntity: any): void {
+        // Check collision delay - missiles shouldn't collide immediately after launch
+        if (missile.age < missile.launchCollisionDelay) {
+            console.log(`🚀 Missile collision ignored - still in launch phase (${missile.age.toFixed(2)}s)`);
+            return;
+        }
 
-    public handleMissileHit(missile: Missile, targetEntity: any): void {
-        // Prevent self-hits
-        if (missile.sourceAssemblyId === targetEntity.body?.assembly?.id) {
+        // Prevent self-hits - check if the target entity belongs to the source assembly
+        if (targetEntity.body?.assembly?.id === missile.sourceAssemblyId) {
+            console.log(`🚀 Missile collision ignored - hitting source assembly`);
             return;
         }
 
@@ -67,6 +70,10 @@ export class MissileSystem {
         }
     } public getMissiles(): Missile[] {
         return [...this.missiles];
+    }
+
+    public getMissilesForDebug(): Missile[] {
+        return this.missiles;
     }
 
     public cleanup(): void {

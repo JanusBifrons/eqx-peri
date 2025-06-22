@@ -20,6 +20,7 @@ export class Assembly {
   public shipName: string = 'Unknown Ship'; public isPlayerControlled: boolean = false;
   public destroyed: boolean = false;
   public lastFireTime: number = 0;
+  public lastMissileFireTime: number = 0; // Separate timing for missiles
   public fireRate: number = 300;
   public team: number = 0;
 
@@ -229,15 +230,11 @@ export class Assembly {
     this.lastFireTime = currentTime;
 
     return lasers;
-  }
-
-  public getMissileLaunchRequests(): MissileLaunchRequest[] {
-    if (this.destroyed) return [];
-
-    // Check if this is the player assembly and if weapons have power
+  }  public getMissileLaunchRequests(): MissileLaunchRequest[] {
+    if (this.destroyed) return [];    // Check if this is the player assembly and if weapons/missiles have power
     if (this.isPlayerControlled) {
       const powerSystem = PowerSystem.getInstance();
-      if (!powerSystem.canFireWeapons()) {
+      if (!powerSystem.canFireMissiles()) {
         return [];
       }
     }
@@ -252,8 +249,12 @@ export class Assembly {
       effectiveFireRate = this.fireRate * (3 - 2 * weaponEfficiency);
     }
 
-    // Enforce firing rate limit
-    if (currentTime - this.lastFireTime < effectiveFireRate) {
+    // Enforce firing rate limit - Use separate lastMissileFireTime to avoid conflicts with regular weapons
+    if (!this.lastMissileFireTime) {
+      this.lastMissileFireTime = 0;
+    }
+    
+    if (currentTime - this.lastMissileFireTime < effectiveFireRate) {
       return [];
     }
 
@@ -287,16 +288,17 @@ export class Assembly {
       // If we have a primary target and it's a guided missile, use it
       const targetAssembly = (missileType === MissileType.GUIDED && this.primaryTarget && !this.primaryTarget.destroyed)
         ? this.primaryTarget
-        : undefined;
-
-      missileRequests.push({
+        : undefined;      missileRequests.push({
         position: launcherWorldPos,
         angle: currentFiringAngle,
         missileType,
         sourceAssemblyId: this.id,
         targetAssembly
       });
-    });
+    });    // Update missile fire time if we have requests
+    if (missileRequests.length > 0) {
+      this.lastMissileFireTime = currentTime;
+    }
 
     return missileRequests;
   }

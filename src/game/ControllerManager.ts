@@ -2,11 +2,17 @@ import * as Matter from 'matter-js';
 import { Assembly } from './Assembly';
 import { IController, ControlInput, PlayerController } from './Controller';
 import { AIController } from './AIController_New';
+import { MissileSystem } from './MissileSystem';
 
 // Manages all controllers and applies their inputs to assemblies
-export class ControllerManager {
-    private controllers: Map<string, IController> = new Map();
+export class ControllerManager {    private controllers: Map<string, IController> = new Map();
     private playerController?: PlayerController;
+    private missileSystem?: MissileSystem;
+
+    // Set the missile system reference
+    setMissileSystem(missileSystem: MissileSystem): void {
+        this.missileSystem = missileSystem;
+    }
 
     // Create an AI controller for an assembly
     createAIController(assembly: Assembly): AIController {
@@ -67,12 +73,24 @@ export class ControllerManager {
         // Apply torque
         if (Math.abs(input.torque) > 0.1) {
             assembly.applyTorque(input.torque);
-        }
-
-        // Fire weapons
+        }        // Fire weapons
         if (input.fire) {
             const newBullets = assembly.fireWeapons();
             bullets.push(...newBullets);
+            
+            // Also fire missiles
+            if (this.missileSystem) {
+                const missileRequests = assembly.getMissileLaunchRequests();
+                missileRequests.forEach(request => {
+                    this.missileSystem!.createMissile(
+                        request.position,
+                        request.angle,
+                        request.missileType,
+                        request.sourceAssemblyId,
+                        request.targetAssembly
+                    );
+                });
+            }
         }
 
         return bullets;

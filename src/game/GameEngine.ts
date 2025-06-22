@@ -127,6 +127,9 @@ export class GameEngine {
 
     // Initialize missile system
     this.missileSystem = new MissileSystem(this.world);
+    
+    // Set missile system reference in controller manager
+    this.controllerManager.setMissileSystem(this.missileSystem);
 
     // Initialize mouse interaction
     this.setupMouseInteraction();
@@ -179,11 +182,10 @@ export class GameEngine {
   private setupEventListeners(): void {    // Keyboard input
     document.addEventListener('keydown', (event) => {
       this.keys.add(event.key.toLowerCase());
-      
-      // Handle special keys
+        // Handle special keys
       switch (event.key.toLowerCase()) {
         case '1':
-          this.spawnShipByName('Simple Test Ship', Math.random() * 400 - 200, Math.random() * 400 - 200, false);
+          this.spawnRandomEnemyAssembly();
           break;
         case '3':
           this.spawnDebris(Math.random() * 400 - 200, Math.random() * 400 - 200);
@@ -436,24 +438,22 @@ export class GameEngine {
     newBullets.forEach(bullet => {
       Matter.World.add(this.world, bullet);
       this.bullets.push(bullet);
-    });
-
-    // Handle missile launches from all assemblies
-    this.assemblies.forEach(assembly => {
-      const missileRequests = assembly.getMissileLaunchRequests();
-      missileRequests.forEach(request => {
-        this.missileSystem.createMissile(
-          request.position,
-          request.angle,
-          request.missileType,
-          request.sourceAssemblyId,
-          request.targetAssembly
-        );
-      });
-    });
+    });    // Handle missile launches from all assemblies (REMOVED - missiles now fire with weapons)
+    // this.assemblies.forEach(assembly => {
+    //   const missileRequests = assembly.getMissileLaunchRequests();
+    //   missileRequests.forEach(request => {
+    //     this.missileSystem.createMissile(
+    //       request.position,
+    //       request.angle,
+    //       request.missileType,
+    //       request.sourceAssemblyId,
+    //       request.targetAssembly
+    //     );
+    //   });
+    // });
 
     // Handle additional player input (mouse controls, etc.)
-    this.handlePlayerInput();    // Update assemblies
+    this.handlePlayerInput();// Update assemblies
     this.assemblies.forEach(assembly => {
       assembly.update();
       assembly.updateWeaponAiming(); // Update weapon aiming targets continuously
@@ -1045,9 +1045,12 @@ export class GameEngine {
     Matter.Events.on(this.render, 'afterRender', () => {
       if (this.showGrid) {
         this.renderGrid();
-      } this.renderConnectionPoints();
+      }
+
+      this.renderConnectionPoints();
       this.renderShipHighlights();
       this.renderAimingDebug(); // Add debug visuals for aiming system
+      this.renderMissileTargetingDebug(); // Add debug visuals for missile targeting
       this.executePlayerCommands(); // Execute player commands each frame
 
       // End stats monitoring after each render
@@ -1249,11 +1252,11 @@ export class GameEngine {
 
     // Show battle start notification
     this.toastSystem.showGameEvent("🚀 Battle Initialized!");    // Spawn player team (Team 0) - Blue team close left
-    this.spawnTeam(0, -800, 0, 1, true); // Only spawn 1 player ship
+    this.spawnTeam(0, -800, 0, 1, true); // Only spawn 1 player ship    // Spawn enemy team (Team 1) - Red team on the right
+    this.spawnTeam(1, 800, 0, 1, false); // 1 enemy AI ship
 
-    // Spawn enemy team (Team 1) - Red team on the right
-    // DISABLED FOR TESTING: this.spawnTeam(1, 800, 0, 1, false); // 1 enemy AI ship    console.log('⚔️ Battle initialized in TESTING MODE - Player only!');
-    this.toastSystem.showSuccess("Player ship deployed - Testing Mode!");// Add floating debris to make the sector more interesting
+    console.log('⚔️ Battle initialized with Player vs AI!');
+    this.toastSystem.showSuccess("Player ship deployed - Enemy detected!");// Add floating debris to make the sector more interesting
     console.log('🗑️ Adding sector debris...');
     this.spawnDebrisField(0, 0, 12, 2000); // 12 pieces of debris scattered across 2000 unit radius
     this.toastSystem.showGameEvent("Debris field detected in sector");
@@ -1417,6 +1420,18 @@ export class GameEngine {
 
   private setHoveredAssembly(assembly: Assembly | null): void {
     this.hoveredAssembly = assembly;
+  }
+
+  private updateCursorWorldPosition(): void {
+    if (!this.playerAssembly || this.playerAssembly.destroyed) return;
+
+    // Convert current mouse screen position to world coordinates
+    const bounds = this.render.bounds;
+    const worldX = (this.mousePosition.x / this.render.canvas.width) * (bounds.max.x - bounds.min.x) + bounds.min.x;
+    const worldY = (this.mousePosition.y / this.render.canvas.height) * (bounds.max.y - bounds.min.y) + bounds.min.y;
+
+    // Set cursor position on player assembly for weapon aiming
+    this.playerAssembly.cursorPosition = { x: worldX, y: worldY };
   }
 
   public getSelectedAssembly(): Assembly | null {
@@ -2212,61 +2227,112 @@ export class GameEngine {
 
     ctx.restore();
   }
+  private renderMissileTargetingDebug(): void {
+    const ctx = this.render.canvas.getContext('2d');
+    if (!ctx) return;
 
-  private updateCursorWorldPosition(): void {
-    if (!this.playerAssembly || this.playerAssembly.destroyed) return;
+    const missiles = this.missileSystem.getMissilesForDebug();
+    if (missiles.length === 0) return;    ctx.save();
+    const bounds = this.render.bounds;
 
-    // Convert screen coordinates to world coordinates
-    // Account for zoom level in the coordinate conversion
-    const zoomFactor = this.render.options.hasBounds ?
-      (this.render.bounds.max.x - this.render.bounds.min.x) / this.render.canvas.width : 1;
-
-    const worldX = this.render.bounds.min.x + this.mousePosition.x * zoomFactor;
-    const worldY = this.render.bounds.min.y + this.mousePosition.y * zoomFactor;
-
-    this.playerAssembly.cursorPosition = { x: worldX, y: worldY };
-  }
-  private spawnShipByName(shipName: string, x: number, y: number, isPlayer: boolean): void {
-    try {
-      console.log(`🔧 Spawning specific ship "${shipName}" at (${x}, ${y}), isPlayer: ${isPlayer}`);
-
-      // Find the specific ship from the JSON data
-      const ships = shipsData.ships;
-      const selectedShip = ships.find(ship => ship.name === shipName);
-
-      if (!selectedShip) {
-        console.error(`❌ Ship "${shipName}" not found in ships data`);
-        return;
-      }
-
-      console.log(`🎯 Found ship: ${selectedShip.name} with ${selectedShip.parts.length} parts`);      // Convert grid coordinates to world coordinates for entity creation
-      const GRID_SIZE = 16;
-      const entityConfigs: EntityConfig[] = selectedShip.parts.map(part => ({
-        type: part.type as EntityType,
-        x: part.x * GRID_SIZE, // Convert grid to world coordinates
-        y: part.y * GRID_SIZE,
-        rotation: part.rotation,
-        health: part.health,
-        maxHealth: part.maxHealth
-      }));
-
-      const assembly = new Assembly(entityConfigs, { x, y });
-      assembly.setShipName(selectedShip.name);
-      console.log(`🔨 Created assembly with ID: ${assembly.id}`);
-
-      this.assemblies.push(assembly);
-      Matter.World.add(this.world, assembly.rootBody);
-      console.log(`🌍 Added to world, total assemblies: ${this.assemblies.length}`);
-
-      // Set as player if requested
-      if (isPlayer && (!this.playerAssembly || this.playerAssembly.destroyed)) {
-        this.playerAssembly = assembly;
-        assembly.isPlayerControlled = true;
-        this.flightController = new FlightController(assembly);
-        console.log('👤 Set as player assembly with flight controller');
-      }
-    } catch (error) {
-      console.error(`❌ Error spawning ship "${shipName}":`, error);
+    // Reduced logging - only log every 2 seconds when missiles exist
+    if (Math.floor(Date.now() / 2000) % 2 === 0) {
+      console.log(`🚀 Rendering ${missiles.length} missiles`);
     }
+
+    // Iterate through all missiles and draw targeting lines
+    missiles.forEach((missile, index) => {
+      if (missile.destroyed) return;
+
+      const missilePos = missile.body.position;
+      const target = missile.getCurrentTarget();
+
+      // Convert missile position to screen coordinates
+      const missileScreenX = (missilePos.x - bounds.min.x) * this.render.canvas.width / (bounds.max.x - bounds.min.x);
+      const missileScreenY = (missilePos.y - bounds.min.y) * this.render.canvas.height / (bounds.max.y - bounds.min.y);
+
+      // Reduced logging frequency - only log every 60 frames (1 second)
+      if (Math.floor(Date.now() / 1000) % 2 === 0 && index === 0) {
+        console.log(`🚀 Missile ${index}: pos=(${missilePos.x.toFixed(0)}, ${missilePos.y.toFixed(0)}), screen=(${missileScreenX.toFixed(0)}, ${missileScreenY.toFixed(0)}), hasTarget=${!!target}`);
+      }
+
+      // Always draw missile indicator, even if off-screen (for debugging)
+      // Draw missile type indicator
+      ctx.fillStyle = missile.getMissileType() === 'heat_seeker' ? '#ff6600' : 
+                     missile.getMissileType() === 'guided' ? '#ff3300' : '#ffaa00';
+      ctx.globalAlpha = 1.0;
+      ctx.beginPath();
+      ctx.arc(missileScreenX, missileScreenY, 8, 0, 2 * Math.PI);
+      ctx.fill();
+
+      // Draw missile direction arrow
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.9;
+      const arrowLength = 20;
+      const missileAngle = missile.body.angle;
+      const arrowEndX = missileScreenX + Math.cos(missileAngle) * arrowLength;
+      const arrowEndY = missileScreenY + Math.sin(missileAngle) * arrowLength;
+      
+      ctx.beginPath();
+      ctx.moveTo(missileScreenX, missileScreenY);
+      ctx.lineTo(arrowEndX, arrowEndY);
+      ctx.stroke();
+
+      // Draw targeting line if missile has a target
+      if (target && missile.isTrackingTarget()) {
+        const targetPos = target.rootBody.position;
+        const targetScreenX = (targetPos.x - bounds.min.x) * this.render.canvas.width / (bounds.max.x - bounds.min.x);
+        const targetScreenY = (targetPos.y - bounds.min.y) * this.render.canvas.height / (bounds.max.y - bounds.min.y);
+
+        console.log(`🎯 Drawing target line from missile to target at (${targetPos.x.toFixed(0)}, ${targetPos.y.toFixed(0)})`);
+
+        // Set line style based on missile type
+        ctx.strokeStyle = missile.getMissileType() === 'heat_seeker' ? '#ff6600' : 
+                         missile.getMissileType() === 'guided' ? '#ff3300' : '#ffaa00';
+        ctx.lineWidth = 3;
+        ctx.globalAlpha = 0.8;
+        ctx.setLineDash([10, 5]); // Dashed line
+
+        // Draw targeting line
+        ctx.beginPath();
+        ctx.moveTo(missileScreenX, missileScreenY);
+        ctx.lineTo(targetScreenX, targetScreenY);
+        ctx.stroke();
+
+        // Reset line dash
+        ctx.setLineDash([]);
+
+        // Draw target highlight
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 4;
+        ctx.globalAlpha = 1.0;
+        ctx.beginPath();
+        ctx.arc(targetScreenX, targetScreenY, 20, 0, 2 * Math.PI);
+        ctx.stroke();
+
+        // Add distance text
+        const distance = Math.sqrt(
+          Math.pow(targetPos.x - missilePos.x, 2) + Math.pow(targetPos.y - missilePos.y, 2)
+        );
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '14px Arial';
+        ctx.globalAlpha = 1.0;
+        ctx.fillText(
+          `${Math.round(distance)}px`, 
+          targetScreenX + 25, 
+          targetScreenY - 25
+        );
+      }
+
+      // Add missile info text
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '12px Arial';
+      ctx.globalAlpha = 1.0;
+      const missileInfo = `${missile.getMissileType().toUpperCase()}${missile.isTrackingTarget() ? ' [TRACKING]' : ' [SEARCHING]'}`;
+      ctx.fillText(missileInfo, missileScreenX + 15, missileScreenY - 15);
+    });
+
+    ctx.restore();
   }
 }

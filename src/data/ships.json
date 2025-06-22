@@ -824,6 +824,76 @@
           "maxHealth": 80
         }
       ]
+    },
+    {
+      "name": "Missile Corvette",
+      "category": "Corvette",
+      "parts": [
+        {
+          "type": "Engine",
+          "x": -48,
+          "y": 0,
+          "rotation": 180,
+          "health": 80,
+          "maxHealth": 80
+        },
+        {
+          "type": "Hull",
+          "x": -32,
+          "y": 0,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "PowerCell",
+          "x": -16,
+          "y": 0,
+          "rotation": 0,
+          "health": 40,
+          "maxHealth": 40
+        },
+        {
+          "type": "Cockpit",
+          "x": 0,
+          "y": 0,
+          "rotation": 0,
+          "health": 1000,
+          "maxHealth": 1000
+        },
+        {
+          "type": "Hull",
+          "x": 16,
+          "y": 0,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "MissileLauncher",
+          "x": 32,
+          "y": 0,
+          "rotation": 0,
+          "health": 70,
+          "maxHealth": 70
+        },
+        {
+          "type": "MissileLauncher",
+          "x": 0,
+          "y": 16,
+          "rotation": 90,
+          "health": 70,
+          "maxHealth": 70
+        },
+        {
+          "type": "MissileLauncher",
+          "x": 0,
+          "y": -16,
+          "rotation": 270,
+          "health": 70,
+          "maxHealth": 70
+        }
+      ]
     }
   ]
 }

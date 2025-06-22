@@ -169,15 +169,14 @@ const PowerManagement: React.FC<PowerManagementProps> = ({ gameEngine }) => {
                 currentPower: 0,
                 color: '#00BFFF',
                 description: 'Engines: Click to allocate/deallocate power'
-            },
-            {
+            },            {
                 id: 'weapons',
                 name: 'WEAPONS',
                 icon: <FlashOn />,
                 maxPower: 0,
                 currentPower: 0,
                 color: '#FF4444',
-                description: 'Weapons: Click to allocate/deallocate power'
+                description: 'Weapons & Missiles: Click to allocate/deallocate power'
             },
             {
                 id: 'sensors',
