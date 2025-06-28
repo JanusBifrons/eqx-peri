@@ -171,21 +171,24 @@ export class Assembly {
       return definition.thrust;
     }
     return 0;
-  } public applyTorque(torqueInput: number): void {
+  }  public applyTorque(torqueInput: number): void {
     if (this.destroyed) return;
 
-    // Balanced rotation using Matter.js angular velocity
+    // More consistent rotation using Matter.js angular velocity
     const currentAngularVelocity = this.rootBody.angularVelocity;
-    const maxAngularVelocity = 0.02; // Reduced from 0.1 to 0.02 (much more reasonable)
-
-    const desiredAngularVelocity = torqueInput * maxAngularVelocity;
-    const dampening = 0.15; // Reduced from 0.3 to 0.15 (less twitchy)
+    const maxAngularVelocity = 0.05; // Increased from 0.02 for more responsive steering
+    
+    // Clamp torque input to prevent over-steering
+    const clampedTorque = Math.max(-1.0, Math.min(1.0, torqueInput));
+    
+    const desiredAngularVelocity = clampedTorque * maxAngularVelocity;
+    const dampening = 0.2; // Increased from 0.15 for more responsive but controlled steering
 
     const newAngularVelocity = currentAngularVelocity +
       (desiredAngularVelocity - currentAngularVelocity) * dampening;
 
     Matter.Body.setAngularVelocity(this.rootBody, newAngularVelocity);
-  } public fireWeapons(): Matter.Body[] {
+  }public fireWeapons(): Matter.Body[] {
     if (this.destroyed) return [];
 
     // Check if this is the player assembly and if weapons have power

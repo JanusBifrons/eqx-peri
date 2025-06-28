@@ -185,7 +185,7 @@ export class GameEngine {
         // Handle special keys
       switch (event.key.toLowerCase()) {
         case '1':
-          this.spawnRandomEnemyAssembly();
+          //this.spawnRandomEnemyAssembly();
           break;
         case '3':
           this.spawnDebris(Math.random() * 400 - 200, Math.random() * 400 - 200);
@@ -551,12 +551,10 @@ export class GameEngine {
     }
 
     // Send input to player controller
-    this.controllerManager.setPlayerInput(input);
-
-    // Apply rotational dampening directly (this is physics, not control)
+    this.controllerManager.setPlayerInput(input);    // Apply rotational dampening directly (this is physics, not control)
     if (input.torque === 0) {
       const currentAngularVel = this.playerAssembly.rootBody.angularVelocity;
-      const dampening = 0.95;
+      const dampening = 0.98; // Reduced from 0.95 to be less aggressive and let Assembly's control handle it
       Matter.Body.setAngularVelocity(this.playerAssembly.rootBody, currentAngularVel * dampening);
     }
   }
@@ -1045,12 +1043,9 @@ export class GameEngine {
     Matter.Events.on(this.render, 'afterRender', () => {
       if (this.showGrid) {
         this.renderGrid();
-      }
-
-      this.renderConnectionPoints();
+      }      this.renderConnectionPoints();
       this.renderShipHighlights();
       this.renderAimingDebug(); // Add debug visuals for aiming system
-      this.renderMissileTargetingDebug(); // Add debug visuals for missile targeting
       this.executePlayerCommands(); // Execute player commands each frame
 
       // End stats monitoring after each render
@@ -1637,11 +1632,9 @@ export class GameEngine {
 
     // Normalize angle difference
     while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-    while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-
-    // Apply torque to face target
+    while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;    // Apply torque to face target
     if (Math.abs(angleDiff) > 0.1) {
-      const torque = Math.sign(angleDiff) * Math.min(0.8, Math.abs(angleDiff) * 2);
+      const torque = Math.sign(angleDiff) * Math.min(0.6, Math.abs(angleDiff) * 1.5); // Reduced from 0.8 and 2
       this.playerAssembly!.applyTorque(torque);
     }
   }
@@ -1653,11 +1646,9 @@ export class GameEngine {
 
     // Normalize angle difference
     while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-    while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-
-    // Apply torque to face target
+    while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;    // Apply torque to face target
     if (Math.abs(angleDiff) > 0.05) { // More precise aiming for lock on
-      const torque = Math.sign(angleDiff) * Math.min(1.0, Math.abs(angleDiff) * 3);
+      const torque = Math.sign(angleDiff) * Math.min(0.8, Math.abs(angleDiff) * 2.0); // Slightly higher for lock-on precision
       this.playerAssembly!.applyTorque(torque);
     }
 
@@ -2223,116 +2214,6 @@ export class GameEngine {
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.globalAlpha = 1.0;
-    });
-
-    ctx.restore();
-  }
-  private renderMissileTargetingDebug(): void {
-    const ctx = this.render.canvas.getContext('2d');
-    if (!ctx) return;
-
-    const missiles = this.missileSystem.getMissilesForDebug();
-    if (missiles.length === 0) return;    ctx.save();
-    const bounds = this.render.bounds;
-
-    // Reduced logging - only log every 2 seconds when missiles exist
-    if (Math.floor(Date.now() / 2000) % 2 === 0) {
-      console.log(`🚀 Rendering ${missiles.length} missiles`);
-    }
-
-    // Iterate through all missiles and draw targeting lines
-    missiles.forEach((missile, index) => {
-      if (missile.destroyed) return;
-
-      const missilePos = missile.body.position;
-      const target = missile.getCurrentTarget();
-
-      // Convert missile position to screen coordinates
-      const missileScreenX = (missilePos.x - bounds.min.x) * this.render.canvas.width / (bounds.max.x - bounds.min.x);
-      const missileScreenY = (missilePos.y - bounds.min.y) * this.render.canvas.height / (bounds.max.y - bounds.min.y);
-
-      // Reduced logging frequency - only log every 60 frames (1 second)
-      if (Math.floor(Date.now() / 1000) % 2 === 0 && index === 0) {
-        console.log(`🚀 Missile ${index}: pos=(${missilePos.x.toFixed(0)}, ${missilePos.y.toFixed(0)}), screen=(${missileScreenX.toFixed(0)}, ${missileScreenY.toFixed(0)}), hasTarget=${!!target}`);
-      }
-
-      // Always draw missile indicator, even if off-screen (for debugging)
-      // Draw missile type indicator
-      ctx.fillStyle = missile.getMissileType() === 'heat_seeker' ? '#ff6600' : 
-                     missile.getMissileType() === 'guided' ? '#ff3300' : '#ffaa00';
-      ctx.globalAlpha = 1.0;
-      ctx.beginPath();
-      ctx.arc(missileScreenX, missileScreenY, 8, 0, 2 * Math.PI);
-      ctx.fill();
-
-      // Draw missile direction arrow
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 2;
-      ctx.globalAlpha = 0.9;
-      const arrowLength = 20;
-      const missileAngle = missile.body.angle;
-      const arrowEndX = missileScreenX + Math.cos(missileAngle) * arrowLength;
-      const arrowEndY = missileScreenY + Math.sin(missileAngle) * arrowLength;
-      
-      ctx.beginPath();
-      ctx.moveTo(missileScreenX, missileScreenY);
-      ctx.lineTo(arrowEndX, arrowEndY);
-      ctx.stroke();
-
-      // Draw targeting line if missile has a target
-      if (target && missile.isTrackingTarget()) {
-        const targetPos = target.rootBody.position;
-        const targetScreenX = (targetPos.x - bounds.min.x) * this.render.canvas.width / (bounds.max.x - bounds.min.x);
-        const targetScreenY = (targetPos.y - bounds.min.y) * this.render.canvas.height / (bounds.max.y - bounds.min.y);
-
-        console.log(`🎯 Drawing target line from missile to target at (${targetPos.x.toFixed(0)}, ${targetPos.y.toFixed(0)})`);
-
-        // Set line style based on missile type
-        ctx.strokeStyle = missile.getMissileType() === 'heat_seeker' ? '#ff6600' : 
-                         missile.getMissileType() === 'guided' ? '#ff3300' : '#ffaa00';
-        ctx.lineWidth = 3;
-        ctx.globalAlpha = 0.8;
-        ctx.setLineDash([10, 5]); // Dashed line
-
-        // Draw targeting line
-        ctx.beginPath();
-        ctx.moveTo(missileScreenX, missileScreenY);
-        ctx.lineTo(targetScreenX, targetScreenY);
-        ctx.stroke();
-
-        // Reset line dash
-        ctx.setLineDash([]);
-
-        // Draw target highlight
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 4;
-        ctx.globalAlpha = 1.0;
-        ctx.beginPath();
-        ctx.arc(targetScreenX, targetScreenY, 20, 0, 2 * Math.PI);
-        ctx.stroke();
-
-        // Add distance text
-        const distance = Math.sqrt(
-          Math.pow(targetPos.x - missilePos.x, 2) + Math.pow(targetPos.y - missilePos.y, 2)
-        );
-        ctx.fillStyle = '#ffffff';
-        ctx.font = '14px Arial';
-        ctx.globalAlpha = 1.0;
-        ctx.fillText(
-          `${Math.round(distance)}px`, 
-          targetScreenX + 25, 
-          targetScreenY - 25
-        );
-      }
-
-      // Add missile info text
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '12px Arial';
-      ctx.globalAlpha = 1.0;
-      const missileInfo = `${missile.getMissileType().toUpperCase()}${missile.isTrackingTarget() ? ' [TRACKING]' : ' [SEARCHING]'}`;
-      ctx.fillText(missileInfo, missileScreenX + 15, missileScreenY - 15);
-    });
-
-    ctx.restore();
+    });    ctx.restore();
   }
 }

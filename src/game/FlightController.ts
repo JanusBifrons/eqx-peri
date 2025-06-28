@@ -10,11 +10,11 @@ import { ControlInput } from './Controller';
 export class FlightController {
     private assembly: Assembly;    // Decision thresholds for virtual pilot (smart feathering)
     private readonly THRUST_THRESHOLD = 0.15;        // Minimum force needed to issue thrust command
-    private readonly ANGLE_THRESHOLD = 0.08;         // Reduced threshold for more precise control
+    private readonly ANGLE_THRESHOLD = 0.05;         // More precise angular threshold
     private readonly DECISION_INTERVAL = 50;         // Faster decision making for smoother control
-    private readonly MAX_ANGULAR_VELOCITY = 2.0;     // Maximum desired angular velocity
-    private readonly ANGLE_BRAKE_ZONE = 0.3;         // Start braking when within this angle (radians)
-    private readonly VELOCITY_BRAKE_THRESHOLD = 0.5; // Angular velocity threshold for braking
+    private readonly MAX_ANGULAR_VELOCITY = 0.04;    // Match Assembly's practical max angular velocity (80% of 0.05)
+    private readonly ANGLE_BRAKE_ZONE = 0.2;         // Start braking earlier to prevent overshoot
+    private readonly VELOCITY_BRAKE_THRESHOLD = 0.02; // Lower threshold for more controlled movement
     private lastDecisionTime = 0;
     private currentCommand: ControlInput = { thrust: { x: 0, y: 0 }, torque: 0, fire: false };
 
@@ -145,12 +145,10 @@ export class FlightController {
 
         // Check if we're rotating in the wrong direction or need to brake
         const needsCounterRotation = (desiredDirection > 0 && currentAngularVel < -this.VELOCITY_BRAKE_THRESHOLD) ||
-            (desiredDirection < 0 && currentAngularVel > this.VELOCITY_BRAKE_THRESHOLD);
-
-        // If we're approaching the target and rotating fast, apply counter-torque to brake
+            (desiredDirection < 0 && currentAngularVel > this.VELOCITY_BRAKE_THRESHOLD);        // If we're approaching the target and rotating fast, apply counter-torque to brake
         if (approachingTarget && Math.abs(currentAngularVel) > this.VELOCITY_BRAKE_THRESHOLD) {
             // Apply braking torque (opposite to current velocity)
-            return -Math.sign(currentAngularVel) * 1.0;
+            return -Math.sign(currentAngularVel) * 0.6; // Reduced from 1.0 for smoother braking
         }
 
         // If we're rotating too fast in the desired direction, don't add more torque
@@ -160,12 +158,14 @@ export class FlightController {
 
         // If we need counter-rotation (wrong direction), apply full torque
         if (needsCounterRotation) {
-            return desiredDirection * 1.0;
+            return desiredDirection * 0.8; // Reduced from 1.0 for smoother corrections
         }
 
         // Normal case: apply torque in the desired direction if not rotating too fast
         if (Math.abs(currentAngularVel) < this.MAX_ANGULAR_VELOCITY) {
-            return desiredDirection * 1.0;
+            // Scale torque based on angle error for more precise control
+            const torqueScale = Math.min(1.0, Math.abs(angleError) / 0.5); // Full torque for errors > 0.5 radians
+            return desiredDirection * 0.6 * torqueScale; // Reduced base torque from 1.0 to 0.6
         }
 
         // Default: no torque
