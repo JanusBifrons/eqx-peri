@@ -49,7 +49,7 @@ export class Assembly {
     this.rootBody = Matter.Body.create({
       parts: this.entities.map(e => e.body),
       isStatic: false,
-      frictionAir: 0.01, // Very small air resistance to dampen spinning
+      frictionAir: 0, // No air resistance in space
       friction: 0, // No surface friction in space
       restitution: 0.2 // Low bounce for realistic space debris
     });
@@ -555,7 +555,7 @@ export class Assembly {
     this.rootBody = Matter.Body.create({
       parts: this.entities.map(e => e.body),
       isStatic: false,
-      frictionAir: 0.01, // Very small air resistance to dampen spinning
+      frictionAir: 0, // No air resistance in space
       friction: 0, // No surface friction in space
       restitution: 0.2 // Low bounce for realistic space debris
     });

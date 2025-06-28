@@ -66,7 +66,7 @@ export class Entity {
       definition.height,
       {
         mass: definition.mass,
-        frictionAir: 0.01, // Very small air resistance to dampen spinning debris
+        frictionAir: 0, // No air resistance in space
         friction: 0, // No surface friction in space
         restitution: 0.2, // Low bounce - space debris doesn't bounce much
         inertia: definition.mass * (definition.width * definition.width + definition.height * definition.height) / 12, // Realistic rotational inertia

@@ -75,13 +75,13 @@ export class GameEngine {
 
     // Set global friction to zero for space-like physics
     this.engine.world.bodies.forEach(body => {
-      body.frictionAir = 0.01; // Very small air resistance to dampen spinning debris
+      body.frictionAir = 0; // No air resistance in space
       body.friction = 0; // No surface friction in space
     });    // Add event listener to ensure all new bodies have realistic physics settings
     Matter.Events.on(this.engine, 'beforeUpdate', () => {
       this.engine.world.bodies.forEach(body => {
-        // Apply minimal air resistance to prevent infinite spinning
-        if (body.frictionAir < 0.01) body.frictionAir = 0.01;
+        // Remove all friction for space physics
+        if (body.frictionAir !== 0) body.frictionAir = 0;
         if (body.friction !== 0) body.friction = 0;
 
         // Apply angular damping to spinning debris to make collisions more realistic
