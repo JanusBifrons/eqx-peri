@@ -11,7 +11,7 @@
  * - Dependency Inversion: Depends on abstractions, not concrete implementations
  */
 
-import { EntityType, ENTITY_DEFINITIONS, GRID_SIZE } from '../types/GameTypes';
+import { EntityType, ENTITY_DEFINITIONS, GRID_SIZE } from '../../types/GameTypes';
 
 // Base unit for all positioning and sizing
 export const BLOCK_SIZE = 16;

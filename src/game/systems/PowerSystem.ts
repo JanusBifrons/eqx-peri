@@ -1,4 +1,4 @@
-import { Assembly } from './Assembly';
+import { Assembly } from '../core/Assembly';
 
 export interface PowerAllocation {
     engines: number;

@@ -2,14 +2,14 @@ import * as Matter from 'matter-js';
 import Stats from 'stats.js';
 import { Assembly } from './Assembly';
 import { Entity } from './Entity';
-import { EntityConfig, GRID_SIZE, ENTITY_DEFINITIONS, EntityType } from '../types/GameTypes';
-import shipsData from '../data/ships.json';
-import { ControllerManager } from './ControllerManager';
-import { FlightController } from './FlightController';
-import { ControlInput } from './Controller';
-import { PowerSystem } from './PowerSystem';
-import { ToastSystem } from './ToastSystem';
-import { MissileSystem } from './MissileSystem';
+import { EntityConfig, GRID_SIZE, ENTITY_DEFINITIONS, EntityType } from '../../types/GameTypes';
+import shipsData from '../../data/ships.json';
+import { ControllerManager } from '../ai/ControllerManager';
+import { FlightController } from '../ai/FlightController';
+import { ControlInput } from '../ai/Controller';
+import { PowerSystem } from '../systems/PowerSystem';
+import { ToastSystem } from '../systems/ToastSystem';
+import { MissileSystem } from '../weapons/MissileSystem';
 
 export class GameEngine {
   private engine: Matter.Engine;
@@ -1370,7 +1370,7 @@ export class GameEngine {
     return null;
   }
 
-  // @ts-ignore - Currently unused but may be needed later
+  // @ts-expect-error - Currently unused but may be needed later
   private getAssemblyAtWorldPosition(worldX: number, worldY: number): Assembly | null {
     console.log('🔍 Looking for assembly at world position:', worldX, worldY);
 

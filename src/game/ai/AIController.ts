@@ -1,6 +1,6 @@
-import { Assembly } from './Assembly';
+import { Assembly } from '../core/Assembly';
 import { Controller, ControlInput } from './Controller';
-import { Vector2 } from '../types/GameTypes';
+import { Vector2 } from '../../types/GameTypes';
 
 export class AIController extends Controller {
     private target?: Assembly;

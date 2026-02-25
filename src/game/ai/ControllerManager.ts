@@ -1,8 +1,8 @@
 import * as Matter from 'matter-js';
-import { Assembly } from './Assembly';
+import { Assembly } from '../core/Assembly';
 import { IController, ControlInput, PlayerController } from './Controller';
-import { AIController } from './AIController_New';
-import { MissileSystem } from './MissileSystem';
+import { AIController } from './AIController';
+import { MissileSystem } from '../weapons/MissileSystem';
 
 // Manages all controllers and applies their inputs to assemblies
 export class ControllerManager {    private controllers: Map<string, IController> = new Map();

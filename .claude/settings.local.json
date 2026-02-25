@@ -1,11 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git clone:*)",
-      "Bash(cd:*)",
-      "Bash(cd /c/Users/alecv/Documents/Projects/eqx-peri && npm install 2>&1)",
-      "Bash(which node:*)",
-      "Bash(cd C:\\\\Users\\\\alecv\\\\Documents\\\\Projects\\\\eqx-peri:*)"
+      "Bash(*)"
     ]
   }
 }

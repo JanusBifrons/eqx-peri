@@ -11,7 +11,7 @@ import {
   CoordinateSystem,
   ShipValidator
 } from './BlockSystem';
-import { EntityConfig, ENTITY_DEFINITIONS } from '../types/GameTypes';
+import { EntityConfig, ENTITY_DEFINITIONS } from '../../types/GameTypes';
 
 export class ShipDesignManager {
   private static initialized = false;

@@ -9,16 +9,22 @@ npm run dev        # Start Vite dev server (http://localhost:5173)
 npm run build      # Type-check + production build
 npm run lint       # ESLint (zero warnings enforced)
 npm run preview    # Preview production build
-node test-<name>.js  # Run individual physics/logic test scripts
+node scripts/<name>.js  # Run individual physics/logic test scripts
 ```
 
 ## Project Structure
 
 ```
+scripts/        # Node.js test/debug scripts (node scripts/<name>.js)
 src/
-  components/   # React UI overlay (HUD, radar, power management)
-  game/         # Core game engine, physics systems, AI
-  types/        # Shared TypeScript interfaces and enums
+  ui/           # React UI overlay (HUD, radar, power management)
+  game/
+    core/       # Fundamental physics objects: GameEngine, Assembly, Entity
+    ai/         # Control & decision-making: AIController, FlightController, ControllerManager, Controller
+    weapons/    # Missile and MissileSystem
+    ship/       # Ship design: BlockSystem, ShipDesigner, ShipDesignManager
+    systems/    # Singletons & services: PowerSystem, ToastSystem
+  types/        # Shared TypeScript interfaces and enums (GameTypes.ts)
   data/         # Ship definitions (ships.json)
 ```
 

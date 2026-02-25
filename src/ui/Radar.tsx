@@ -25,7 +25,7 @@ import {
     CenterFocusStrong
 } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
-import { GameEngine } from '../game/GameEngine';
+import { GameEngine } from '../game/core/GameEngine';
 
 interface RadarProps {
     gameEngine: GameEngine | null;

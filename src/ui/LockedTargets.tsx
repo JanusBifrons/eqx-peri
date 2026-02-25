@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Paper, Typography, Box } from '@mui/material';
-import { GameEngine } from '../game/GameEngine';
-import { Assembly } from '../game/Assembly';
+import { GameEngine } from '../game/core/GameEngine';
+import { Assembly } from '../game/core/Assembly';
 
 interface LockedTargetsProps {
     gameEngine: GameEngine | null;

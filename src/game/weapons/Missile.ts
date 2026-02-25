@@ -1,6 +1,6 @@
 import * as Matter from 'matter-js';
-import { Vector2 } from '../types/GameTypes';
-import { Assembly } from './Assembly';
+import { Vector2 } from '../../types/GameTypes';
+import { Assembly } from '../core/Assembly';
 
 export enum MissileType {
     TORPEDO = 'torpedo',        // Flies straight, high damage, no tracking

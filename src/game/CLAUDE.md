@@ -2,6 +2,16 @@
 
 All game logic, physics, AI, and entity management. No React imports here — this layer is framework-agnostic and communicates with the UI only through data that components poll.
 
+## Subdirectory Layout
+
+| Directory | Contents |
+|-----------|----------|
+| `core/`    | `GameEngine`, `Assembly`, `Entity` — fundamental physics objects |
+| `ai/`      | `AIController`, `FlightController`, `ControllerManager`, `Controller` |
+| `weapons/` | `Missile`, `MissileSystem` |
+| `ship/`    | `BlockSystem`, `ShipDesigner`, `ShipDesignManager` |
+| `systems/` | `PowerSystem`, `ToastSystem` — singletons and support services |
+
 ## Physics Conventions (Matter.js)
 
 - World is **zero-gravity, zero-friction**: `gravity = {x:0, y:0}`, `frictionAir = 0`, `friction = 0`
@@ -37,7 +47,7 @@ All game logic, physics, AI, and entity management. No React imports here — th
 
 ## Test Scripts
 
-Root-level `test-*.js` files are plain Node.js scripts (no test framework). Run with `node test-<name>.js`. Use them to validate physics math and document tuning decisions — they are **living documentation**, not throwaway scripts.
+`scripts/test-*.js` and `scripts/debug-*.js` are plain Node.js scripts (no test framework). Run with `node scripts/<name>.js`. Use them to validate physics math and document tuning decisions — they are **living documentation**, not throwaway scripts.
 
 ---
 

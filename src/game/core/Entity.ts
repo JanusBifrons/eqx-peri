@@ -1,5 +1,5 @@
 import * as Matter from 'matter-js';
-import { EntityConfig, EntityType, ENTITY_DEFINITIONS, Vector2, GRID_SIZE, AttachmentConnection } from '../types/GameTypes';
+import { EntityConfig, EntityType, ENTITY_DEFINITIONS, Vector2, GRID_SIZE, AttachmentConnection } from '../../types/GameTypes';
 
 export class Entity {
   public id: string;

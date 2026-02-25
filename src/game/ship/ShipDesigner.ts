@@ -1,4 +1,4 @@
-import { EntityConfig, EntityType } from '../types/GameTypes';
+import { EntityConfig, EntityType } from '../../types/GameTypes';
 
 /**
  * Direction enumeration for intuitive ship design
@@ -52,7 +52,7 @@ export class ShipDesigner {
 
   /**
    * Legacy method for backward compatibility with numerical rotations
-   */  // @ts-ignore - Currently unused but may be needed later
+   */  // @ts-expect-error - Currently unused but may be needed later
   private static placeBlockWithRotation(type: EntityType, gridX: number, gridY: number, rotation: number = 0): EntityConfig {
     const worldPos = this.gridToWorld(gridX, gridY);
     return {

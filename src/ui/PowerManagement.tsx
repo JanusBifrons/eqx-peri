@@ -10,8 +10,8 @@ import {
     BatteryFull
 } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
-import { GameEngine } from '../game/GameEngine';
-import { PowerSystem as GamePowerSystem } from '../game/PowerSystem';
+import { GameEngine } from '../game/core/GameEngine';
+import { PowerSystem as GamePowerSystem } from '../game/systems/PowerSystem';
 
 interface PowerManagementProps {
     gameEngine: GameEngine | null;

@@ -1,5 +1,5 @@
-import { Assembly } from './Assembly';
-import { Vector2 } from '../types/GameTypes';
+import { Assembly } from '../core/Assembly';
+import { Vector2 } from '../../types/GameTypes';
 
 // Control commands that can be sent to an assembly
 export interface ControlInput {

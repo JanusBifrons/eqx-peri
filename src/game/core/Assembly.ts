@@ -1,8 +1,8 @@
 import * as Matter from 'matter-js';
 import { Entity } from './Entity';
-import { EntityConfig, Vector2, EntityType, ENTITY_DEFINITIONS } from '../types/GameTypes';
-import { PowerSystem } from './PowerSystem';
-import { MissileType } from './Missile';
+import { EntityConfig, Vector2, EntityType, ENTITY_DEFINITIONS } from '../../types/GameTypes';
+import { PowerSystem } from '../systems/PowerSystem';
+import { MissileType } from '../weapons/Missile';
 
 // Interface for missile launch requests
 export interface MissileLaunchRequest {
@@ -144,7 +144,7 @@ export class Assembly {
 
       // SIMPLE LOGIC: All engines contribute to movement in the requested direction
       // The physics engine will handle the realistic movement behavior
-      let thrustContribution = { x: 0, y: 0 };
+      const thrustContribution = { x: 0, y: 0 };
 
       // If requesting any thrust, all engines contribute proportionally
       if (thrustMagnitude > 0) {

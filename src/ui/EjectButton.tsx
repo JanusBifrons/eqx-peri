@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Button, Box, Typography, styled, keyframes } from '@mui/material';
-import { GameEngine } from '../game/GameEngine';
+import { GameEngine } from '../game/core/GameEngine';
 
 interface EjectButtonProps {
     gameEngine: GameEngine | null;

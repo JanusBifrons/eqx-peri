@@ -1,4 +1,4 @@
-# /src/components — React UI Components
+# /src/ui — React UI Components
 
 HUD overlay components rendered on top of the game canvas. Components receive `gameEngine: GameEngine | null` (or derived state) as props and poll it via `useEffect` intervals to sync UI with game state.
 
@@ -24,6 +24,11 @@ HUD overlay components rendered on top of the game canvas. Components receive `g
 
 **Icons:**
 - Source icons exclusively from `@mui/icons-material`
+
+**Imports:**
+- Import `GameEngine` from `../game/core/GameEngine`
+- Import `Assembly` from `../game/core/Assembly`
+- Import `PowerSystem` from `../game/systems/PowerSystem`
 
 ## Anti-Patterns to Avoid
 

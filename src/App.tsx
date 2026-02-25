@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { GameEngine } from './game/GameEngine';
-import Radar from './components/Radar';
-import LockedTargets from './components/LockedTargets';
-import PowerManagement from './components/PowerManagement';
-import ShipSelection from './components/ShipSelection';
-import PartsInfo from './components/PartsInfo';
-import EjectButton from './components/EjectButton';
+import { GameEngine } from './game/core/GameEngine';
+import Radar from './ui/Radar';
+import LockedTargets from './ui/LockedTargets';
+import PowerManagement from './ui/PowerManagement';
+import ShipSelection from './ui/ShipSelection';
+import PartsInfo from './ui/PartsInfo';
+import EjectButton from './ui/EjectButton';
 import {
   Paper,
   Typography,
