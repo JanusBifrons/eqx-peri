@@ -45,6 +45,10 @@ export class GameEngine {
   private manualZoomCooldown: number = 2000; // 2 seconds of reduced speed-based zoom after manual adjustment
   // private zoomSmoothingFactor: number = 0.02; // Smooth transitions - currently unused
 
+  // Inertial dampening — linear velocity damping applied to the player body each frame when on
+  private inertialDampeningEnabled: boolean = true;
+  private readonly INERTIAL_DAMPENING_FACTOR: number = 0.985; // 1.5% velocity loss per frame at 60 fps
+
   // Stats.js for FPS monitoring
   private stats: Stats;
   // Ship selection and player destruction callback
@@ -544,6 +548,15 @@ export class GameEngine {
       const currentAngularVel = this.playerAssembly.rootBody.angularVelocity;
       const dampening = 0.98; // Reduced from 0.95 to be less aggressive and let Assembly's control handle it
       Matter.Body.setAngularVelocity(this.playerAssembly.rootBody, currentAngularVel * dampening);
+    }
+
+    // Apply inertial dampening — damp lateral and forward velocity each frame
+    if (this.inertialDampeningEnabled) {
+      const vel = this.playerAssembly.rootBody.velocity;
+      Matter.Body.setVelocity(this.playerAssembly.rootBody, {
+        x: vel.x * this.INERTIAL_DAMPENING_FACTOR,
+        y: vel.y * this.INERTIAL_DAMPENING_FACTOR
+      });
     }
   }
   private updateBullets(): void {
@@ -1674,6 +1687,15 @@ export class GameEngine {
 
   public isSpeedBasedZoomEnabled(): boolean {
     return this.speedBasedZoomEnabled;
+  }
+
+  public toggleInertialDampening(): boolean {
+    this.inertialDampeningEnabled = !this.inertialDampeningEnabled;
+    return this.inertialDampeningEnabled;
+  }
+
+  public isInertialDampeningEnabled(): boolean {
+    return this.inertialDampeningEnabled;
   }
 
   public getCurrentSpeed(): number {

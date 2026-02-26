@@ -4,7 +4,7 @@ import Radar from './ui/Radar';
 import LockedTargets from './ui/LockedTargets';
 import PowerManagement from './ui/PowerManagement';
 import PartsInfo from './ui/PartsInfo';
-import EjectButton from './ui/EjectButton';
+import FlightControls from './ui/FlightControls';
 import MainMenu from './ui/MainMenu';
 import {
   Paper,
@@ -220,8 +220,8 @@ const App: React.FC = () => {
         {/* Power Management - Always visible at bottom */}
         <PowerManagement gameEngine={gameEngine} />
 
-        {/* Eject Button - Prominent center bottom position */}
-        <EjectButton gameEngine={gameEngine} />
+        {/* Flight Controls - bottom right (inertial dampening + eject) */}
+        <FlightControls gameEngine={gameEngine} />
       </div>
     </ThemeProvider>
   );
