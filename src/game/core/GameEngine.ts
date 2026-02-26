@@ -2,7 +2,7 @@ import * as Matter from 'matter-js';
 import Stats from 'stats.js';
 import { Assembly } from './Assembly';
 import { Entity } from './Entity';
-import { EntityConfig, GRID_SIZE, ENTITY_DEFINITIONS, EntityType } from '../../types/GameTypes';
+import { EntityConfig, GRID_SIZE, ENTITY_DEFINITIONS, EntityType, ScenarioConfig, SCENARIOS, SHIP_SPAWN_SPACING } from '../../types/GameTypes';
 import shipsData from '../../data/ships.json';
 import { ControllerManager } from '../ai/ControllerManager';
 import { FlightController } from '../ai/FlightController';
@@ -49,7 +49,7 @@ export class GameEngine {
   private stats: Stats;
   // Ship selection and player destruction callback
   public onPlayerDestroyed?: () => void;
-  private selectedPlayerShipIndex: number = 0;
+  private scenarioConfig: ScenarioConfig = SCENARIOS['debug'];
 
   // Toast system for game events
   private toastSystem: ToastSystem;
@@ -248,23 +248,8 @@ export class GameEngine {
       });
     });
 
-    // Also listen for collision active (ongoing collisions) for more responsive flashing
-    Matter.Events.on(this.engine, 'collisionActive', (event: { pairs: { bodyA: Matter.Body; bodyB: Matter.Body }[] }) => {
-      event.pairs.forEach(pair => {
-        const { bodyA, bodyB } = pair;
-
-        // Only flash on entity-to-entity collisions, not bullets (since bullets are handled separately)
-        if (bodyA.entity && bodyB.entity && !bodyA.isBullet && !bodyB.isBullet) {
-          // Only trigger flash if entities aren't already flashing to avoid spam
-          if (!bodyA.entity.isFlashing && !bodyA.entity.destroyed) {
-            bodyA.entity.triggerCollisionFlash();
-          }
-          if (!bodyB.entity.isFlashing && !bodyB.entity.destroyed) {
-            bodyB.entity.triggerCollisionFlash();
-          }
-        }
-      });
-    });
+    // NOTE: No collisionActive handler — re-triggering the flash every frame for sustained
+    // contact caused a permanent white glow.  collisionStart is sufficient for impact feedback.
   } private handleEntityCollision(entityA: Entity, entityB: Entity): void {
     // Flash on impact for any entity collision
     if (!entityA.destroyed && !entityA.isFlashing) {
@@ -298,16 +283,11 @@ export class GameEngine {
       }
     }
   } private handleBulletHit(bullet: Matter.Body, entity: Entity): void {
-    // Check for self-hit prevention
     const sourceAssemblyId = (bullet as any).sourceAssemblyId;
     if (sourceAssemblyId) {
-      // Find the assembly containing the hit entity
       const hitAssembly = this.assemblies.find(a => a.entities.includes(entity));
-      if (hitAssembly && hitAssembly.id === sourceAssemblyId) {        // This is a self-hit, ignore it
-        return;
-      }
+      if (hitAssembly && hitAssembly.id === sourceAssemblyId) return; // self-hit
 
-      // Track who hit this assembly for kill attribution
       if (hitAssembly) {
         const sourceAssembly = this.assemblies.find(a => a.id === sourceAssemblyId);
         hitAssembly.lastHitByAssemblyId = sourceAssemblyId;
@@ -315,78 +295,75 @@ export class GameEngine {
       }
     }
 
-    // Remove bullet
     Matter.World.remove(this.world, bullet);
     this.bullets = this.bullets.filter(b => b !== bullet);
 
-    // Trigger flash effect on hit (whether destroyed or not)
-    if (!entity.destroyed) {
-      entity.triggerCollisionFlash();
-    }    // Apply damage - more damage to make breaking easier
-    const destroyed = entity.takeDamage(10);    if (destroyed) {
-      // Find the assembly containing this entity
-      const assembly = this.assemblies.find(a => a.entities.includes(entity));
-      if (assembly) {
-        console.log(`💥 Part destroyed in assembly with ${assembly.entities.length} parts`);
-        
-        // CRITICAL FIX: Remove the destroyed entity's physics body from the world
-        // This prevents the destroyed entity from participating in physics and connections
-        if (entity.body) {
-          Matter.World.remove(this.world, entity.body);
-          console.log(`🗑️ Removed destroyed ${entity.type} physics body from world`);
-        }
+    if (!entity.destroyed) entity.triggerCollisionFlash();
 
-        // Get new assemblies from the split AFTER removing the destroyed entity from physics
-        const newAssemblies = assembly.removeEntity(entity);
-        console.log(`🔄 Split into ${newAssemblies.length} new assemblies`);
+    const entityDestroyed = entity.takeDamage(10);
+    if (!entityDestroyed) return;
 
-        // Only replace assemblies if the ship actually broke apart (more than 1 assembly)
-        if (newAssemblies.length > 1) {
-          // Ship broke apart - remove old assembly and add new ones
-          Matter.World.remove(this.world, assembly.rootBody);
+    const assembly = this.assemblies.find(a => a.entities.includes(entity));
+    if (!assembly) return;
 
-          // Replace the old assembly with new ones in our list
-          const assemblyIndex = this.assemblies.findIndex(a => a === assembly);
-          if (assemblyIndex !== -1) {
-            this.assemblies.splice(assemblyIndex, 1, ...newAssemblies);
+    // Capture the old compound body BEFORE removeEntity() can replace assembly.rootBody
+    // via createFreshBody().  We need it to properly swap the physics world entry.
+    const oldRootBody = assembly.rootBody;
 
-            // Add all new assemblies to physics world
-            newAssemblies.forEach((newAssembly, index) => {
-              console.log(`  Assembly ${index}: ${newAssembly.entities.length} parts`);
-              Matter.World.add(this.world, newAssembly.rootBody);
+    const newAssemblies = assembly.removeEntity(entity);
 
-              // Convert single-part assemblies without cockpits to debris
-              if (newAssembly.entities.length === 1 && !newAssembly.hasControlCenter()) {
-                newAssembly.setTeam(-1); // Mark as neutral debris
-                newAssembly.setShipName(`${newAssembly.entities[0].type} Debris`);
-                console.log(`🗑️ Converted single part to debris: ${newAssembly.shipName}`);
-              }              // If this was the player assembly, reassign player control
-              if (assembly.isPlayerControlled && newAssembly.isPlayerControlled) {
-                this.playerAssembly = newAssembly;
-                this.toastSystem.showWarning(`⚠️ Ship damaged! Control transferred to ${newAssembly.shipName}`);
-                console.log('👤 Player control transferred to new assembly');
-              }
-            });
+    if (newAssemblies.length > 1) {
+      // Ship broke apart — remove old compound (+ parts) and register fragments.
+      this.removeBodyWithParts(oldRootBody);
+      assembly.pendingBodySwap = null; // split path never sets pendingBodySwap
 
-            // If original was player assembly but no new assembly has control, find one
-            if (assembly.isPlayerControlled && !this.playerAssembly) {
-              const newPlayerAssembly = newAssemblies.find(a => a.hasControlCenter());
-              if (newPlayerAssembly) {
-                this.playerAssembly = newPlayerAssembly;
-                newPlayerAssembly.isPlayerControlled = true;
-                this.toastSystem.showSuccess(`✅ Control established with ${newPlayerAssembly.shipName}`);
-                console.log('👤 Player control assigned to assembly with cockpit');
-              }
-            }
+      const assemblyIndex = this.assemblies.findIndex(a => a === assembly);
+      if (assemblyIndex !== -1) {
+        this.assemblies.splice(assemblyIndex, 1, ...newAssemblies);
+
+        newAssemblies.forEach(newAssembly => {
+          Matter.World.add(this.world, newAssembly.rootBody);
+
+          if (newAssembly.entities.length === 1 && !newAssembly.hasControlCenter()) {
+            newAssembly.setTeam(-1);
+            newAssembly.setShipName(`${newAssembly.entities[0].type} Debris`);
           }
-        } else {
-          // Ship remained intact - no need to replace assemblies, the original assembly 
-          // has already been updated with createFreshBody() in the removeEntity method
-          console.log(`🔗 Ship remained intact, no assembly replacement needed`);
+
+          // Restore AI controller on the fragment that kept the cockpit.
+          if (!assembly.isPlayerControlled && newAssembly.hasControlCenter()) {
+            const ai = this.controllerManager.createAIController(newAssembly);
+            ai.setAggressionLevel(0.8 + Math.random() * 0.4);
+          }
+
+          if (assembly.isPlayerControlled && newAssembly.isPlayerControlled) {
+            this.playerAssembly = newAssembly;
+            this.toastSystem.showWarning(`Ship damaged! Control transferred to ${newAssembly.shipName}`);
+          }
+        });
+
+        if (assembly.isPlayerControlled && !this.playerAssembly) {
+          const newPlayerAssembly = newAssemblies.find(a => a.hasControlCenter());
+          if (newPlayerAssembly) {
+            this.playerAssembly = newPlayerAssembly;
+            newPlayerAssembly.isPlayerControlled = true;
+          }
         }
       }
+    } else if (newAssemblies.length === 1) {
+      // Ship stayed intact — createFreshBody() was called, swap old compound for new.
+      this.removeBodyWithParts(oldRootBody);
+      Matter.World.add(this.world, assembly.rootBody);
+      assembly.pendingBodySwap = null; // handled here, not in the game loop
+    } else {
+      // All entities gone — assembly.destroyed is already true; cleanupDestroyedAssemblies
+      // will remove it from this.assemblies.  Remove the old body from the world now so
+      // collision detection against its orphaned parts stops immediately.
+      this.removeBodyWithParts(oldRootBody);
+      assembly.pendingBodySwap = null;
     }
-  }private handleMissileHit(missile: any, entity: Entity): void {
+  }
+
+  private handleMissileHit(missile: any, entity: Entity): void {
     // Use the missile system to handle the hit
     this.missileSystem.handleMissileHit(missile, entity);
   }
@@ -456,7 +433,18 @@ export class GameEngine {
     this.handlePlayerInput();// Update assemblies
     this.assemblies.forEach(assembly => {
       assembly.update();
-      assembly.updateWeaponAiming(); // Update weapon aiming targets continuously
+      assembly.updateWeaponAiming();
+    });
+
+    // Process any body swaps queued by Assembly.update() (e.g. collision damage destroyed an
+    // entity mid-frame).  handleBulletHit clears pendingBodySwap itself; this catches the
+    // collision-damage path where Assembly.update() calls createFreshBody() independently.
+    this.assemblies.forEach(assembly => {
+      if (assembly.pendingBodySwap) {
+        this.removeBodyWithParts(assembly.pendingBodySwap.oldBody);
+        Matter.World.add(this.world, assembly.rootBody);
+        assembly.pendingBodySwap = null;
+      }
     });
 
     // Update entity flash effects
@@ -582,36 +570,42 @@ export class GameEngine {
       Matter.World.remove(this.world, bullet);
       this.bullets = this.bullets.filter(b => b !== bullet);
     });
-  } private cleanupDestroyedAssemblies(): void {
+  }
+
+  /**
+   * Removes a compound body AND all its individual part bodies from the physics world.
+   * Matter.js adds each part body to world.bodies when a compound is added, so removing
+   * only the compound leaves orphaned part bodies that continue participating in collision
+   * detection with stale entity references.
+   */
+  private removeBodyWithParts(body: Matter.Body): void {
+    if (!body) return;
+    // parts[0] is the compound itself; parts[1..N] are the individual sub-bodies.
+    if (body.parts && body.parts.length > 1) {
+      for (let i = 1; i < body.parts.length; i++) {
+        Matter.World.remove(this.world, body.parts[i]);
+      }
+    }
+    Matter.World.remove(this.world, body);
+  }
+
+  private cleanupDestroyedAssemblies(): void {
     const destroyedAssemblies = this.assemblies.filter(a => a.destroyed || a.entities.length === 0);
 
     destroyedAssemblies.forEach(assembly => {
-      // Show toast notification for destroyed ships
       if (assembly.lastHitByPlayer) {
-        // Player got the kill
         this.toastSystem.showKill("You", assembly.shipName);
       } else if (assembly.lastHitByAssemblyId) {
-        // Find the assembly that got the kill
         const killerAssembly = this.assemblies.find(a => a.id === assembly.lastHitByAssemblyId);
         const killerName = killerAssembly ? killerAssembly.shipName : "Unknown";
         this.toastSystem.showKill(killerName, assembly.shipName);
-      } else {
-        // Unknown cause of death
-        this.toastSystem.showKill("Unknown", assembly.shipName);
       }
 
-      Matter.World.remove(this.world, assembly.rootBody);
+      // Remove the compound and all its part bodies so no orphaned shapes remain.
+      this.removeBodyWithParts(assembly.rootBody);
 
-      // Clear selection if the selected assembly is being destroyed
-      if (this.selectedAssembly === assembly) {
-        this.selectedAssembly = null;
-        console.log('🎯 Cleared selection of destroyed assembly');
-      }
-
-      // Clear hover if the hovered assembly is being destroyed
-      if (this.hoveredAssembly === assembly) {
-        this.hoveredAssembly = null;
-      }
+      if (this.selectedAssembly === assembly) this.selectedAssembly = null;
+      if (this.hoveredAssembly === assembly) this.hoveredAssembly = null;
     });
 
     this.assemblies = this.assemblies.filter(a => !a.destroyed && a.entities.length > 0);
@@ -1236,69 +1230,53 @@ export class GameEngine {
   }
 
   public initializeBattle(): void {
-    console.log('🚀 Initializing team-based AI battle...');
-
-    // Clear existing assemblies
-    this.assemblies.forEach(assembly => {
-      Matter.World.remove(this.world, assembly.rootBody);
-    });
+    const cfg = this.scenarioConfig;
+    this.assemblies.forEach(a => Matter.World.remove(this.world, a.rootBody));
     this.assemblies = [];
     this.playerAssembly = null;
 
-    // Show battle start notification
-    this.toastSystem.showGameEvent("🚀 Battle Initialized!");    // Spawn player team (Team 0) - Blue team close left
-    this.spawnTeam(0, -800, 0, 1, true); // Only spawn 1 player ship    // Spawn enemy team (Team 1) - Red team on the right
-    this.spawnTeam(1, 800, 0, 1, false); // 1 enemy AI ship
+    this.toastSystem.showGameEvent(`${cfg.label} — Battle Start!`);
+    this.spawnTeamLine(0, cfg);
+    this.spawnTeamLine(1, cfg);
 
-    console.log('⚔️ Battle initialized with Player vs AI!');
-    this.toastSystem.showSuccess("Player ship deployed - Enemy detected!");// Add floating debris to make the sector more interesting
-    console.log('🗑️ Adding sector debris...');
-    this.spawnDebrisField(0, 0, 12, 2000); // 12 pieces of debris scattered across 2000 unit radius
-    this.toastSystem.showGameEvent("Debris field detected in sector");
+    if (cfg.spawnDebris) {
+      this.spawnDebrisField(0, 0, cfg.debrisCount, 2000);
+    }
   }
-  private spawnTeam(team: number, centerX: number, centerY: number, count: number, hasPlayer: boolean): void {
-    const ships = shipsData.ships;
-    let playerAssigned = false;
 
-    for (let i = 0; i < count; i++) {
-      // Spread ships around the center position with reasonable spacing
-      const angle = (i / count) * Math.PI * 2;
-      const radius = 200; // Much smaller radius for closer combat
-      const x = centerX + Math.cos(angle) * radius + (Math.random() - 0.5) * 150; // Less random spread
-      const y = centerY + Math.sin(angle) * radius + (Math.random() - 0.5) * 150;      // Pick a ship - use selected ship for player, random for others
-      let selectedShip;
-      if (hasPlayer && !playerAssigned) {
-        // Use the selected ship for the player
-        selectedShip = ships[this.selectedPlayerShipIndex] || ships[0];
+  private spawnTeamLine(team: number, cfg: ScenarioConfig): void {
+    const ships = shipsData.ships;
+    const selectedShip = ships[cfg.shipIndex] ?? ships[0];
+    const isBlue = team === 0;
+    const spawnX = isBlue ? -cfg.spawnX : cfg.spawnX;
+
+    for (let i = 0; i < cfg.teamSize; i++) {
+      let x: number;
+      let y: number;
+
+      if (cfg.lineFormation) {
+        x = spawnX;
+        y = (i - (cfg.teamSize - 1) / 2) * SHIP_SPAWN_SPACING;
       } else {
-        // Pick a random ship for AI
-        selectedShip = ships[Math.floor(Math.random() * ships.length)];
+        const angle = (i / cfg.teamSize) * Math.PI * 2;
+        x = spawnX + Math.cos(angle) * 200 + (Math.random() - 0.5) * 150;
+        y =          Math.sin(angle) * 200 + (Math.random() - 0.5) * 150;
       }
 
       const assembly = new Assembly(selectedShip.parts as EntityConfig[], { x, y });
-
-      // Set ship name for radar display
       assembly.setShipName(selectedShip.name);
-
-      // Set team
-      assembly.setTeam(team); // This now also applies team colors
-
-      // Add to world and our list
+      assembly.setTeam(team);
       this.assemblies.push(assembly);
-      Matter.World.add(this.world, assembly.rootBody);      // Create appropriate controller
-      if (hasPlayer && !playerAssigned && assembly.hasControlCenter()) {
-        // Make this the player assembly
+      Matter.World.add(this.world, assembly.rootBody);
+
+      if (isBlue && i === 0 && assembly.hasControlCenter()) {
         this.playerAssembly = assembly;
         assembly.isPlayerControlled = true;
-        this.flightController = new FlightController(assembly); // Initialize advanced flight control
+        this.flightController = new FlightController(assembly);
         this.controllerManager.createPlayerController(assembly);
-        playerAssigned = true;
-        console.log(`👤 Player assigned to ${selectedShip.name} on team ${team} with flight controller`);
       } else {
-        // Create AI controller
-        const aiController = this.controllerManager.createAIController(assembly);
-        aiController.setAggressionLevel(0.8 + Math.random() * 0.4); // Vary aggression
-        console.log(`🤖 AI ${selectedShip.name} spawned on team ${team}`);
+        const ai = this.controllerManager.createAIController(assembly);
+        ai.setAggressionLevel(0.8 + Math.random() * 0.4);
       }
     }
   }  // Method to get radar data for the UI
@@ -1752,12 +1730,15 @@ export class GameEngine {
     return this.playerCommand;
   }
 
-  public setPlayerShipIndex(shipIndex: number): void {
-    this.selectedPlayerShipIndex = shipIndex;
+  public setPlayerShipIndex(_shipIndex: number): void {
+    // Ship index is now controlled via ScenarioConfig; kept for API compatibility
+  }
+
+  public setScenario(config: ScenarioConfig): void {
+    this.scenarioConfig = config;
   }
 
   public spawnPlayerShip(shipIndex: number): void {
-    this.selectedPlayerShipIndex = shipIndex;
 
     // Clear existing player
     if (this.playerAssembly) {

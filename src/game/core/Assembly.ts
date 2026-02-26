@@ -19,6 +19,8 @@ export class Assembly {
   public entities: Entity[] = [];
   public shipName: string = 'Unknown Ship'; public isPlayerControlled: boolean = false;
   public destroyed: boolean = false;
+  /** Set by createFreshBody() so GameEngine can swap the old compound out of the physics world. */
+  public pendingBodySwap: { oldBody: Matter.Body } | null = null;
   public lastFireTime: number = 0;
   public lastMissileFireTime: number = 0; // Separate timing for missiles
   public fireRate: number = 300;
@@ -176,7 +178,7 @@ export class Assembly {
 
     // More consistent rotation using Matter.js angular velocity
     const currentAngularVelocity = this.rootBody.angularVelocity;
-    const maxAngularVelocity = 0.05; // Increased from 0.02 for more responsive steering
+    const maxAngularVelocity = 0.025; // Halved for more deliberate, tactical steering
     
     // Clamp torque input to prevent over-steering
     const clampedTorque = Math.max(-1.0, Math.min(1.0, torqueInput));
@@ -512,26 +514,18 @@ export class Assembly {
       newAssemblies.push(newAssembly);
     });
     return newAssemblies;
-  }  private createFreshBody(world?: Matter.World): void {
-    // Store the current position and physics state before recreating
-    const currentPosition = this.rootBody ? this.rootBody.position : { x: 0, y: 0 };
-    const currentVelocity = this.rootBody ? this.rootBody.velocity : { x: 0, y: 0 };
-    const currentAngularVelocity = this.rootBody ? this.rootBody.angularVelocity : 0;
-    const currentAngle = this.rootBody ? this.rootBody.angle : 0;
+  }  private createFreshBody(): void {
+    // Save old body reference so GameEngine can remove it and its parts from the physics world.
+    const oldRootBody = this.rootBody;
 
-    // Remove individual destroyed entity bodies from the physics world
-    if (world) {
-      this.entities.forEach(entity => {
-        if (entity.destroyed && entity.body) {
-          Matter.World.remove(world, entity.body);
-          console.log(`🗑️ Removed destroyed ${entity.type} body from physics world`);
-        }
-      });
-    }
+    // Capture current physics state before recreating
+    const currentPosition = oldRootBody ? oldRootBody.position : { x: 0, y: 0 };
+    const currentVelocity = oldRootBody ? oldRootBody.velocity : { x: 0, y: 0 };
+    const currentAngularVelocity = oldRootBody ? oldRootBody.angularVelocity : 0;
+    const currentAngle = oldRootBody ? oldRootBody.angle : 0;
 
-    // Create completely new entities with fresh bodies (excluding destroyed ones)
+    // Build new entity list — only surviving (non-destroyed) entities.
     const newEntities: Entity[] = [];
-
     this.entities.forEach(oldEntity => {
       if (!oldEntity.destroyed) {
         const config: EntityConfig = {
@@ -545,46 +539,48 @@ export class Assembly {
         newEntities.push(new Entity(config));
       }
     });
-    
     this.entities = newEntities;
 
-    // Rebuild connection graph for the new entities
+    // Rebuild connections using localOffset (grid-aligned, rotation-independent).
     this.buildConnectionGraph();
 
-    // Create new root body with realistic physics settings
+    // Create the replacement compound body.
     this.rootBody = Matter.Body.create({
       parts: this.entities.map(e => e.body),
       isStatic: false,
-      frictionAir: 0, // No air resistance in space
-      friction: 0, // No surface friction in space
-      restitution: 0.2 // Low bounce for realistic space debris
+      frictionAir: 0,
+      friction: 0,
+      restitution: 0.2
     });
 
-    // Restore position and physics state
+    // Restore physics state.
     Matter.Body.setPosition(this.rootBody, currentPosition);
     Matter.Body.setVelocity(this.rootBody, currentVelocity);
     Matter.Body.setAngularVelocity(this.rootBody, currentAngularVelocity);
     Matter.Body.setAngle(this.rootBody, currentAngle);
 
-    // Store reference
     this.rootBody.assembly = this;
+    this.entities.forEach(entity => { entity.body.assembly = this; });
 
-    // Also set assembly reference on individual entity bodies
-    this.entities.forEach(entity => {
-      entity.body.assembly = this;
-    });
+    // Signal to GameEngine that the old compound body must be removed from the physics world
+    // and the new one added.  GameEngine checks pendingBodySwap each frame.
+    this.pendingBodySwap = { oldBody: oldRootBody };
   }
 
   private createNewAssemblyFromComponent(component: Entity[], _basePosition: Vector2, velocity: Vector2, angularVelocity: number, baseAngle: number): Assembly {
-    // Calculate the center of mass for this component using CURRENT positions
+    // World-space center of this component — used as the spawn position.
     const avgCurrentX = component.reduce((sum, e) => sum + e.body.position.x, 0) / component.length;
     const avgCurrentY = component.reduce((sum, e) => sum + e.body.position.y, 0) / component.length;
 
-    // Create configs with positions relative to the component's current center of mass
+    // Build configs using localOffset so the new assembly's entities have grid-aligned
+    // localOffset values. Using body.position (world coords) would produce non-grid-aligned
+    // values for rotated ships, breaking future connectivity checks on the fragment.
+    const avgLocalX = component.reduce((sum, e) => sum + e.localOffset.x, 0) / component.length;
+    const avgLocalY = component.reduce((sum, e) => sum + e.localOffset.y, 0) / component.length;
     const configs: EntityConfig[] = component.map(entity => ({
       type: entity.type,
-      x: entity.body.position.x - avgCurrentX, // Relative to component center
-      y: entity.body.position.y - avgCurrentY, // Relative to component center
+      x: entity.localOffset.x - avgLocalX,
+      y: entity.localOffset.y - avgLocalY,
       rotation: entity.rotation,
       health: entity.health,
       maxHealth: entity.maxHealth
@@ -1017,10 +1013,12 @@ export class Assembly {
       entity.clearAllSideConnections();
     });
 
-    // Create a grid map for quick adjacency lookup
+    // Create a grid map using localOffset — always grid-aligned regardless of world rotation.
+    // Using entity.body.position would fail after the ship has rotated because world positions
+    // are no longer integer multiples of GRID_SIZE in the cardinal directions.
     const gridMap = new Map<string, Entity>();
     this.entities.forEach(entity => {
-      const gridPos = this.worldToGrid({ x: entity.body.position.x, y: entity.body.position.y });
+      const gridPos = this.worldToGrid({ x: entity.localOffset.x, y: entity.localOffset.y });
       const key = `${gridPos.x},${gridPos.y}`;
       gridMap.set(key, entity);
     });
@@ -1028,7 +1026,7 @@ export class Assembly {
     // Check all entities for grid-adjacent connections
     let connectionCount = 0;
     this.entities.forEach(entity => {
-      const entityGridPos = this.worldToGrid({ x: entity.body.position.x, y: entity.body.position.y });
+      const entityGridPos = this.worldToGrid({ x: entity.localOffset.x, y: entity.localOffset.y });
       
       // Check all four cardinal directions for adjacent entities
       const directions = [

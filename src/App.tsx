@@ -3,9 +3,9 @@ import { GameEngine } from './game/core/GameEngine';
 import Radar from './ui/Radar';
 import LockedTargets from './ui/LockedTargets';
 import PowerManagement from './ui/PowerManagement';
-import ShipSelection from './ui/ShipSelection';
 import PartsInfo from './ui/PartsInfo';
 import EjectButton from './ui/EjectButton';
+import MainMenu from './ui/MainMenu';
 import {
   Paper,
   Typography,
@@ -15,6 +15,7 @@ import {
   ThemeProvider,
   createTheme
 } from '@mui/material';
+import { ScenarioConfig } from './types/GameTypes';
 
 // Create a dark theme for the space game
 const darkTheme = createTheme({
@@ -51,90 +52,58 @@ const darkTheme = createTheme({
   },
 });
 
+type AppScreen = 'main-menu' | 'playing';
+
 const App: React.FC = () => {
   const canvasRef = useRef<HTMLDivElement>(null);
   const gameEngineRef = useRef<GameEngine | null>(null);
   const [gameEngine, setGameEngine] = useState<GameEngine | null>(null);
-  // Game state management
-  const [, setGameState] = useState<'ship-selection' | 'playing' | 'respawn'>('ship-selection');
-  const [, setSelectedShipIndex] = useState<number | null>(null);
-  const [showShipSelection, setShowShipSelection] = useState(true); const [playerDestroyed, setPlayerDestroyed] = useState(false);
-  // Handle ship selection
-  const handleShipSelect = (shipIndex: number) => {
-    setSelectedShipIndex(shipIndex);
-    setShowShipSelection(false);
-    setGameState('playing');
-    setPlayerDestroyed(false);
+  const [screen, setScreen] = useState<AppScreen>('main-menu');
 
-    // Start the game with the selected ship
-    startGameWithShip(shipIndex);
-  };
-
-  const handleRespawn = (shipIndex: number) => {
-    setSelectedShipIndex(shipIndex);
-    setShowShipSelection(false);
-    setGameState('playing');
-    setPlayerDestroyed(false);
-
-    // Respawn with new ship and apply auto-zoom
-    if (gameEngineRef.current) {
-      gameEngineRef.current.setAutoZoomForShip(shipIndex);
-      gameEngineRef.current.spawnPlayerShip(shipIndex);
-    }
-  };
-  const startGameWithShip = (shipIndex: number) => {
-    if (canvasRef.current && !gameEngineRef.current) {
-      console.log('🚀 Creating GameEngine with selected ship...');
-      gameEngineRef.current = new GameEngine(canvasRef.current);
-      setGameEngine(gameEngineRef.current);
-
-      // Set the selected ship index before starting
-      gameEngineRef.current.setPlayerShipIndex(shipIndex);
-
-      // Apply auto-zoom for large ships
-      gameEngineRef.current.setAutoZoomForShip(shipIndex);
-
-      console.log('▶️  Starting GameEngine...');
-      gameEngineRef.current.start();
-      console.log('✅ GameEngine started with ship', shipIndex);
-
-      // Set up player destruction callback
-      gameEngineRef.current.onPlayerDestroyed = () => {
-        setPlayerDestroyed(true);
-        setGameState('respawn');
-        setShowShipSelection(true);
-      };
-    }
+  const handleScenarioStart = (scenario: ScenarioConfig): void => {
+    if (!canvasRef.current) return;
+    const engine = new GameEngine(canvasRef.current);
+    gameEngineRef.current = engine;
+    setGameEngine(engine);
+    engine.setScenario(scenario);
+    engine.start();
+    engine.onPlayerDestroyed = () => {
+      engine.stop();
+      gameEngineRef.current = null;
+      setGameEngine(null);
+      setScreen('main-menu');
+    };
+    setScreen('playing');
   };
 
   useEffect(() => {
-    console.log('🎮 App useEffect triggered');
-    console.log('Canvas ref current:', canvasRef.current);
-
-    // Don't auto-start the game anymore - wait for ship selection
-    // The game will start when a ship is selected
-
     return () => {
       if (gameEngineRef.current) {
-        console.log('🛑 Stopping GameEngine...');
         gameEngineRef.current.stop();
         setGameEngine(null);
       }
     };
-  }, []); return (
+  }, []);
+
+  return (
     <ThemeProvider theme={darkTheme}>
       <div style={{
         width: '100vw',
         height: '100vh',
         position: 'relative',
         backgroundColor: '#001122',
-        overflow: 'hidden' // Prevent any potential scrollbars
+        overflow: 'hidden'
       }}>
         <div ref={canvasRef} style={{
           width: '100%',
           height: '100%',
           border: '2px solid #333'
-        }} />        {/* Compact Controls Panel */}
+        }} />
+
+        {/* Main Menu overlay */}
+        {screen === 'main-menu' && <MainMenu onStart={handleScenarioStart} />}
+
+        {/* Compact Controls Panel */}
         <Paper
           elevation={3}
           sx={{
@@ -144,7 +113,7 @@ const App: React.FC = () => {
             maxWidth: 300,
             p: 1.5,
             borderRadius: 2,
-            pointerEvents: 'auto' // Allow pointer events only on this component
+            pointerEvents: 'auto'
           }}
         >
           <Box sx={{ mb: 1 }}>
@@ -166,13 +135,16 @@ const App: React.FC = () => {
               variant="outlined"
               sx={{ fontSize: '0.65rem', height: 18 }}
             />
-          </Box>          <Divider sx={{ my: 1 }} />
+          </Box>
+
+          <Divider sx={{ my: 1 }} />
 
           <Box sx={{ display: 'flex', gap: 2 }}>
             <Box sx={{ flex: 1 }}>
               <Typography variant="subtitle2" sx={{ color: 'primary.main', fontSize: '0.75rem', mb: 0.5 }}>
                 Keyboard
-              </Typography>              <Box sx={{ fontSize: '0.7rem', lineHeight: 1.2 }}>
+              </Typography>
+              <Box sx={{ fontSize: '0.7rem', lineHeight: 1.2 }}>
                 <div>W/S - Thrust</div>
                 <div>A/D - Rotate</div>
                 <div>Space - Fire</div>
@@ -195,7 +167,9 @@ const App: React.FC = () => {
                 <div>Wheel - Zoom</div>
               </Box>
             </Box>
-          </Box>          <Divider sx={{ my: 1 }} />
+          </Box>
+
+          <Divider sx={{ my: 1 }} />
 
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
             <Typography variant="subtitle2" sx={{ color: 'primary.main', fontSize: '0.75rem' }}>
@@ -225,13 +199,7 @@ const App: React.FC = () => {
           </Box>
         </Paper>
 
-        {/* Ship Selection Dialog */}
-        <ShipSelection
-          open={showShipSelection}
-          onShipSelect={playerDestroyed ? handleRespawn : handleShipSelect}
-          onClose={() => { }} // Don't allow closing without selection
-          title={playerDestroyed ? "Your Ship Was Destroyed - Select New Ship" : "Select Your Ship"}
-        />        {/* Right-side UI Container */}
+        {/* Right-side UI Container */}
         <Box
           sx={{
             position: 'absolute',
@@ -242,15 +210,14 @@ const App: React.FC = () => {
             gap: 1,
             alignItems: 'flex-start',
             zIndex: 1000,
-            pointerEvents: 'none' // Disable pointer events on container
+            pointerEvents: 'none'
           }}
         >
-          {/* Locked Targets Component */}
           <LockedTargets gameEngine={gameEngine} />
-
-          {/* Radar Component */}
           <Radar gameEngine={gameEngine} />
-        </Box>        {/* Power Management - Always visible at bottom */}
+        </Box>
+
+        {/* Power Management - Always visible at bottom */}
         <PowerManagement gameEngine={gameEngine} />
 
         {/* Eject Button - Prominent center bottom position */}

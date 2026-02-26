@@ -51,6 +51,11 @@ src/
 - No magic numbers — extract to named constants
 - Prefer explicit return types on exported functions
 
+**Ship coordinates (`ships.json`):**
+- Ships face **east (right)** by default. X = forward (nose → tail); Y = lateral (wingspan).
+- "Width" of a ship = its Y extent in grid units, not its part count.
+- `applyThrust` takes **ship-local** input. World-space vectors must be rotated by `−shipAngle` first.
+
 ---
 
 MAINTENANCE MANDATE: If you establish a new pattern, change a library, or fix a systemic bug within the scope of this directory, you must update this CLAUDE.md file to reflect the new standard before concluding your task.

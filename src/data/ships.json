@@ -826,6 +826,131 @@
       ]
     },
     {
+      "name": "Gunboat",
+      "parts": [
+        {
+          "type": "Engine",
+          "x": -16,
+          "y": 0,
+          "rotation": 180,
+          "health": 80,
+          "maxHealth": 80
+        },
+        {
+          "type": "Cockpit",
+          "x": 0,
+          "y": 0,
+          "rotation": 0,
+          "health": 1000,
+          "maxHealth": 1000
+        },
+        {
+          "type": "Gun",
+          "x": 16,
+          "y": 0,
+          "rotation": 0,
+          "health": 60,
+          "maxHealth": 60
+        },
+        {
+          "type": "PowerCell",
+          "x": 0,
+          "y": -16,
+          "rotation": 0,
+          "health": 40,
+          "maxHealth": 40
+        },
+        {
+          "type": "Hull",
+          "x": -16,
+          "y": -16,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": 16,
+          "y": -16,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": -16,
+          "y": -32,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": 0,
+          "y": -32,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": 16,
+          "y": -32,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": -16,
+          "y": 16,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": 0,
+          "y": 16,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": 16,
+          "y": 16,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": -16,
+          "y": 32,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": 0,
+          "y": 32,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        },
+        {
+          "type": "Hull",
+          "x": 16,
+          "y": 32,
+          "rotation": 0,
+          "health": 120,
+          "maxHealth": 120
+        }
+      ]
+    },
+    {
       "name": "Missile Corvette",
       "category": "Corvette",
       "parts": [
