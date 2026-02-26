@@ -263,74 +263,64 @@ export class Entity {
 
 
   private getSolidHullColor(entityType: EntityType): string {
-    // Return solid grey colors for different entity types to make ships look more realistic
     switch (entityType) {
       case 'Hull':
       case 'HeavyHull':
       case 'MegaHull':
-        return '#707070'; // Medium grey for basic hull
-      
+        return '#5e5e5e'; // Neutral grey — structural
       case 'Cockpit':
       case 'LargeCockpit':
       case 'CapitalCore':
-        return '#808080'; // Slightly lighter grey for cockpits
-      
+        return '#3a5c78'; // Muted blue-grey — command
       case 'Engine':
       case 'LargeEngine':
       case 'CapitalEngine':
-        return '#606060'; // Darker grey for engines
-      
+        return '#5c3e28'; // Warm dark brown — heat/propulsion
       case 'Gun':
       case 'LargeGun':
       case 'CapitalWeapon':
+        return '#484858'; // Blue-steel — ballistic weapon
       case 'MissileLauncher':
       case 'LargeMissileLauncher':
       case 'CapitalMissileLauncher':
-        return '#656565'; // Dark grey for weapons
-      
+        return '#3e5244'; // Olive-green — ordnance
       case 'PowerCell':
       case 'LargePowerCell':
       case 'PowerReactor':
-        return '#757575'; // Medium-light grey for power systems
-      
+        return '#3a5238'; // Dark green — energy
       default:
-        return '#707070'; // Default medium grey
+        return '#5e5e5e';
     }
   }
 
   private getHullStrokeColor(entityType: EntityType): string {
-    // Return darker stroke colors for depth and definition
     switch (entityType) {
       case 'Hull':
       case 'HeavyHull':
       case 'MegaHull':
-        return '#404040'; // Dark grey stroke for hull
-      
+        return '#303030';
       case 'Cockpit':
       case 'LargeCockpit':
       case 'CapitalCore':
-        return '#505050'; // Medium-dark grey for cockpits
-      
+        return '#1e3a50';
       case 'Engine':
       case 'LargeEngine':
       case 'CapitalEngine':
-        return '#303030'; // Very dark grey for engines
-      
+        return '#3a2010';
       case 'Gun':
       case 'LargeGun':
       case 'CapitalWeapon':
+        return '#282838';
       case 'MissileLauncher':
       case 'LargeMissileLauncher':
       case 'CapitalMissileLauncher':
-        return '#353535'; // Dark grey for weapons
-      
+        return '#203028';
       case 'PowerCell':
       case 'LargePowerCell':
       case 'PowerReactor':
-        return '#454545'; // Medium-dark grey for power systems
-      
+        return '#1e3018';
       default:
-        return '#404040'; // Default dark grey stroke
+        return '#303030';
     }
   }  public triggerCollisionFlash(): void {
     this.isFlashing = true;
@@ -589,6 +579,141 @@ export class Entity {
   public isControlCenter(): boolean {
     return (this.type === 'Cockpit' || this.type === 'LargeCockpit' || this.type === 'CapitalCore') && !this.destroyed;
   }
+
+  /**
+   * Draw cosmetic, non-collision frills on the canvas overlay (called from GameEngine afterRender).
+   * Frills convey block function: gun barrels, engine nozzles, cockpit canopies, power indicators.
+   *
+   * @param assemblyAngle - The compound root body's current world angle. Must be passed explicitly
+   *   because Matter.js only updates the compound root's .angle; individual part body .angle values
+   *   are frozen at their construction-time rotation and do not track physics rotation.
+   */
+  public drawBlockFrills(ctx: CanvasRenderingContext2D, bounds: Matter.Bounds, canvas: HTMLCanvasElement, assemblyAngle: number): void {
+    if (this.destroyed) return;
+
+    const pos = this.body.position;
+    const bw = bounds.max.x - bounds.min.x;
+    const bh = bounds.max.y - bounds.min.y;
+    const sx = (wx: number) => (wx - bounds.min.x) / bw * canvas.width;
+    const sy = (wy: number) => (wy - bounds.min.y) / bh * canvas.height;
+    const scale = canvas.width / bw;
+
+    // assemblyAngle is the compound root's live physics angle; adding this block's
+    // local rotation gives its world-space facing direction (same logic as getCurrentFiringAngle).
+    const facingAngle = assemblyAngle + (this.rotation * Math.PI / 180);
+    const fcos = Math.cos(facingAngle);
+    const fsin = Math.sin(facingAngle);
+    // Perpendicular (lateral) direction
+    const pcos = Math.cos(facingAngle + Math.PI / 2);
+    const psin = Math.sin(facingAngle + Math.PI / 2);
+
+    const def = ENTITY_DEFINITIONS[this.type];
+    const halfW = def.width / 2;
+    const halfH = def.height / 2;
+
+    ctx.save();
+    ctx.lineCap = 'round';
+
+    switch (this.type) {
+      case 'Gun':
+      case 'LargeGun':
+      case 'CapitalWeapon': {
+        // Barrel base is fixed at the muzzle (natural facing direction); tip tracks aim direction.
+        const aimAngle = facingAngle + this.currentAimAngle;
+        const aCos = Math.cos(aimAngle);
+        const aSin = Math.sin(aimAngle);
+        const barrelLen = halfW;
+        const startX = pos.x + fcos * halfW;  // muzzle — anchored to block's natural front face
+        const startY = pos.y + fsin * halfW;
+        ctx.strokeStyle = '#8898a8';
+        ctx.lineWidth = Math.max(1.5, scale * 2.5);
+        ctx.beginPath();
+        ctx.moveTo(sx(startX), sy(startY));
+        ctx.lineTo(sx(startX + aCos * barrelLen), sy(startY + aSin * barrelLen));
+        ctx.stroke();
+        break;
+      }
+      case 'MissileLauncher':
+      case 'LargeMissileLauncher':
+      case 'CapitalMissileLauncher': {
+        // Tubes track actual aiming direction
+        const aimAngle = facingAngle + this.currentAimAngle;
+        const aCos = Math.cos(aimAngle);
+        const aSin = Math.sin(aimAngle);
+        const aPcos = Math.cos(aimAngle + Math.PI / 2);
+        const aPsin = Math.sin(aimAngle + Math.PI / 2);
+        const tubeLen = halfW * 0.9;
+        const spread = halfH * 0.35;
+        const startX = pos.x + fcos * (halfW * 0.4);  // anchored in natural facing direction
+        const startY = pos.y + fsin * (halfW * 0.4);
+        ctx.strokeStyle = '#6a8880';
+        ctx.lineWidth = Math.max(1.5, scale * 2);
+        ctx.beginPath();
+        ctx.moveTo(sx(startX - aPcos * spread), sy(startY - aPsin * spread));
+        ctx.lineTo(sx(startX + aCos * tubeLen - aPcos * spread), sy(startY + aSin * tubeLen - aPsin * spread));
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(sx(startX + aPcos * spread), sy(startY + aPsin * spread));
+        ctx.lineTo(sx(startX + aCos * tubeLen + aPcos * spread), sy(startY + aSin * tubeLen + aPsin * spread));
+        ctx.stroke();
+        break;
+      }
+      case 'Engine':
+      case 'LargeEngine':
+      case 'CapitalEngine': {
+        // Nozzle bell: a V-chevron at the facing end of the engine block
+        const baseX = pos.x + fcos * halfW;
+        const baseY = pos.y + fsin * halfW;
+        const tipX = baseX + fcos * (halfW * 0.7);
+        const tipY = baseY + fsin * (halfW * 0.7);
+        const spread = halfH * 0.65;
+        ctx.strokeStyle = '#705040';
+        ctx.lineWidth = Math.max(1, scale * 2);
+        ctx.beginPath();
+        ctx.moveTo(sx(baseX - pcos * spread), sy(baseY - psin * spread));
+        ctx.lineTo(sx(tipX), sy(tipY));
+        ctx.lineTo(sx(baseX + pcos * spread), sy(baseY + psin * spread));
+        ctx.stroke();
+        break;
+      }
+      case 'Cockpit':
+      case 'LargeCockpit':
+      case 'CapitalCore': {
+        // Canopy: a short blue bar across the forward face + a small nose point
+        const canopyHalf = halfH * 0.55;
+        const frontX = pos.x + fcos * (halfW - 1);
+        const frontY = pos.y + fsin * (halfW - 1);
+        ctx.strokeStyle = '#6ab0e0';
+        ctx.lineWidth = Math.max(2, scale * 2.5);
+        ctx.beginPath();
+        ctx.moveTo(sx(frontX - pcos * canopyHalf), sy(frontY - psin * canopyHalf));
+        ctx.lineTo(sx(frontX + pcos * canopyHalf), sy(frontY + psin * canopyHalf));
+        ctx.stroke();
+        // Small nose extension
+        ctx.lineWidth = Math.max(1.5, scale * 1.8);
+        ctx.beginPath();
+        ctx.moveTo(sx(pos.x + fcos * halfW), sy(pos.y + fsin * halfW));
+        ctx.lineTo(sx(pos.x + fcos * (halfW + halfW * 0.45)), sy(pos.y + fsin * (halfW + halfW * 0.45)));
+        ctx.stroke();
+        break;
+      }
+      case 'PowerCell':
+      case 'LargePowerCell':
+      case 'PowerReactor': {
+        // Small filled circle at the center — subtle energy indicator
+        const dotR = Math.max(2, scale * 2.5);
+        ctx.fillStyle = '#48a848';
+        ctx.beginPath();
+        ctx.arc(sx(pos.x), sy(pos.y), dotR, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+      default:
+        break;
+    }
+
+    ctx.restore();
+  }
   private updateWeaponAiming(deltaTime: number): void {
     // Only update aiming for weapons
     if (!this.canFire()) return;
@@ -626,6 +751,21 @@ export class Entity {
     const weaponLocalAngle = this.rotation * Math.PI / 180;
     const weaponNaturalAngle = assemblyAngle + weaponLocalAngle;
     return weaponNaturalAngle + this.currentAimAngle;
+  }
+
+  /**
+   * Returns the world-space position of the front-face center of this block (the muzzle point).
+   * Uses the block's natural facing direction (no aim offset) because the muzzle is a physical
+   * feature of the block geometry, not the aiming direction.
+   */
+  public getMuzzlePosition(assemblyAngle: number): { x: number; y: number } {
+    const def = ENTITY_DEFINITIONS[this.type];
+    const blockNaturalAngle = assemblyAngle + (this.rotation * Math.PI / 180);
+    const halfW = def.width / 2;
+    return {
+      x: this.body.position.x + Math.cos(blockNaturalAngle) * halfW,
+      y: this.body.position.y + Math.sin(blockNaturalAngle) * halfW
+    };
   }
 
   public setInvulnerable(durationMs: number): void {

@@ -170,6 +170,39 @@ export class GameEngine {
     console.log(`🔍 Calculated default zoom: ${this.baseZoomLevel.toFixed(2)} for ${containerWidth}x${containerHeight}`);
   }
 
+  // Calculate zoom so the player's ship occupies roughly 1/SHIP_ZOOM_BUFFER of the viewport's
+  // constrained dimension — consistent regardless of ship size or screen resolution.
+  private calculateZoomForAssembly(assembly: Assembly): void {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+    assembly.entities.forEach(entity => {
+      const def = ENTITY_DEFINITIONS[entity.type];
+      const halfW = def.width / 2;
+      const halfH = def.height / 2;
+      minX = Math.min(minX, entity.localOffset.x - halfW);
+      minY = Math.min(minY, entity.localOffset.y - halfH);
+      maxX = Math.max(maxX, entity.localOffset.x + halfW);
+      maxY = Math.max(maxY, entity.localOffset.y + halfH);
+    });
+
+    const shipWidth = maxX - minX;
+    const shipHeight = maxY - minY;
+
+    // Buffer factor: ship's limiting dimension fills 1/SHIP_ZOOM_BUFFER of the viewport.
+    // Value of 7 gives ~14% ship coverage with good peripheral visibility for combat.
+    const SHIP_ZOOM_BUFFER = 7;
+    const canvasW = this.render.canvas.width;
+    const canvasH = this.render.canvas.height;
+    const zoomX = canvasW / (shipWidth * SHIP_ZOOM_BUFFER);
+    const zoomY = canvasH / (shipHeight * SHIP_ZOOM_BUFFER);
+    const targetZoom = Math.min(zoomX, zoomY);
+
+    this.baseZoomLevel = Math.max(this.minZoom, Math.min(this.maxZoom, targetZoom));
+    this.zoomLevel = this.baseZoomLevel;
+
+    console.log(`🔍 Ship-based zoom: ${this.baseZoomLevel.toFixed(3)} (ship bounds: ${Math.round(shipWidth)}×${Math.round(shipHeight)})`);
+  }
+
   private setInitialCameraView(): void {
     // Set camera to center (0,0) with the calculated zoom level
     const width = this.render.canvas.width / this.zoomLevel;
@@ -313,6 +346,7 @@ export class GameEngine {
     // Capture the old compound body BEFORE removeEntity() can replace assembly.rootBody
     // via createFreshBody().  We need it to properly swap the physics world entry.
     const oldRootBody = assembly.rootBody;
+    const wasPlayerControlled = assembly.isPlayerControlled;
 
     const newAssemblies = assembly.removeEntity(entity);
 
@@ -351,6 +385,18 @@ export class GameEngine {
             this.playerAssembly = newPlayerAssembly;
             newPlayerAssembly.isPlayerControlled = true;
           }
+        }
+
+        // When the player's ship fragments and the cockpit survives as a new assembly,
+        // reinitialize the controller stack — the old controller is keyed to the old
+        // assembly ID and will be auto-removed from ControllerManager on the next tick,
+        // leaving the cockpit with no way to receive player input.
+        if (wasPlayerControlled && this.playerAssembly && this.playerAssembly !== assembly) {
+          const newPlayerAssembly = this.playerAssembly;
+          this.controllerManager.removeController(assembly.id);
+          this.flightController = new FlightController(newPlayerAssembly);
+          this.controllerManager.createPlayerController(newPlayerAssembly);
+          PowerSystem.getInstance().setPlayerAssembly(newPlayerAssembly);
         }
       }
     } else if (newAssemblies.length === 1) {
@@ -1050,7 +1096,9 @@ export class GameEngine {
     Matter.Events.on(this.render, 'afterRender', () => {
       if (this.showGrid) {
         this.renderGrid();
-      }      this.renderConnectionPoints();
+      }
+      this.renderConnectionPoints();
+      this.renderBlockFrills();
       this.renderShipHighlights();
       this.renderAimingDebug(); // Add debug visuals for aiming system
       this.executePlayerCommands(); // Execute player commands each frame
@@ -1123,7 +1171,32 @@ export class GameEngine {
     // Connection point rendering temporarily disabled during refactor
     // TODO: Implement using ENTITY_DEFINITIONS attachment points instead of BlockSystem
     return;
-  }private renderShipHighlights(): void {
+  }
+
+  private renderBlockFrills(): void {
+    const ctx = this.render.canvas.getContext('2d');
+    if (!ctx) return;
+
+    const bounds = this.render.bounds;
+    const canvas = this.render.canvas;
+
+    ctx.save();
+    this.assemblies.forEach(assembly => {
+      // Use the compound root's live angle — individual part body .angle values are frozen
+      // at construction time and are not updated by the physics engine during rotation.
+      const assemblyAngle = assembly.rootBody.angle;
+      assembly.entities.forEach(entity => {
+        if (entity.destroyed) return;
+        const pos = entity.body.position;
+        if (pos.x < bounds.min.x - 100 || pos.x > bounds.max.x + 100 ||
+          pos.y < bounds.min.y - 100 || pos.y > bounds.max.y + 100) return;
+        entity.drawBlockFrills(ctx, bounds, canvas, assemblyAngle);
+      });
+    });
+    ctx.restore();
+  }
+
+  private renderShipHighlights(): void {
     const ctx = this.render.canvas.getContext('2d');
     if (!ctx) return;
 
@@ -1254,6 +1327,12 @@ export class GameEngine {
 
     if (cfg.spawnDebris) {
       this.spawnDebrisField(0, 0, cfg.debrisCount, 2000);
+    }
+
+    // Set initial zoom based on actual player ship bounds.
+    if (this.playerAssembly) {
+      this.calculateZoomForAssembly(this.playerAssembly);
+      this.setInitialCameraView();
     }
   }
 
@@ -1665,10 +1744,13 @@ export class GameEngine {
     this.lastManualZoomTime = Date.now();
     console.log(`🔍 Zoom Out: ${this.baseZoomLevel.toFixed(2)}`);
   } public resetZoom(): void {
-    // Reset to the calculated default zoom for the current window size
-    this.calculateDefaultZoom(this.render.canvas.width, this.render.canvas.height);
+    if (this.playerAssembly) {
+      this.calculateZoomForAssembly(this.playerAssembly);
+    } else {
+      this.calculateDefaultZoom(this.render.canvas.width, this.render.canvas.height);
+    }
     this.lastManualZoomTime = Date.now();
-    console.log(`🔍 Reset Zoom to calculated default: ${this.baseZoomLevel.toFixed(3)}`);
+    console.log(`🔍 Reset Zoom: ${this.baseZoomLevel.toFixed(3)}`);
   }
 
   public toggleSpeedBasedZoom(): boolean {
@@ -1722,19 +1804,18 @@ export class GameEngine {
 
     const speed = this.getCurrentSpeed();
 
-    // Calculate speed-based zoom adjustment as a percentage (max 15% zoom out)
-    const maxSpeedZoomPercent = 0.15 * speedZoomInfluence; // Reduced by manual zoom influence
-    const speedThreshold = 15; // Speed at which max zoom out is reached
+    // Calculate speed-based zoom adjustment as a percentage (max 50% zoom out)
+    const maxSpeedZoomPercent = 0.50 * speedZoomInfluence;
+    const speedThreshold = 20; // Speed at which max zoom out is reached
     const speedPercent = Math.min(speed / speedThreshold, 1.0);
     const zoomOutPercent = speedPercent * maxSpeedZoomPercent;
 
     // Apply the zoom out percentage to the player's chosen base zoom level
-    // This way, speed-based zoom works as an offset from the player's preference
     const targetZoom = this.baseZoomLevel * (1 - zoomOutPercent);
     const clampedTargetZoom = Math.max(this.minZoom, targetZoom);
 
-    // Very smooth transition to target zoom
-    const smoothingFactor = 0.02; // Much smoother transitions
+    // Smooth but responsive transition
+    const smoothingFactor = 0.05;
     this.zoomLevel += (clampedTargetZoom - this.zoomLevel) * smoothingFactor;
 
     // Debug logging (uncomment to see zoom changes)
@@ -2116,7 +2197,8 @@ export class GameEngine {
     // Draw weapon aiming visualization
     const weapons = this.playerAssembly.entities.filter(e => e.canFire());
     weapons.forEach((weapon) => {
-      const weaponPos = weapon.body.position;
+      // Use muzzle position so the arc origin matches where bullets/missiles actually spawn.
+      const weaponPos = weapon.getMuzzlePosition(currentAngle);
 
       // Convert weapon position to screen coordinates
       const weaponScreenX = (weaponPos.x - bounds.min.x) * this.render.canvas.width / (bounds.max.x - bounds.min.x);

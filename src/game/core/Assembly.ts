@@ -270,8 +270,6 @@ export class Assembly {
       // Trigger visual firing effect
       launcher.triggerWeaponFire();
 
-      // Calculate launch position and angle
-      const launcherWorldPos = launcher.body.position;
       const currentFiringAngle = launcher.getCurrentFiringAngle(this.rootBody.angle);
 
       // Determine missile type based on launcher type
@@ -294,7 +292,7 @@ export class Assembly {
       const targetAssembly = (missileType === MissileType.GUIDED && this.primaryTarget && !this.primaryTarget.destroyed)
         ? this.primaryTarget
         : undefined;      missileRequests.push({
-        position: launcherWorldPos,
+        position: launcher.getMuzzlePosition(this.rootBody.angle),
         angle: currentFiringAngle,
         missileType,
         sourceAssemblyId: this.id,
@@ -345,8 +343,6 @@ export class Assembly {
         return Math.PI; // Default 180 degrees
     }
   } private createLaser(weapon: Entity, targetAngle?: number): Matter.Body | null {
-    // Calculate laser spawn position and direction
-    const weaponWorldPos = weapon.body.position;
     const assemblyAngle = this.rootBody.angle;
     const weaponLocalAngle = weapon.rotation * Math.PI / 180;
 
@@ -375,7 +371,6 @@ export class Assembly {
     // Configure laser properties - much slower speeds with length matching speed to prevent tunneling
     let laserSpeed = 50; // Much slower speed
     let laserHeight = 4; // Thickness of the laser
-    let spawnDistance = 20; // Distance from weapon
     let laserColor = '#00ffff'; // Default cyan
 
     // Calculate laser length based on speed to prevent tunneling
@@ -387,27 +382,26 @@ export class Assembly {
       case 'Gun':
         laserSpeed = 50; // Much slower
         laserWidth = Math.max(laserSpeed * frameTime * 2, 20);
-        spawnDistance = 20;
         break;
       case 'LargeGun':
         laserSpeed = 60; // Slightly faster for large guns
         laserWidth = Math.max(laserSpeed * frameTime * 2, 25);
         laserHeight = 6;
-        spawnDistance = 25;
         laserColor = '#ff6600'; // Orange for large guns
         break;
       case 'CapitalWeapon':
         laserSpeed = 70; // Fastest but still reasonable
         laserWidth = Math.max(laserSpeed * frameTime * 2, 30);
         laserHeight = 10;
-        spawnDistance = 30;
         laserColor = '#ff0000'; // Red for capital weapons
         break;
     }
 
-    // Spawn laser much closer to the weapon for accurate positioning
-    const spawnX = weaponWorldPos.x + Math.cos(firingAngle) * spawnDistance;
-    const spawnY = weaponWorldPos.y + Math.sin(firingAngle) * spawnDistance;
+    // Spawn from the weapon's front-face center (muzzle), then offset by half the laser length
+    // so the laser's back edge starts exactly at the muzzle rather than overlapping the block.
+    const muzzlePos = weapon.getMuzzlePosition(this.rootBody.angle);
+    const spawnX = muzzlePos.x + Math.cos(firingAngle) * (laserWidth / 2);
+    const spawnY = muzzlePos.y + Math.sin(firingAngle) * (laserWidth / 2);
 
     // Create rectangular laser body
     const laser = Matter.Bodies.rectangle(spawnX, spawnY, laserWidth, laserHeight, {
