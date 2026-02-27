@@ -498,10 +498,12 @@ export class GameEngine {
     });
 
     // Update entity flash effects
-    this.updateEntityFlashes(deltaTime);    // Update bullets
+    this.updateEntityFlashes(deltaTime);
+
+    // Update bullets (TTL, out-of-bounds removal)
     this.updateBullets();
 
-    // Update missile system
+    // Update missile system (targeting, steering, fuel consumption)
     this.missileSystem.update(deltaTime, this.assemblies);
 
     // Clean up destroyed assemblies
@@ -605,6 +607,7 @@ export class GameEngine {
       });
     }
   }
+
   private updateBullets(): void {
     const bulletsToRemove: Matter.Body[] = [];
 

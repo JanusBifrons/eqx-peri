@@ -368,34 +368,38 @@ export class Assembly {
       firingAngle = assemblyAngle + weaponLocalAngle;
     }
 
-    // Configure laser properties - much slower speeds with length matching speed to prevent tunneling
-    let laserSpeed = 50; // Much slower speed
+    // Configure laser properties based on weapon type
+    let laserSpeed = 50; // Base speed in units per physics tick
     let laserHeight = 4; // Thickness of the laser
     let laserColor = '#00ffff'; // Default cyan
 
-    // Calculate laser length based on speed to prevent tunneling
-    // Length should be at least as long as the distance traveled per frame at 60fps
-    const frameTime = 1 / 60; // 60fps
-    let laserWidth = Math.max(laserSpeed * frameTime * 2, 20); // At least 2 frames of travel distance
-
     switch (weapon.type) {
       case 'Gun':
-        laserSpeed = 50; // Much slower
-        laserWidth = Math.max(laserSpeed * frameTime * 2, 20);
+        laserSpeed = 50;
         break;
       case 'LargeGun':
-        laserSpeed = 60; // Slightly faster for large guns
-        laserWidth = Math.max(laserSpeed * frameTime * 2, 25);
+        laserSpeed = 60;
         laserHeight = 6;
         laserColor = '#ff6600'; // Orange for large guns
         break;
       case 'CapitalWeapon':
-        laserSpeed = 70; // Fastest but still reasonable
-        laserWidth = Math.max(laserSpeed * frameTime * 2, 30);
+        laserSpeed = 70;
         laserHeight = 10;
         laserColor = '#ff0000'; // Red for capital weapons
         break;
     }
+
+    // TUNNELING PREVENTION: Calculate laser length to cover travel distance per tick
+    // Matter.js velocity is in units per tick, so a laser with speed 50 moves 50 units per tick.
+    // The laser must be at least as long as its speed to prevent passing through thin targets.
+    // We add 50% buffer and account for ship velocity inheritance.
+    const shipVelocity = this.rootBody.velocity;
+    const totalSpeed = Math.sqrt(
+      Math.pow(Math.cos(firingAngle) * laserSpeed + shipVelocity.x, 2) +
+      Math.pow(Math.sin(firingAngle) * laserSpeed + shipVelocity.y, 2)
+    );
+    // Laser length = 1.5x the distance traveled per tick, minimum 30 units
+    const laserWidth = Math.max(totalSpeed * 1.5, 30);
 
     // Spawn from the weapon's front-face center (muzzle), then offset by half the laser length
     // so the laser's back edge starts exactly at the muzzle rather than overlapping the block.
@@ -403,10 +407,14 @@ export class Assembly {
     const spawnX = muzzlePos.x + Math.cos(firingAngle) * (laserWidth / 2);
     const spawnY = muzzlePos.y + Math.sin(firingAngle) * (laserWidth / 2);
 
-    // Create rectangular laser body
+    // Create rectangular laser body with CCD enabled via bullet option
     const laser = Matter.Bodies.rectangle(spawnX, spawnY, laserWidth, laserHeight, {
       isSensor: true, // Lasers are sensors - they pass through objects but trigger collision events
       frictionAir: 0, // No air resistance in space
+      // Enable Matter.js Continuous Collision Detection for high-speed bodies
+      // This makes the physics engine check for collisions along the movement path
+      // @ts-ignore - bullet is a valid Matter.js option but not in the TypeScript definitions
+      bullet: true,
       collisionFilter: {
         category: 0x0002, // Laser category
         mask: 0x0001 // Only collides with default category (not with other lasers or same assembly)
@@ -422,7 +430,6 @@ export class Assembly {
     Matter.Body.rotate(laser, firingAngle);
 
     // Set laser velocity using the firing angle, inheriting ship's velocity
-    const shipVelocity = this.rootBody.velocity;
     const velocity = {
       x: Math.cos(firingAngle) * laserSpeed + shipVelocity.x,
       y: Math.sin(firingAngle) * laserSpeed + shipVelocity.y
@@ -432,7 +439,7 @@ export class Assembly {
 
     // Mark as bullet for collision detection and store the source assembly ID
     laser.isBullet = true;
-    laser.timeToLive = Date.now() + 8000; // 8 seconds for slower lasers
+    laser.timeToLive = Date.now() + 8000; // 8 seconds TTL
     (laser as any).sourceAssemblyId = this.id; // Store which assembly fired this laser
 
     return laser;
