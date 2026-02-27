@@ -10,7 +10,7 @@ All game logic, physics, AI, and entity management. No React imports here — th
 | `ai/`      | `AIController`, `FlightController`, `ControllerManager`, `Controller` |
 | `weapons/` | `Missile`, `MissileSystem` |
 | `ship/`    | `BlockSystem`, `ShipDesigner`, `ShipDesignManager` |
-| `systems/` | `PowerSystem`, `ToastSystem` — singletons and support services |
+| `systems/` | `PowerSystem`, `ToastSystem`, `SoundSystem` — singletons and support services |
 
 ## Physics Conventions (Matter.js)
 
@@ -31,6 +31,7 @@ All game logic, physics, AI, and entity management. No React imports here — th
 - `PowerSystem` — access via `PowerSystem.getInstance()`; never instantiate directly
 - `ToastSystem` — access via the instance on `GameEngine`
 - `MissileSystem` — accessed via `GameEngine.missileSystem`
+- `SoundSystem` — access via `SoundSystem.getInstance()`; call `init()` after user interaction, uses Web Audio API for procedural sounds
 - Do not create additional singletons without documenting them here
 
 **AI:**

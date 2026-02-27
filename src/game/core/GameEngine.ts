@@ -9,6 +9,7 @@ import { FlightController } from '../ai/FlightController';
 import { ControlInput } from '../ai/Controller';
 import { PowerSystem } from '../systems/PowerSystem';
 import { ToastSystem } from '../systems/ToastSystem';
+import { SoundSystem } from '../systems/SoundSystem';
 import { MissileSystem } from '../weapons/MissileSystem';
 
 export class GameEngine {
@@ -219,6 +220,9 @@ export class GameEngine {
   private setupEventListeners(): void {    // Keyboard input
     document.addEventListener('keydown', (event) => {
       this.keys.add(event.key.toLowerCase());
+
+      // Resume audio context on user interaction (browser autoplay policy)
+      SoundSystem.getInstance().resume();
         // Handle special keys
       switch (event.key.toLowerCase()) {
         case '1':
@@ -266,7 +270,9 @@ export class GameEngine {
   } private setupCollisionDetection(): void {
     Matter.Events.on(this.engine, 'collisionStart', (event: { pairs: { bodyA: Matter.Body; bodyB: Matter.Body }[] }) => {
       event.pairs.forEach(pair => {
-        const { bodyA, bodyB } = pair;        // Check for bullet/laser collisions
+        const { bodyA, bodyB } = pair;
+
+        // Check for bullet/laser collisions
         if (bodyA.isBullet && bodyB.entity) {
           this.handleBulletHit(bodyA, bodyB.entity);
         } else if (bodyB.isBullet && bodyA.entity) {
@@ -335,10 +341,16 @@ export class GameEngine {
     Matter.World.remove(this.world, bullet);
     this.bullets = this.bullets.filter(b => b !== bullet);
 
+    // Play impact sound
+    SoundSystem.getInstance().playLaserImpact();
+
     if (!entity.destroyed) entity.triggerCollisionFlash();
 
     const entityDestroyed = entity.takeDamage(10);
     if (!entityDestroyed) return;
+
+    // Play block destroyed sound
+    SoundSystem.getInstance().playBlockDestroyed();
 
     const assembly = this.assemblies.find(a => a.entities.includes(entity));
     if (!assembly) return;
@@ -352,6 +364,7 @@ export class GameEngine {
 
     if (newAssemblies.length > 1) {
       // Ship broke apart — remove old compound (+ parts) and register fragments.
+      SoundSystem.getInstance().playShipBreakApart();
       this.removeBodyWithParts(oldRootBody);
       assembly.pendingBodySwap = null; // split path never sets pendingBodySwap
 
@@ -422,7 +435,13 @@ export class GameEngine {
     console.log('🚀 Starting GameEngine...');
     if (this.running) return;
 
-    this.running = true;    // Start renderer
+    this.running = true;
+
+    // Initialize sound system (requires user interaction to have occurred)
+    SoundSystem.getInstance().init();
+    SoundSystem.getInstance().startMusic();
+
+    // Start renderer
     console.log('🖼️  About to start renderer...');
     console.log('Render object:', this.render);
     console.log('Render canvas:', this.render.canvas);
@@ -449,6 +468,9 @@ export class GameEngine {
 
     // Cleanup missile system
     this.missileSystem.cleanup();
+
+    // Stop music
+    SoundSystem.getInstance().stopMusic();
   } private gameLoop(): void {
     if (!this.running) return;
 
@@ -461,7 +483,13 @@ export class GameEngine {
     this.updateCursorWorldPosition();
 
     // Update controllers (handles both player input and AI)
-    const newBullets = this.controllerManager.update(deltaTime, this.assemblies);    // Add new bullets to physics world
+    const newBullets = this.controllerManager.update(deltaTime, this.assemblies);
+
+    // Add new bullets to physics world
+    if (newBullets.length > 0) {
+      // Play laser fire sound (once per batch to avoid audio spam)
+      SoundSystem.getInstance().playLaserFire();
+    }
     newBullets.forEach(bullet => {
       Matter.World.add(this.world, bullet);
       this.bullets.push(bullet);
@@ -978,6 +1006,9 @@ export class GameEngine {
       this.setHoveredAssembly(hoveredAssembly);
     });// Left mouse button - primary fire and interactions (selection handled by Matter.js events)
     this.render.canvas.addEventListener('mousedown', (event) => {
+      // Resume audio context on user interaction (browser autoplay policy)
+      SoundSystem.getInstance().resume();
+
       console.log('🖱️ DOM Mouse down detected, button:', event.button);
       if (event.button === 0) { // Left mouse button
         this.mouseDown = true;
