@@ -99,7 +99,7 @@ const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
                     {cfg.label}
                   </Typography>
                   <Chip
-                    label={`${cfg.teamSize}v${cfg.teamSize}`}
+                    label={cfg.sandboxMode ? 'Builder' : `${cfg.teamSize}v${cfg.teamSize}`}
                     size="small"
                     sx={{
                       backgroundColor: isSelected

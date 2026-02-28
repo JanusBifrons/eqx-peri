@@ -882,6 +882,58 @@ export class Assembly {
 
     return [cockpitAssembly, ...newAssemblies];
   }
+
+  /**
+   * Merge all entities from `source` into this assembly at the grid positions
+   * described by `newLocalOffsets`.  After this call the source assembly should
+   * be discarded — its entities are now first-class members of this assembly.
+   */
+  public attachExternalAssembly(
+    source: Assembly,
+    newLocalOffsets: Map<string, { localOffset: Vector2; rotation: number }>
+  ): void {
+    // Record a reference entity's world position BEFORE any changes so we can
+    // cancel out the centre-of-mass drift that createFreshBody introduces when
+    // new blocks shift the compound's CM.
+    const refLocalOffset = this.entities.length > 0
+      ? { x: this.entities[0].localOffset.x, y: this.entities[0].localOffset.y }
+      : null;
+    const refWorldPosBefore = this.entities.length > 0
+      ? { x: this.entities[0].body.position.x, y: this.entities[0].body.position.y }
+      : null;
+
+    for (const entity of source.entities) {
+      const data = newLocalOffsets.get(entity.id);
+      if (!data) continue;
+      entity.localOffset = { ...data.localOffset };
+      entity.rotation = data.rotation;
+      this.entities.push(entity);
+    }
+    this.buildConnectionGraph();
+    this.createFreshBody();
+
+    // createFreshBody restores the compound to the old centre-of-mass world
+    // position.  Adding new blocks shifts the new compound's CM, so the
+    // reference entity drifts.  Measure the drift and apply an equal-but-opposite
+    // translation so the original entities stay exactly where they were.
+    if (refLocalOffset && refWorldPosBefore) {
+      const refEntityAfter = this.entities.find(
+        e => Math.abs(e.localOffset.x - refLocalOffset.x) < 0.5 &&
+             Math.abs(e.localOffset.y - refLocalOffset.y) < 0.5
+      );
+      if (refEntityAfter) {
+        const driftX = refEntityAfter.body.position.x - refWorldPosBefore.x;
+        const driftY = refEntityAfter.body.position.y - refWorldPosBefore.y;
+        if (Math.abs(driftX) > 0.01 || Math.abs(driftY) > 0.01) {
+          Matter.Body.setPosition(this.rootBody, {
+            x: this.rootBody.position.x - driftX,
+            y: this.rootBody.position.y - driftY,
+          });
+        }
+      }
+    }
+  }
+
   public getShipBounds(): { minX: number, minY: number, maxX: number, maxY: number, width: number, height: number } {
     let minX = Infinity;
     let minY = Infinity;

@@ -588,10 +588,16 @@ export class Entity {
    *   because Matter.js only updates the compound root's .angle; individual part body .angle values
    *   are frozen at their construction-time rotation and do not track physics rotation.
    */
-  public drawBlockFrills(ctx: CanvasRenderingContext2D, bounds: Matter.Bounds, canvas: HTMLCanvasElement, assemblyAngle: number): void {
+  /**
+   * @param overridePos - World position to draw at. Defaults to `this.body.position`.
+   *   Must be provided when `body.position` is stale (e.g. held blocks removed from the world).
+   * @param overrideRotationDeg - Block-local rotation in degrees. Defaults to `this.rotation`.
+   *   Must be provided when drawing a ghost with a different orientation than the live entity.
+   */
+  public drawBlockFrills(ctx: CanvasRenderingContext2D, bounds: Matter.Bounds, canvas: HTMLCanvasElement, assemblyAngle: number, overridePos?: Vector2, overrideRotationDeg?: number): void {
     if (this.destroyed) return;
 
-    const pos = this.body.position;
+    const pos = overridePos ?? this.body.position;
     const bw = bounds.max.x - bounds.min.x;
     const bh = bounds.max.y - bounds.min.y;
     const sx = (wx: number) => (wx - bounds.min.x) / bw * canvas.width;
@@ -600,7 +606,7 @@ export class Entity {
 
     // assemblyAngle is the compound root's live physics angle; adding this block's
     // local rotation gives its world-space facing direction (same logic as getCurrentFiringAngle).
-    const facingAngle = assemblyAngle + (this.rotation * Math.PI / 180);
+    const facingAngle = assemblyAngle + ((overrideRotationDeg ?? this.rotation) * Math.PI / 180);
     const fcos = Math.cos(facingAngle);
     const fsin = Math.sin(facingAngle);
     // Perpendicular (lateral) direction

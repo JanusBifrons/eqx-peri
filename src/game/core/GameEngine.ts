@@ -2,7 +2,7 @@ import * as Matter from 'matter-js';
 import Stats from 'stats.js';
 import { Assembly } from './Assembly';
 import { Entity } from './Entity';
-import { EntityConfig, GRID_SIZE, ENTITY_DEFINITIONS, EntityType, ScenarioConfig, SCENARIOS, SHIP_SPAWN_SPACING } from '../../types/GameTypes';
+import { EntityConfig, GRID_SIZE, ENTITY_DEFINITIONS, EntityType, ScenarioConfig, SCENARIOS, SHIP_SPAWN_SPACING, Vector2 } from '../../types/GameTypes';
 import shipsData from '../../data/ships.json';
 import { ControllerManager } from '../ai/ControllerManager';
 import { FlightController } from '../ai/FlightController';
@@ -10,6 +10,7 @@ import { ControlInput } from '../ai/Controller';
 import { PowerSystem } from '../systems/PowerSystem';
 import { ToastSystem } from '../systems/ToastSystem';
 import { MissileSystem } from '../weapons/MissileSystem';
+import { BlockPickupSystem } from '../systems/BlockPickupSystem';
 
 export class GameEngine {
   private engine: Matter.Engine;
@@ -57,6 +58,12 @@ export class GameEngine {
 
   // Toast system for game events
   private toastSystem: ToastSystem;
+
+  // Block pickup system for drag-and-attach building
+  private blockPickupSystem!: BlockPickupSystem;
+
+  // Current mouse position in world coordinates (updated every frame)
+  private mouseWorldPos: Vector2 = { x: 0, y: 0 };
 
   constructor(container: HTMLElement) {
     console.log('🎮 Creating GameEngine...');
@@ -131,9 +138,19 @@ export class GameEngine {
 
     // Initialize missile system
     this.missileSystem = new MissileSystem(this.world);
-    
+
     // Set missile system reference in controller manager
     this.controllerManager.setMissileSystem(this.missileSystem);
+
+    // Initialize block pickup system
+    this.blockPickupSystem = new BlockPickupSystem(
+      (body) => this.removeBodyWithParts(body),
+      (body) => Matter.World.add(this.world, body),
+      // onPickUp: remove from tracked assembly list when grabbed
+      (assembly) => { this.assemblies = this.assemblies.filter(a => a !== assembly); },
+      // onDrop: add back to tracked assembly list when dropped without snapping
+      (assembly) => { this.assemblies.push(assembly); }
+    );
 
     // Initialize mouse interaction
     this.setupMouseInteraction();
@@ -497,6 +514,11 @@ export class GameEngine {
       }
     });
 
+    // Update BlockPickupSystem: reposition ghost and refresh snap candidate
+    if (this.blockPickupSystem.isHolding()) {
+      this.blockPickupSystem.update(this.mouseWorldPos, this.playerAssembly);
+    }
+
     // Update entity flash effects
     this.updateEntityFlashes(deltaTime);    // Update bullets
     this.updateBullets();
@@ -511,6 +533,10 @@ export class GameEngine {
 
       if (wasPlayerDestroyed && this.onPlayerDestroyed) {
         console.log('💀 Player destroyed - calling destruction callback');
+        // Drop any held block before clearing player reference
+        if (this.blockPickupSystem.isHolding()) {
+          this.blockPickupSystem.forceDropAtCurrentPosition();
+        }
         this.playerAssembly = null;
         this.onPlayerDestroyed();
       } else {
@@ -637,7 +663,7 @@ export class GameEngine {
    * only the compound leaves orphaned part bodies that continue participating in collision
    * detection with stale entity references.
    */
-  private removeBodyWithParts(body: Matter.Body): void {
+  public removeBodyWithParts(body: Matter.Body): void {
     if (!body) return;
     // parts[0] is the compound itself; parts[1..N] are the individual sub-bodies.
     if (body.parts && body.parts.length > 1) {
@@ -965,27 +991,56 @@ export class GameEngine {
       this.mousePosition = {
         x: event.clientX - rect.left,
         y: event.clientY - rect.top
-      };      // Update cursor position for weapon aiming if we have a player
-      if (this.playerAssembly && !this.playerAssembly.destroyed) {
-        this.updateCursorWorldPosition();
-      }
+      };
+      // Update world-space cursor position (used for weapon aiming and BlockPickupSystem)
+      this.updateCursorWorldPosition();
 
-      // Update hovered assembly
-      const hoveredAssembly = this.getAssemblyAtPosition(this.mousePosition.x, this.mousePosition.y);
-      this.setHoveredAssembly(hoveredAssembly);
+      if (this.blockPickupSystem.isHolding()) {
+        // While holding a block, skip normal hover detection and set grabbing cursor
+        this.setHoveredAssembly(null);
+        this.render.canvas.style.cursor = 'grabbing';
+      } else {
+        // Normal hover detection
+        const hoveredAssembly = this.getAssemblyAtPosition(this.mousePosition.x, this.mousePosition.y);
+        this.setHoveredAssembly(hoveredAssembly);
+
+        // Cursor style: grab hand over pickable blocks, crosshair otherwise
+        if (
+          hoveredAssembly &&
+          !hoveredAssembly.hasControlCenter() &&
+          hoveredAssembly !== this.playerAssembly
+        ) {
+          this.render.canvas.style.cursor = 'grab';
+        } else {
+          this.render.canvas.style.cursor = 'crosshair';
+        }
+      }
     });// Left mouse button - primary fire and interactions (selection handled by Matter.js events)
     this.render.canvas.addEventListener('mousedown', (event) => {
       console.log('🖱️ DOM Mouse down detected, button:', event.button);
       if (event.button === 0) { // Left mouse button
-        this.mouseDown = true;
-        // Selection is now handled by Matter.js events above
-        // this.handleLeftClick(event);
+        const rect = this.render.canvas.getBoundingClientRect();
+        const screenX = event.clientX - rect.left;
+        const screenY = event.clientY - rect.top;
+        const worldPos = this.screenToWorld(screenX, screenY);
+
+        // BlockPickupSystem intercepts clicks on non-cockpit assemblies
+        if (this.blockPickupSystem.tryPickUp(worldPos, this.assemblies, this.playerAssembly)) {
+          this.mouseDown = false; // suppress weapon fire while holding
+        } else {
+          this.mouseDown = true;
+        }
       } else if (event.button === 2) { // Right mouse button
         this.handleRightClick(event);
       }
     }); this.render.canvas.addEventListener('mouseup', (event) => {
       if (event.button === 0) {
-        this.mouseDown = false;
+        if (this.blockPickupSystem.isHolding()) {
+          this.blockPickupSystem.tryRelease(this.playerAssembly);
+          this.mouseDown = false;
+        } else {
+          this.mouseDown = false;
+        }
       }
     });    // Add click event for target selection
     this.render.canvas.addEventListener('click', (event) => {
@@ -1102,6 +1157,14 @@ export class GameEngine {
       this.renderShipHighlights();
       this.renderAimingDebug(); // Add debug visuals for aiming system
       this.executePlayerCommands(); // Execute player commands each frame
+
+      // Draw block pickup ghost overlay on top of everything
+      if (this.blockPickupSystem.isHolding()) {
+        const ctx = this.render.canvas.getContext('2d');
+        if (ctx) {
+          this.blockPickupSystem.renderOverlay(ctx, this.render.bounds, this.playerAssembly);
+        }
+      }
 
       // End stats monitoring after each render
       this.stats.end();
@@ -1317,16 +1380,26 @@ export class GameEngine {
 
   public initializeBattle(): void {
     const cfg = this.scenarioConfig;
-    this.assemblies.forEach(a => Matter.World.remove(this.world, a.rootBody));
+    this.assemblies.forEach(a => this.removeBodyWithParts(a.rootBody));
     this.assemblies = [];
     this.playerAssembly = null;
 
-    this.toastSystem.showGameEvent(`${cfg.label} — Battle Start!`);
-    this.spawnTeamLine(0, cfg);
-    this.spawnTeamLine(1, cfg);
+    // Drop any held block before clearing the scene
+    if (this.blockPickupSystem.isHolding()) {
+      this.blockPickupSystem.forceDropAtCurrentPosition();
+    }
 
-    if (cfg.spawnDebris) {
-      this.spawnDebrisField(0, 0, cfg.debrisCount, 2000);
+    this.toastSystem.showGameEvent(`${cfg.label} — Battle Start!`);
+
+    if (cfg.sandboxMode) {
+      this.spawnSandboxScenario();
+    } else {
+      this.spawnTeamLine(0, cfg);
+      this.spawnTeamLine(1, cfg);
+
+      if (cfg.spawnDebris) {
+        this.spawnDebrisField(0, 0, cfg.debrisCount, 2000);
+      }
     }
 
     // Set initial zoom based on actual player ship bounds.
@@ -1334,6 +1407,55 @@ export class GameEngine {
       this.calculateZoomForAssembly(this.playerAssembly);
       this.setInitialCameraView();
     }
+  }
+
+  private spawnSandboxScenario(): void {
+    const SANDBOX_BLOCK_TYPES: EntityType[] = [
+      'Engine', 'Engine', 'Engine', 'Engine',
+      'LargeEngine',
+      'Gun', 'Gun', 'Gun',
+      'Hull', 'Hull', 'Hull', 'Hull',
+      'PowerCell', 'PowerCell',
+      'MissileLauncher',
+    ];
+
+    // Spawn player as a single bare cockpit
+    const cockpitConfig: EntityConfig = { type: 'Cockpit', x: 0, y: 0, rotation: 0 };
+    const playerAssembly = new Assembly([cockpitConfig], { x: 0, y: 0 });
+    playerAssembly.isPlayerControlled = true;
+    playerAssembly.setShipName('Cockpit');
+    playerAssembly.setTeam(0);
+    this.assemblies.push(playerAssembly);
+    Matter.World.add(this.world, playerAssembly.rootBody);
+    this.playerAssembly = playerAssembly;
+    this.flightController = new FlightController(playerAssembly);
+    this.controllerManager.createPlayerController(playerAssembly);
+    PowerSystem.getInstance().setPlayerAssembly(playerAssembly);
+
+    // Scatter loose blocks around the origin
+    const count = 12 + Math.floor(Math.random() * 5); // 12–16 blocks
+    for (let i = 0; i < count && i < SANDBOX_BLOCK_TYPES.length; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const distance = 150 + Math.random() * 350; // 150–500 units from origin
+      const x = Math.cos(angle) * distance;
+      const y = Math.sin(angle) * distance;
+
+      const config: EntityConfig = {
+        type: SANDBOX_BLOCK_TYPES[i],
+        x: 0,
+        y: 0,
+        rotation: Math.floor(Math.random() * 4) * 90,
+      };
+      const blockAssembly = new Assembly([config], { x, y });
+      blockAssembly.setTeam(-1);
+      blockAssembly.setShipName(`${SANDBOX_BLOCK_TYPES[i]} Block`);
+      // Gentle random spin
+      Matter.Body.setAngularVelocity(blockAssembly.rootBody, (Math.random() - 0.5) * 0.16);
+      this.assemblies.push(blockAssembly);
+      Matter.World.add(this.world, blockAssembly.rootBody);
+    }
+
+    this.toastSystem.showGameEvent('Sandbox — Build your ship!');
   }
 
   private spawnTeamLine(team: number, cfg: ScenarioConfig): void {
@@ -1488,15 +1610,25 @@ export class GameEngine {
   }
 
   private updateCursorWorldPosition(): void {
-    if (!this.playerAssembly || this.playerAssembly.destroyed) return;
-
     // Convert current mouse screen position to world coordinates
     const bounds = this.render.bounds;
     const worldX = (this.mousePosition.x / this.render.canvas.width) * (bounds.max.x - bounds.min.x) + bounds.min.x;
     const worldY = (this.mousePosition.y / this.render.canvas.height) * (bounds.max.y - bounds.min.y) + bounds.min.y;
 
+    this.mouseWorldPos = { x: worldX, y: worldY };
+
     // Set cursor position on player assembly for weapon aiming
-    this.playerAssembly.cursorPosition = { x: worldX, y: worldY };
+    if (this.playerAssembly && !this.playerAssembly.destroyed) {
+      this.playerAssembly.cursorPosition = { x: worldX, y: worldY };
+    }
+  }
+
+  private screenToWorld(screenX: number, screenY: number): Vector2 {
+    const bounds = this.render.bounds;
+    return {
+      x: (screenX / this.render.canvas.width) * (bounds.max.x - bounds.min.x) + bounds.min.x,
+      y: (screenY / this.render.canvas.height) * (bounds.max.y - bounds.min.y) + bounds.min.y,
+    };
   }
 
   public getSelectedAssembly(): Assembly | null {
