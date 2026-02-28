@@ -86,6 +86,9 @@ export class Missile {
             frictionAir: 0, // No air resistance in space
             inertia: 0.5, // Lower moment of inertia for quicker rotation
             angle: initialAngle,
+            // Enable Matter.js Continuous Collision Detection for high-speed bodies
+            // @ts-ignore - bullet is a valid Matter.js option but not in the TypeScript definitions
+            bullet: true,
             collisionFilter: {
                 category: 0x0004, // Missile collision category
                 mask: 0x0001 | 0x0002, // Can collide with default bodies and other missiles, but not source assembly initially

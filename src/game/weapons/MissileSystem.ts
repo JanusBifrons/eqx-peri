@@ -2,6 +2,7 @@ import * as Matter from 'matter-js';
 import { Missile, MissileType } from './Missile';
 import { Assembly } from '../core/Assembly';
 import { Vector2 } from '../../types/GameTypes';
+import { SoundSystem } from '../systems/SoundSystem';
 
 export class MissileSystem {
     private missiles: Missile[] = [];
@@ -21,6 +22,10 @@ export class MissileSystem {
         const missile = new Missile(position, angle, missileType, sourceAssemblyId, targetAssembly);
         this.missiles.push(missile);
         Matter.World.add(this.world, missile.body);
+
+        // Play missile launch sound
+        SoundSystem.getInstance().playMissileLaunch();
+
         return missile;
     }    public update(deltaTime: number, assemblies: Assembly[]): void {
         // Filter out non-destroyed assemblies (not including missiles as assemblies)
@@ -52,6 +57,9 @@ export class MissileSystem {
             console.log(`🚀 Missile collision ignored - hitting source assembly`);
             return;
         }
+
+        // Play missile explosion sound
+        SoundSystem.getInstance().playMissileExplosion();
 
         // Apply damage
         if (targetEntity.takeDamage) {

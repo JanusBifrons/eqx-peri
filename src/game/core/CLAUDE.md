@@ -33,6 +33,13 @@ Matter.js compound bodies are created via `Matter.Body.create({ parts: [...] })`
 - **Always use `entity.localOffset`** (ship-local pixel coordinates, always multiples of `GRID_SIZE`) for grid-position lookup — never `entity.body.position` (world coordinates that are no longer grid-aligned after rotation). Using world positions causes every block destruction on a rotated ship to appear as a full fragmentation.
 - `entity.localOffset` is set once at Entity construction from `config.x/y` and never changes. Fragment assemblies (`createNewAssemblyFromComponent`) also compute configs from `localOffset` relative to the fragment center to preserve grid alignment.
 
+## Projectile Collision Detection (Tunneling Prevention)
+
+Fast-moving projectiles (lasers, missiles) can "tunnel" through targets if they move farther than the target's width in a single physics tick. Two mechanisms prevent this:
+
+1. **Matter.js CCD**: All projectile bodies are created with `bullet: true` in options, enabling Matter.js continuous collision detection.
+2. **Projectile Length**: Lasers are sized to be at least 1.5× their per-tick travel distance (accounting for ship velocity inheritance), ensuring they overlap any target they pass through.
+
 ---
 
 MAINTENANCE MANDATE: If you establish a new pattern, change a library, or fix a systemic bug within the scope of this directory, you must update this CLAUDE.md file to reflect the new standard before concluding your task.
