@@ -252,7 +252,11 @@ export class GameEngine {
           this.spawnMissileCorvette(Math.random() * 400 - 200, Math.random() * 400 - 200, false);
           break;
         case 'r':
-          this.initializeBattle(); // Restart battle
+          if (this.blockPickupSystem.isHolding()) {
+            this.blockPickupSystem.rotateHeld(); // Rotate held block 90° CCW
+          } else {
+            this.initializeBattle(); // Restart battle
+          }
           break;
         case 'g':
           this.toggleGrid();
@@ -1487,6 +1491,70 @@ export class GameEngine {
       Matter.Body.setAngularVelocity(blockAssembly.rootBody, (Math.random() - 0.5) * 0.16);
       this.assemblies.push(blockAssembly);
       Matter.World.add(this.world, blockAssembly.rootBody);
+    }
+
+    // Spawn compound scrap assemblies — pre-built multi-block fragments for snap testing
+    const compoundScraps: { name: string; parts: EntityConfig[] }[] = [
+      {
+        // Hull + Engine: a single thruster nacelle
+        name: 'Engine Nacelle',
+        parts: [
+          { type: 'Hull',   x: 0,            y: 0, rotation: 0 },
+          { type: 'Engine', x: -GRID_SIZE,   y: 0, rotation: 0 },
+        ],
+      },
+      {
+        // Hull pair + forward Gun: a simple gun platform
+        name: 'Gun Platform',
+        parts: [
+          { type: 'Hull', x: -GRID_SIZE, y: 0, rotation: 0 },
+          { type: 'Hull', x: 0,          y: 0, rotation: 0 },
+          { type: 'Gun',  x: GRID_SIZE,  y: 0, rotation: 0 },
+        ],
+      },
+      {
+        // Engine + PowerCell + Hull in a line: a compact power spine
+        name: 'Power Spine',
+        parts: [
+          { type: 'Engine',    x: -GRID_SIZE, y: 0, rotation: 0 },
+          { type: 'PowerCell', x: 0,          y: 0, rotation: 0 },
+          { type: 'Hull',      x: GRID_SIZE,  y: 0, rotation: 0 },
+        ],
+      },
+      {
+        // L-shaped 4-block wing section: Hull spine with PowerCell above and Engine aft
+        name: 'Wing Section',
+        parts: [
+          { type: 'Engine',    x: -GRID_SIZE, y: 0,          rotation: 0 },
+          { type: 'Hull',      x: 0,          y: 0,          rotation: 0 },
+          { type: 'Hull',      x: GRID_SIZE,  y: 0,          rotation: 0 },
+          { type: 'PowerCell', x: 0,          y: -GRID_SIZE, rotation: 0 },
+        ],
+      },
+      {
+        // Twin guns on a hull base: a gun turret fragment
+        name: 'Twin Gun Mount',
+        parts: [
+          { type: 'Hull', x: 0,          y: 0,          rotation: 0 },
+          { type: 'Gun',  x: GRID_SIZE,  y: -GRID_SIZE, rotation: 0 },
+          { type: 'Gun',  x: GRID_SIZE,  y: GRID_SIZE,  rotation: 0 },
+        ],
+      },
+    ];
+
+    for (const scrap of compoundScraps) {
+      const angle = Math.random() * Math.PI * 2;
+      const distance = 180 + Math.random() * 300;
+      const x = Math.cos(angle) * distance;
+      const y = Math.sin(angle) * distance;
+
+      const scrapAssembly = new Assembly(scrap.parts, { x, y });
+      scrapAssembly.setTeam(-1);
+      scrapAssembly.setShipName(scrap.name);
+      // Gentle spin, slower than single blocks so they're easier to grab
+      Matter.Body.setAngularVelocity(scrapAssembly.rootBody, (Math.random() - 0.5) * 0.06);
+      this.assemblies.push(scrapAssembly);
+      Matter.World.add(this.world, scrapAssembly.rootBody);
     }
 
     this.toastSystem.showGameEvent('Sandbox — Build your ship!');

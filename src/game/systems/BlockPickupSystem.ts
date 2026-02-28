@@ -20,6 +20,10 @@ export class BlockPickupSystem {
   private heldAssembly: Assembly | null = null;
   private activeSnap: SnapCandidate | null = null;
   private heldWorldPos: Vector2 = { x: 0, y: 0 };
+  /** 0–3: number of 90° CCW steps applied to the held piece (relative to player orientation). */
+  private pendingRotationSteps: number = 0;
+  /** Last known player assembly angle, used to render the free-float ghost at the intended orientation. */
+  private lastKnownPlayerAngle: number = 0;
 
   private readonly doRemoveBodyWithParts: (body: Matter.Body) => void;
   private readonly doAddBodyToWorld: (body: Matter.Body) => void;
@@ -45,6 +49,17 @@ export class BlockPickupSystem {
   }
 
   /**
+   * Cycle the held piece through 90° rotation increments (CCW relative to player orientation).
+   * No-op when not holding anything.
+   */
+  public rotateHeld(): void {
+    if (!this.heldAssembly) return;
+    this.pendingRotationSteps = (this.pendingRotationSteps + 1) % 4;
+    // Recompute snap with the new rotation so the preview updates immediately.
+    this.activeSnap = null;
+  }
+
+  /**
    * Try to pick up a non-cockpit assembly at the given world position.
    * Returns true if something was picked up.
    */
@@ -67,6 +82,7 @@ export class BlockPickupSystem {
           this.heldAssembly = assembly;
           this.heldWorldPos = { ...worldPos };
           this.activeSnap = null;
+          this.pendingRotationSteps = 0;
           // Remove from physics world AND from the engine's tracked assembly list so
           // the orphaned entity bodies don't interfere with hover/snap detection.
           this.doRemoveBodyWithParts(assembly.rootBody);
@@ -97,6 +113,7 @@ export class BlockPickupSystem {
       return;
     }
 
+    this.lastKnownPlayerAngle = playerAssembly.rootBody.angle;
     this.activeSnap = this.findBestSnap(playerAssembly);
   }
 
@@ -142,29 +159,34 @@ export class BlockPickupSystem {
     if (!this.heldAssembly) return null;
 
     const playerAngle = playerAssembly.rootBody.angle;
-    const heldAngle = this.heldAssembly.rootBody.angle;
+    const relativeAngle = this.pendingRotationSteps * (Math.PI / 2);
 
-    // Round relative angle to nearest 90°
-    const alpha_rel = heldAngle - playerAngle;
-    const relativeAngle = Math.round(alpha_rel / (Math.PI / 2)) * (Math.PI / 2);
-
-    // Four cardinal attachment directions in player-local space
     const localDirs: Vector2[] = [
-      { x: 1, y: 0 },
-      { x: -1, y: 0 },
-      { x: 0, y: 1 },
-      { x: 0, y: -1 },
+      { x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 },
     ];
 
-    // Set of occupied local offsets in the player assembly
     const occupiedOffsets = new Set<string>();
     playerAssembly.entities.forEach(e => {
       occupiedOffsets.add(`${e.localOffset.x},${e.localOffset.y}`);
     });
 
     const threshold = this.activeSnap ? DETACH_RADIUS : SNAP_RADIUS;
-    let bestDist = threshold;
-    let bestCandidate: SnapCandidate | null = null;
+    const cosA = Math.cos(playerAngle);
+    const sinA = Math.sin(playerAngle);
+
+    // Build ALL (heldEntity, playerSlot) pairs that are type-compatible and within range.
+    // Sorting the full cross-product globally guarantees we always try the truly nearest
+    // pair first, regardless of which player entity or direction it comes from.
+    // The old per-slot "nearest only" approach would skip the second-nearest entity to a
+    // given slot even when that entity was the only collision-free option for that slot.
+    type Pair = {
+      heldEntity: Entity;
+      targetEntity: Entity;
+      localDir: Vector2;
+      candidateLocalOffset: Vector2;
+      dist: number;
+    };
+    const pairs: Pair[] = [];
 
     for (const targetEntity of playerAssembly.entities) {
       const targetDef = ENTITY_DEFINITIONS[targetEntity.type];
@@ -175,88 +197,75 @@ export class BlockPickupSystem {
           x: targetEntity.localOffset.x + localDir.x * GRID_SIZE,
           y: targetEntity.localOffset.y + localDir.y * GRID_SIZE,
         };
-
         if (occupiedOffsets.has(`${candidateLocalOffset.x},${candidateLocalOffset.y}`)) continue;
 
-        // Rotate local direction into world space
-        const cosA = Math.cos(playerAngle);
-        const sinA = Math.sin(playerAngle);
-        const worldDirX = localDir.x * cosA - localDir.y * sinA;
-        const worldDirY = localDir.x * sinA + localDir.y * cosA;
-
-        const candidateWorldPos: Vector2 = {
-          x: targetEntity.body.position.x + worldDirX * GRID_SIZE,
-          y: targetEntity.body.position.y + worldDirY * GRID_SIZE,
-        };
-
-        // Find nearest entity in heldAssembly to this candidate world position
-        let nearestEntity: Entity | null = null;
-        let nearestDist = Infinity;
+        const slotWorldX = targetEntity.body.position.x + (localDir.x * cosA - localDir.y * sinA) * GRID_SIZE;
+        const slotWorldY = targetEntity.body.position.y + (localDir.x * sinA + localDir.y * cosA) * GRID_SIZE;
 
         for (const heldEntity of this.heldAssembly.entities) {
-          const entityWorldPos = this.getHeldEntityWorldPos(heldEntity);
-          const dx = entityWorldPos.x - candidateWorldPos.x;
-          const dy = entityWorldPos.y - candidateWorldPos.y;
+          const anchorDef = ENTITY_DEFINITIONS[heldEntity.type];
+          if (!anchorDef) continue;
+          // Filter incompatible pairs before sorting — no point sorting work we'll discard
+          if (!anchorDef.canAttachTo.includes(targetEntity.type)) continue;
+          if (!targetDef.canAttachTo.includes(heldEntity.type)) continue;
+
+          const ghostPos = this.getHeldEntityWorldPos(heldEntity);
+          const dx = ghostPos.x - slotWorldX;
+          const dy = ghostPos.y - slotWorldY;
           const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < nearestDist) {
-            nearestDist = dist;
-            nearestEntity = heldEntity;
+          if (dist < threshold) {
+            pairs.push({ heldEntity, targetEntity, localDir, candidateLocalOffset, dist });
           }
         }
-
-        if (!nearestEntity || nearestDist >= bestDist) continue;
-
-        // Type compatibility: both sides must mutually accept each other
-        const anchorDef = ENTITY_DEFINITIONS[nearestEntity.type];
-        if (!anchorDef) continue;
-        if (
-          !anchorDef.canAttachTo.includes(targetEntity.type) ||
-          !targetDef.canAttachTo.includes(nearestEntity.type)
-        ) continue;
-
-        // Compute final grid positions for all held entities; reject if any would overlap
-        const preview = this.computePreviewOffsets(
-          nearestEntity,
-          candidateLocalOffset,
-          relativeAngle,
-          playerAssembly
-        );
-        if (!preview) continue;
-
-        bestDist = nearestDist;
-        bestCandidate = {
-          anchorEntity: nearestEntity,
-          targetEntity,
-          snapDirection: localDir,
-          relativeAngle,
-          previewLocalOffsets: preview,
-          dist: nearestDist,
-        };
       }
     }
 
-    return bestCandidate;
+    // Sort ascending by distance so we always try the closest pair first
+    pairs.sort((a, b) => a.dist - b.dist);
+
+    // Walk in order and return the first pair whose placement is collision-free
+    for (const pair of pairs) {
+      const preview = this.computePreviewOffsets(
+        pair.heldEntity,
+        pair.candidateLocalOffset,
+        relativeAngle,
+        playerAssembly
+      );
+      if (!preview) continue;
+
+      return {
+        anchorEntity: pair.heldEntity,
+        targetEntity: pair.targetEntity,
+        snapDirection: pair.localDir,
+        relativeAngle,
+        previewLocalOffsets: preview,
+        dist: pair.dist,
+      };
+    }
+
+    return null;
   }
 
   /**
-   * Compute the world position of a held entity for snap-distance calculation.
-   * The centre of the held assembly tracks heldWorldPos; entities are offset from there.
+   * Compute the ghost world position of a held entity for snap-distance calculation.
+   * Uses the GHOST angle (player orientation + pending rotation steps), not the body's
+   * physical angle — the physical angle is whatever the block was spinning at when
+   * picked up and bears no relation to where the visual ghost is drawn.
    */
   private getHeldEntityWorldPos(entity: Entity): Vector2 {
     if (!this.heldAssembly) return { ...this.heldWorldPos };
 
+    const ghostAngle = this.lastKnownPlayerAngle + this.pendingRotationSteps * (Math.PI / 2);
     const heldEntities = this.heldAssembly.entities;
-    const heldAngle = this.heldAssembly.rootBody.angle;
 
-    // Geometric centre of held assembly in local space
     const centerLocalX = heldEntities.reduce((s, e) => s + e.localOffset.x, 0) / heldEntities.length;
     const centerLocalY = heldEntities.reduce((s, e) => s + e.localOffset.y, 0) / heldEntities.length;
 
     const relX = entity.localOffset.x - centerLocalX;
     const relY = entity.localOffset.y - centerLocalY;
 
-    const cosH = Math.cos(heldAngle);
-    const sinH = Math.sin(heldAngle);
+    const cosH = Math.cos(ghostAngle);
+    const sinH = Math.sin(ghostAngle);
     return {
       x: this.heldWorldPos.x + relX * cosH - relY * sinH,
       y: this.heldWorldPos.y + relX * sinH + relY * cosH,
@@ -342,51 +351,161 @@ export class BlockPickupSystem {
       this.renderAvailableSlots(ctx, bounds, playerAssembly);
     }
 
+    // --- Cursor ghost: always drawn at the mouse position ---
+    // ghostAngle is used for entity layout (spreading multi-block assemblies correctly).
+    // ctx.rotate uses lastKnownPlayerAngle as the base because displayRotation already
+    // includes the pending rotation offset — adding ghostAngle would double-apply it.
+    const heldEntities = this.heldAssembly.entities;
+    const ghostAngle = this.lastKnownPlayerAngle + this.pendingRotationSteps * (Math.PI / 2);
+    const pendingDegrees = this.pendingRotationSteps * 90;
+    const cosH = Math.cos(ghostAngle);
+    const sinH = Math.sin(ghostAngle);
+
+    const centerLocalX = heldEntities.reduce((s, e) => s + e.localOffset.x, 0) / heldEntities.length;
+    const centerLocalY = heldEntities.reduce((s, e) => s + e.localOffset.y, 0) / heldEntities.length;
+
+    heldEntities.forEach(entity => {
+      const def = ENTITY_DEFINITIONS[entity.type];
+      const relX = entity.localOffset.x - centerLocalX;
+      const relY = entity.localOffset.y - centerLocalY;
+
+      const worldX = this.heldWorldPos.x + relX * cosH - relY * sinH;
+      const worldY = this.heldWorldPos.y + relX * sinH + relY * cosH;
+
+      const cx = toCanvasX(worldX);
+      const cy = toCanvasY(worldY);
+      const w = def.width * scaleX;
+      const h = def.height * scaleY;
+
+      // displayRotation = entity's own rotation + pending steps; used as the sole
+      // rotation argument so the pending offset is applied exactly once.
+      const displayRotation = ((entity.rotation + pendingDegrees) % 360 + 360) % 360;
+
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(this.lastKnownPlayerAngle + (displayRotation * Math.PI / 180));
+      ctx.globalAlpha = 0.45;
+      ctx.fillStyle = '#ffff88';
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1;
+      ctx.fillRect(-w / 2, -h / 2, w, h);
+      ctx.strokeRect(-w / 2, -h / 2, w, h);
+      ctx.restore();
+
+      ctx.globalAlpha = 0.75;
+      entity.drawBlockFrills(ctx, bounds, canvas, this.lastKnownPlayerAngle, { x: worldX, y: worldY }, displayRotation);
+      ctx.globalAlpha = 1;
+    });
+
+    // --- Snap preview: drawn in addition to the cursor ghost when a valid slot is nearby ---
+    // For each held entity we compute its individual ghost world position.
+    //   • Active anchor  → bright dashed line from its ghost pos to its exact snap landing pos
+    //                       + small dot at the ghost to mark which block is snapping
+    //   • Other entities → faint line to their nearest compatible open player slot
+    //                       (alpha fades with distance; shows all reachable snap points)
     if (this.activeSnap && playerAssembly && !playerAssembly.destroyed) {
       const playerAngle = playerAssembly.rootBody.angle;
-
-      // rootBody.position is the compound's centre of mass, NOT the localOffset
-      // coordinate origin.  Use a real entity (targetEntity) as a reference anchor:
-      //   worldPos(lx, ly) = refEntity.body.position + rotate((lx−refLx, ly−refLy), angle)
       const refEntity = this.activeSnap.targetEntity;
       const cosP = Math.cos(playerAngle);
       const sinP = Math.sin(playerAngle);
+      const activeAnchorId = this.activeSnap.anchorEntity.id;
 
-      // Draw each held entity at its snapped grid position (ghost, green tint + frills)
-      this.activeSnap.previewLocalOffsets.forEach((data, entityId) => {
-        const entity = this.heldAssembly!.entities.find(e => e.id === entityId);
-        if (!entity) return;
-
-        const def = ENTITY_DEFINITIONS[entity.type];
-        const dlx = data.localOffset.x - refEntity.localOffset.x;
-        const dly = data.localOffset.y - refEntity.localOffset.y;
-
-        const worldX = refEntity.body.position.x + dlx * cosP - dly * sinP;
-        const worldY = refEntity.body.position.y + dlx * sinP + dly * cosP;
-
-        const cx = toCanvasX(worldX);
-        const cy = toCanvasY(worldY);
-        const w = def.width * scaleX;
-        const h = def.height * scaleY;
-
-        ctx.save();
-        ctx.translate(cx, cy);
-        ctx.rotate(playerAngle + (data.rotation * Math.PI / 180));
-        ctx.globalAlpha = 0.55;
-        ctx.fillStyle = '#00ff88';
-        ctx.strokeStyle = '#00ff00';
-        ctx.lineWidth = 2;
-        ctx.fillRect(-w / 2, -h / 2, w, h);
-        ctx.strokeRect(-w / 2, -h / 2, w, h);
-        ctx.restore();
-
-        // Draw frills at the snapped world position so orientation is clear
-        ctx.globalAlpha = 0.8;
-        entity.drawBlockFrills(ctx, bounds, canvas, playerAngle, { x: worldX, y: worldY }, data.rotation);
-        ctx.globalAlpha = 1;
+      // Precompute occupied offsets + open-slot world positions for hint lines
+      const occupiedOffsets = new Set<string>();
+      playerAssembly.entities.forEach(e => {
+        occupiedOffsets.add(`${e.localOffset.x},${e.localOffset.y}`);
       });
+      const localDirs = [
+        { x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 },
+      ];
+      const HINT_RANGE = DETACH_RADIUS * 2.5;
 
-      // Draw a bright green border around the target attachment cell
+      for (const heldEntity of heldEntities) {
+        // Ghost world position of this specific entity (same math as cursor ghost section)
+        const relX = heldEntity.localOffset.x - centerLocalX;
+        const relY = heldEntity.localOffset.y - centerLocalY;
+        const ghostX = this.heldWorldPos.x + relX * cosH - relY * sinH;
+        const ghostY = this.heldWorldPos.y + relX * sinH + relY * cosH;
+
+        if (heldEntity.id === activeAnchorId) {
+          // Bright line: anchor ghost position → exact snap landing position
+          const anchorSnapData = this.activeSnap.previewLocalOffsets.get(heldEntity.id);
+          if (anchorSnapData) {
+            const dlx = anchorSnapData.localOffset.x - refEntity.localOffset.x;
+            const dly = anchorSnapData.localOffset.y - refEntity.localOffset.y;
+            const landX = refEntity.body.position.x + dlx * cosP - dly * sinP;
+            const landY = refEntity.body.position.y + dlx * sinP + dly * cosP;
+
+            ctx.save();
+            ctx.globalAlpha = 0.75;
+            ctx.strokeStyle = '#00ff88';
+            ctx.lineWidth = 1.5;
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.moveTo(toCanvasX(ghostX), toCanvasY(ghostY));
+            ctx.lineTo(toCanvasX(landX), toCanvasY(landY));
+            ctx.stroke();
+            // Dot at the anchor ghost to make clear which block is the snap point
+            ctx.setLineDash([]);
+            ctx.globalAlpha = 0.9;
+            ctx.fillStyle = '#00ff88';
+            ctx.beginPath();
+            ctx.arc(toCanvasX(ghostX), toCanvasY(ghostY), 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+          }
+        } else {
+          // Faint hint: find nearest compatible open slot for this entity
+          const anchorDef = ENTITY_DEFINITIONS[heldEntity.type];
+          if (!anchorDef) continue;
+
+          let nearestDist = HINT_RANGE;
+          let nearestSlotX = 0;
+          let nearestSlotY = 0;
+          let found = false;
+
+          for (const targetEntity of playerAssembly.entities) {
+            const targetDef = ENTITY_DEFINITIONS[targetEntity.type];
+            if (!targetDef) continue;
+            if (!anchorDef.canAttachTo.includes(targetEntity.type)) continue;
+            if (!targetDef.canAttachTo.includes(heldEntity.type)) continue;
+
+            for (const dir of localDirs) {
+              const cX = targetEntity.localOffset.x + dir.x * GRID_SIZE;
+              const cY = targetEntity.localOffset.y + dir.y * GRID_SIZE;
+              if (occupiedOffsets.has(`${cX},${cY}`)) continue;
+
+              const slotWX = targetEntity.body.position.x + (dir.x * cosP - dir.y * sinP) * GRID_SIZE;
+              const slotWY = targetEntity.body.position.y + (dir.x * sinP + dir.y * cosP) * GRID_SIZE;
+
+              const dx = ghostX - slotWX;
+              const dy = ghostY - slotWY;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+              if (dist < nearestDist) {
+                nearestDist = dist;
+                nearestSlotX = slotWX;
+                nearestSlotY = slotWY;
+                found = true;
+              }
+            }
+          }
+
+          if (found) {
+            ctx.save();
+            ctx.globalAlpha = 0.25 * Math.max(0, 1 - nearestDist / HINT_RANGE);
+            ctx.strokeStyle = '#00ff88';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([2, 5]);
+            ctx.beginPath();
+            ctx.moveTo(toCanvasX(ghostX), toCanvasY(ghostY));
+            ctx.lineTo(toCanvasX(nearestSlotX), toCanvasY(nearestSlotY));
+            ctx.stroke();
+            ctx.restore();
+          }
+        }
+      }
+
+      // Green border around the target attachment cell on the player assembly
       const target = this.activeSnap.targetEntity;
       const dir = this.activeSnap.snapDirection;
       const attachWorldX = target.body.position.x + (dir.x * cosP - dir.y * sinP) * GRID_SIZE;
@@ -405,45 +524,6 @@ export class BlockPickupSystem {
         GRID_SIZE * scaleY
       );
       ctx.restore();
-    } else {
-      // Free-floating: draw ghost at cursor (yellow tint + frills for orientation)
-      const heldEntities = this.heldAssembly.entities;
-      const heldAngle = this.heldAssembly.rootBody.angle;
-      const cosH = Math.cos(heldAngle);
-      const sinH = Math.sin(heldAngle);
-
-      const centerLocalX = heldEntities.reduce((s, e) => s + e.localOffset.x, 0) / heldEntities.length;
-      const centerLocalY = heldEntities.reduce((s, e) => s + e.localOffset.y, 0) / heldEntities.length;
-
-      heldEntities.forEach(entity => {
-        const def = ENTITY_DEFINITIONS[entity.type];
-        const relX = entity.localOffset.x - centerLocalX;
-        const relY = entity.localOffset.y - centerLocalY;
-
-        const worldX = this.heldWorldPos.x + relX * cosH - relY * sinH;
-        const worldY = this.heldWorldPos.y + relX * sinH + relY * cosH;
-
-        const cx = toCanvasX(worldX);
-        const cy = toCanvasY(worldY);
-        const w = def.width * scaleX;
-        const h = def.height * scaleY;
-
-        ctx.save();
-        ctx.translate(cx, cy);
-        ctx.rotate(heldAngle + (entity.rotation * Math.PI / 180));
-        ctx.globalAlpha = 0.45;
-        ctx.fillStyle = '#ffff88';
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 1;
-        ctx.fillRect(-w / 2, -h / 2, w, h);
-        ctx.strokeRect(-w / 2, -h / 2, w, h);
-        ctx.restore();
-
-        // Draw frills so the player can tell the block's orientation while dragging
-        ctx.globalAlpha = 0.75;
-        entity.drawBlockFrills(ctx, bounds, canvas, heldAngle, { x: worldX, y: worldY }, entity.rotation);
-        ctx.globalAlpha = 1;
-      });
     }
 
     ctx.restore();
