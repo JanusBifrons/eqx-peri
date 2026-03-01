@@ -148,6 +148,11 @@ export class Entity {
       return true;
     }
 
+    // Beam weapons
+    if ((this.type === 'Beam' || this.type === 'LargeBeam') && !this.destroyed) {
+      return true;
+    }
+
     // Cockpit weapons - can fire if nothing is connected on top
     if ((this.type === 'Cockpit' || this.type === 'LargeCockpit' || this.type === 'CapitalCore') && !this.destroyed) {
       return this.canUseCockpitWeapon();
@@ -160,6 +165,10 @@ export class Entity {
     return this.type === 'MissileLauncher' ||
       this.type === 'LargeMissileLauncher' ||
       this.type === 'CapitalMissileLauncher';
+  }
+
+  public isBeamWeapon(): boolean {
+    return this.type === 'Beam' || this.type === 'LargeBeam';
   }
 
   public canProvideThrust(): boolean {
@@ -291,6 +300,9 @@ export class Entity {
       case 'Shield':
       case 'LargeShield':
         return '#1a3060'; // Deep blue — energy field generator
+      case 'Beam':
+      case 'LargeBeam':
+        return '#1a4a4a'; // Dark teal — continuous beam emitter
       default:
         return '#5e5e5e';
     }
@@ -325,6 +337,9 @@ export class Entity {
       case 'Shield':
       case 'LargeShield':
         return '#0a1840';
+      case 'Beam':
+      case 'LargeBeam':
+        return '#0a2828'; // Very dark teal border
       default:
         return '#303030';
     }
@@ -735,6 +750,41 @@ export class Entity {
         ctx.beginPath();
         ctx.arc(sx(pos.x), sy(pos.y), Math.max(1, scale * 1.2), 0, Math.PI * 2);
         ctx.fill();
+        break;
+      }
+      case 'Beam':
+      case 'LargeBeam': {
+        // Wide emitter aperture — a full-width glowing bar across the muzzle face,
+        // plus a pulsing dot at the centre to distinguish it from a gun barrel.
+        const aimAngle = facingAngle + this.currentAimAngle;
+        const aCos = Math.cos(aimAngle);
+        const aSin = Math.sin(aimAngle);
+        const aPcos = Math.cos(aimAngle + Math.PI / 2);
+        const aPsin = Math.sin(aimAngle + Math.PI / 2);
+        const muzzleX = pos.x + fcos * halfW;
+        const muzzleY = pos.y + fsin * halfW;
+        const beamPulse = Math.sin(Date.now() / 300) * 0.25 + 0.75;
+        // Outer glow span (full block width)
+        ctx.strokeStyle = `rgba(0, 220, 255, ${beamPulse * 0.5})`;
+        ctx.lineWidth = Math.max(3, scale * 5);
+        ctx.beginPath();
+        ctx.moveTo(sx(muzzleX - aPcos * halfH), sy(muzzleY - aPsin * halfH));
+        ctx.lineTo(sx(muzzleX + aPcos * halfH), sy(muzzleY + aPsin * halfH));
+        ctx.stroke();
+        // Bright core line
+        ctx.strokeStyle = `rgba(160, 255, 255, ${beamPulse})`;
+        ctx.lineWidth = Math.max(1.5, scale * 2);
+        ctx.beginPath();
+        ctx.moveTo(sx(muzzleX - aPcos * halfH * 0.8), sy(muzzleY - aPsin * halfH * 0.8));
+        ctx.lineTo(sx(muzzleX + aPcos * halfH * 0.8), sy(muzzleY + aPsin * halfH * 0.8));
+        ctx.stroke();
+        // Small aiming direction nub (shows which way it points)
+        ctx.strokeStyle = `rgba(0, 255, 255, ${beamPulse})`;
+        ctx.lineWidth = Math.max(1, scale * 1.5);
+        ctx.beginPath();
+        ctx.moveTo(sx(muzzleX), sy(muzzleY));
+        ctx.lineTo(sx(muzzleX + aCos * halfW * 0.4), sy(muzzleY + aSin * halfW * 0.4));
+        ctx.stroke();
         break;
       }
       default:

@@ -11,6 +11,7 @@ import { PowerSystem } from '../systems/PowerSystem';
 import { ToastSystem } from '../systems/ToastSystem';
 import { SoundSystem } from '../systems/SoundSystem';
 import { MissileSystem } from '../weapons/MissileSystem';
+import { BeamSystem } from '../weapons/BeamSystem';
 import { BlockPickupSystem } from '../systems/BlockPickupSystem';
 import { RenderSystem } from './RenderSystem';
 import { GridRenderer } from '../rendering/GridRenderer';
@@ -20,6 +21,7 @@ import { ShieldRenderer } from '../rendering/ShieldRenderer';
 import { ShipHighlightRenderer } from '../rendering/ShipHighlightRenderer';
 import { AimingDebugRenderer } from '../rendering/AimingDebugRenderer';
 import { BlockPickupRenderer } from '../rendering/BlockPickupRenderer';
+import { BeamRenderer } from '../rendering/BeamRenderer';
 
 export class GameEngine {
   private engine: Matter.Engine;
@@ -29,6 +31,7 @@ export class GameEngine {
   private assemblies: Assembly[] = [];
   private bullets: Matter.Body[] = [];
   private missileSystem: MissileSystem;
+  private beamSystem!: BeamSystem;
   private playerAssembly: Assembly | null = null;
   private keys: Set<string> = new Set();
   private running: boolean = false;
@@ -153,6 +156,13 @@ export class GameEngine {
 
     // Set missile system reference in controller manager
     this.controllerManager.setMissileSystem(this.missileSystem);
+
+    // Initialize beam system
+    this.beamSystem = new BeamSystem(
+      (entity, hitAssembly, sourceAssemblyId) =>
+        this.handleBeamEntityDestroyed(entity, hitAssembly, sourceAssemblyId)
+    );
+    this.controllerManager.setBeamSystem(this.beamSystem);
 
     // Initialize block pickup system
     this.blockPickupSystem = new BlockPickupSystem(
@@ -415,11 +425,16 @@ export class GameEngine {
     const entityDestroyed = entity.takeDamage(LASER_DAMAGE);
     if (!entityDestroyed) return;
 
-    // Play block destroyed sound
-    SoundSystem.getInstance().playBlockDestroyed();
+    if (!hitAssembly) return;
+    this.processEntityDestruction(entity, hitAssembly);
+  }
 
-    const assembly = hitAssembly;
-    if (!assembly) return;
+  /**
+   * Shared destruction cascade used by both bullet hits and beam hits.
+   * Call only after entity.takeDamage() has returned true (i.e. the entity is confirmed destroyed).
+   */
+  private processEntityDestruction(entity: Entity, assembly: Assembly): void {
+    SoundSystem.getInstance().playBlockDestroyed();
 
     // Capture the old compound body BEFORE removeEntity() can replace assembly.rootBody
     // via createFreshBody().  We need it to properly swap the physics world entry.
@@ -490,6 +505,15 @@ export class GameEngine {
       this.removeBodyWithParts(oldRootBody);
       assembly.pendingBodySwap = null;
     }
+  }
+
+  /** Callback invoked by BeamSystem when a beam destroys an entity. */
+  private handleBeamEntityDestroyed(entity: Entity, hitAssembly: Assembly, sourceAssemblyId: string): void {
+    const sourceAssembly = this.assemblies.find(a => a.id === sourceAssemblyId);
+    hitAssembly.lastHitByAssemblyId = sourceAssemblyId;
+    hitAssembly.lastHitByPlayer = sourceAssembly?.isPlayerControlled ?? false;
+    SoundSystem.getInstance().playLaserImpact();
+    this.processEntityDestruction(entity, hitAssembly);
   }
 
   private handleMissileHit(missile: any, entity: Entity): void {
@@ -700,6 +724,9 @@ export class GameEngine {
 
     // Update missile system (targeting, steering, fuel consumption)
     this.missileSystem.update(deltaTime, this.assemblies);
+
+    // Update beam system (age out expired visual beams)
+    this.beamSystem.update(deltaTime);
 
     // Clean up destroyed assemblies
     this.cleanupDestroyedAssemblies();    // Check if player is destroyed and call callback
@@ -1251,6 +1278,7 @@ export class GameEngine {
     ));
     this.renderSystem.register(new BlockFrillsRenderer(() => this.assemblies));
     this.renderSystem.register(new ShieldRenderer(() => this.assemblies));
+    this.renderSystem.register(new BeamRenderer(this.beamSystem));
     this.renderSystem.register(new ShipHighlightRenderer(
       () => this.playerAssembly,
       () => this.hoveredAssembly,
@@ -1332,10 +1360,11 @@ export class GameEngine {
 
   private spawnSandboxScenario(): void {
     const SANDBOX_BLOCK_TYPES: EntityType[] = [
-      'Shield', 'Shield', 'LargeShield',
+      'Beam', 'Beam', 'LargeBeam',
+      'Gun', 'Gun', 'Gun',
       'Engine', 'Engine', 'Engine', 'Engine',
       'LargeEngine',
-      'Gun', 'Gun', 'Gun',
+      'Shield', 'Shield', 'LargeShield',
       'Hull', 'Hull', 'Hull', 'Hull',
       'PowerCell', 'PowerCell',
       'MissileLauncher',

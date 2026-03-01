@@ -3,15 +3,22 @@ import { Assembly } from '../core/Assembly';
 import { IController, ControlInput, PlayerController } from './Controller';
 import { AIController } from './AIController';
 import { MissileSystem } from '../weapons/MissileSystem';
+import { BeamSystem } from '../weapons/BeamSystem';
 
 // Manages all controllers and applies their inputs to assemblies
 export class ControllerManager {    private controllers: Map<string, IController> = new Map();
     private playerController?: PlayerController;
     private missileSystem?: MissileSystem;
+    private beamSystem?: BeamSystem;
 
     // Set the missile system reference
     setMissileSystem(missileSystem: MissileSystem): void {
         this.missileSystem = missileSystem;
+    }
+
+    // Set the beam system reference
+    setBeamSystem(beamSystem: BeamSystem): void {
+        this.beamSystem = beamSystem;
     }
 
     // Create an AI controller for an assembly
@@ -50,13 +57,13 @@ export class ControllerManager {    private controllers: Map<string, IController
             }
 
             const input = controller.update(deltaTime);
-            const bullets = this.applyInput(assembly, input);
+            const bullets = this.applyInput(assembly, input, deltaTime, assemblies);
             newBullets.push(...bullets);
         }
 
         return newBullets;
     }    // Apply control input to an assembly
-    private applyInput(assembly: Assembly, input: ControlInput): Matter.Body[] {
+    private applyInput(assembly: Assembly, input: ControlInput, deltaTime: number, assemblies: Assembly[]): Matter.Body[] {
         if (assembly.destroyed) return []; const bullets: Matter.Body[] = [];
 
         // Debug logging disabled to reduce spam
@@ -77,7 +84,7 @@ export class ControllerManager {    private controllers: Map<string, IController
         if (input.fire) {
             const newBullets = assembly.fireWeapons();
             bullets.push(...newBullets);
-            
+
             // Also fire missiles
             if (this.missileSystem) {
                 const missileRequests = assembly.getMissileLaunchRequests();
@@ -89,6 +96,14 @@ export class ControllerManager {    private controllers: Map<string, IController
                         request.sourceAssemblyId,
                         request.targetAssembly
                     );
+                });
+            }
+
+            // Fire beam weapons (continuous raycast, no physics bodies)
+            if (this.beamSystem) {
+                const beamFires = assembly.getBeamFires();
+                beamFires.forEach(spec => {
+                    this.beamSystem!.processBeamFire(spec, assemblies, deltaTime);
                 });
             }
         }

@@ -2,7 +2,8 @@ export type EntityType = 'Cockpit' | 'Engine' | 'Gun' | 'Hull' | 'PowerCell' |
   'LargeCockpit' | 'LargeEngine' | 'LargeGun' | 'HeavyHull' | 'LargePowerCell' |
   'CapitalCore' | 'CapitalEngine' | 'CapitalWeapon' | 'MegaHull' | 'PowerReactor' |
   'MissileLauncher' | 'LargeMissileLauncher' | 'CapitalMissileLauncher' |
-  'Shield' | 'LargeShield';
+  'Shield' | 'LargeShield' |
+  'Beam' | 'LargeBeam';
 
 export interface EntityConfig {
   type: EntityType;
@@ -30,8 +31,10 @@ export interface EntityTypeDefinition {
   mass: number;
   defaultHealth: number;
   color: string;
-  thrust?: number; // Optional thrust value for engine parts
-  shieldHp?: number; // Max shield field HP for shield-type blocks
+  thrust?: number;    // Optional thrust value for engine parts
+  shieldHp?: number;  // Max shield field HP for shield-type blocks
+  beamRange?: number; // Max beam length in world units (beam weapons only)
+  beamDps?: number;   // Damage per second (beam weapons only)
   canAttachTo: EntityType[];
   attachmentPoints: Vector2[]; // relative to center, in grid units
 }
@@ -50,6 +53,13 @@ export const SHIELD_REGEN_DELAY_MS = 3000;      // Time after last hit before re
 export const SHIELD_REGEN_DURATION_MS = 1000;   // Full regen from 0→max in this many ms
 export const SHIELD_COLLAPSE_COOLDOWN_MS = 8000; // Post-collapse lockout before reactivation
 
+// Beam weapon constants
+export const BEAM_SMALL_RANGE = 400;     // Max range in world units for Beam
+export const BEAM_SMALL_DPS = 30;        // Damage per second for Beam
+export const BEAM_LARGE_RANGE = 600;     // Max range in world units for LargeBeam
+export const BEAM_LARGE_DPS = 80;        // Damage per second for LargeBeam
+export const BEAM_DISPLAY_DURATION_MS = 80; // How long beam visual persists after last firing
+
 // Connection information for tracking what's attached to each attachment point
 export interface AttachmentConnection {
   connectedEntity: string | null; // Entity ID that's connected to this point
@@ -67,7 +77,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     defaultHealth: 1000, // 10x health for survival capability
     color: '#00ff00',
     thrust: 4.0, // Significantly increased thrust for high thrust-to-weight ratio
-    canAttachTo: ['Engine', 'Gun', 'Hull', 'PowerCell', 'Shield', 'LargeShield'],
+    canAttachTo: ['Engine', 'Gun', 'Hull', 'PowerCell', 'Shield', 'LargeShield', 'Beam'],
     attachmentPoints: [
       { x: 0, y: -1 }, // top
       { x: 1, y: 0 },  // right
@@ -97,7 +107,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 400, // Significantly increased for realistic physics
     defaultHealth: 60,
     color: '#ff0000',
-    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'Shield', 'LargeShield'],
+    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'Shield', 'LargeShield', 'Beam'],
     attachmentPoints: [
       { x: 1, y: 0 },  // right
       { x: 0, y: 1 },  // bottom
@@ -111,7 +121,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 600, // Significantly increased for realistic physics
     defaultHealth: 120,
     color: '#888888',
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'PowerCell', 'Shield', 'LargeShield'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'PowerCell', 'Shield', 'LargeShield', 'Beam'],
     attachmentPoints: [
       { x: 0, y: -1 }, // top
       { x: 1, y: 0 },  // right
@@ -126,7 +136,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 300, // Significantly increased for realistic physics
     defaultHealth: 40,
     color: '#ffff00',
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'Shield', 'LargeShield'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'Shield', 'LargeShield', 'Beam'],
     attachmentPoints: [
       { x: 0, y: -1 }, // top
       { x: 1, y: 0 },  // right
@@ -144,7 +154,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     defaultHealth: 2500, // 10x health for survival capability
     color: '#00aa00',
     thrust: 16.0, // Very high thrust for excellent thrust-to-weight ratio
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield', 'Beam', 'LargeBeam'],
     attachmentPoints: [
       { x: 0, y: -2 }, // top center
       { x: 1, y: -1 }, // top right
@@ -181,7 +191,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 1600, // 4x mass for 4x size (2x2)
     defaultHealth: 150,
     color: '#cc0000',
-    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield'],
+    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield', 'LargeBeam'],
     attachmentPoints: [
       { x: 1, y: 1 },  // bottom right
       { x: 0, y: 2 },  // bottom center
@@ -198,7 +208,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 2400, // 4x mass for 4x size (2x2)
     defaultHealth: 300,
     color: '#666666',
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield', 'Beam', 'LargeBeam'],
     attachmentPoints: [
       { x: 0, y: -2 }, // top center
       { x: 1, y: -1 }, // top right
@@ -217,7 +227,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 1200, // 4x mass for 4x size (2x2)
     defaultHealth: 100,
     color: '#dddd00',
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'Shield', 'LargeShield'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'Shield', 'LargeShield', 'Beam', 'LargeBeam'],
     attachmentPoints: [
       { x: 0, y: -2 }, // top center
       { x: 1, y: -1 }, // top right
@@ -389,7 +399,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
       'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell',
       'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor',
       'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher',
-      'LargeShield'
+      'Beam', 'LargeShield'
     ],
     attachmentPoints: [
       { x: 0, y: -1 }, // top
@@ -411,7 +421,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
       'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell',
       'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor',
       'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher',
-      'Shield'
+      'Beam', 'LargeBeam', 'Shield'
     ],
     attachmentPoints: [
       { x: 0, y: -2 }, // top center
@@ -422,6 +432,45 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
       { x: -1, y: 1 }, // bottom left
       { x: -2, y: 0 }, // left center
       { x: -1, y: -1 } // top left
+    ]
+  },
+
+  // Beam weapons — fire a continuous instant-hit raycast beam rather than projectiles.
+  // Damage is applied as DPS × deltaTime each tick; the beam visual fades after BEAM_DISPLAY_DURATION_MS.
+  Beam: {
+    type: 'Beam',
+    width: GRID_SIZE,
+    height: GRID_SIZE,
+    mass: 400,
+    defaultHealth: 60,
+    color: '#00ccff',
+    beamRange: BEAM_SMALL_RANGE,
+    beamDps: BEAM_SMALL_DPS,
+    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'Shield', 'LargeShield'],
+    attachmentPoints: [
+      { x: 1, y: 0 },  // right
+      { x: 0, y: 1 },  // bottom
+      { x: -1, y: 0 }  // left
+      // No forward attachment — fires forward
+    ]
+  },
+  LargeBeam: {
+    type: 'LargeBeam',
+    width: GRID_SIZE * 2,
+    height: GRID_SIZE * 2,
+    mass: 1600,
+    defaultHealth: 150,
+    color: '#0066cc',
+    beamRange: BEAM_LARGE_RANGE,
+    beamDps: BEAM_LARGE_DPS,
+    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield'],
+    attachmentPoints: [
+      { x: 1, y: 1 },  // bottom right
+      { x: 0, y: 2 },  // bottom center
+      { x: -1, y: 1 }, // bottom left
+      { x: -2, y: 0 }, // left center
+      { x: 2, y: 0 }   // right center
+      // No top connections — fires forward
     ]
   }
 };
