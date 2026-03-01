@@ -44,6 +44,30 @@ Matter.js compound bodies are created via `Matter.Body.create({ parts: [...] })`
 - Shield state is refreshed (via `initializeShieldState()`) at the end of `createFreshBody()` to account for destroyed shield blocks reducing max capacity.
 - Physics optimization (inner parts opt-out of collision) was evaluated and **not implemented** — Matter.js cannot change compound-body part collision filters without a full rebuild, and adding a separate shield body with constraint has force-transfer accuracy issues. The shield is purely game-logic interception.
 
+## Rendering Architecture
+
+`RenderSystem` owns the `requestAnimationFrame` loop and all visual output. Matter.js physics continues to run via its runner, but `Matter.Render.run()` is **not** called — `RenderSystem` replaces it entirely.
+
+**Key rules:**
+- `GameEngine` creates `RenderSystem` in `setupRenderSystem()` and registers seven `IRenderer` instances (one per visual concern, sorted by `renderPriority`).
+- Each renderer receives only what it needs via getter closures injected at construction — no renderer holds a reference to `GameEngine`.
+- `Entity.body.render.fillStyle/strokeStyle/lineWidth` are the visual data contract: `Entity.updateFlash()` and `Entity.updateVisualState()` write these; `BlockBodyRenderer` reads them. Do not bypass this contract.
+- Camera management stays in `GameEngine.updateCamera()` via `Matter.Render.lookAt(this.render, ...)`. `RenderSystem` reads `this.render.bounds` each frame via a `getBounds` getter — zero camera logic lives in the render system.
+- Physics debug wireframe overlay: `GameEngine.setDebugPhysics(enabled)` delegates to `RenderSystem.setDebugPhysics()`, which creates/destroys a second `Matter.Render` instance (`wireframes: true`, `background: 'transparent'`) positioned absolutely over the game canvas. Its bounds are synced to the main viewport each frame via `Matter.Render.lookAt()`.
+- `executePlayerCommands()` runs in the **game loop** (not in any render event) — it is game logic, not rendering.
+
+**Renderer priorities:**
+
+| Priority | Renderer | Visual concern |
+|----------|----------|----------------|
+| 10 | `GridRenderer` | Background grid lines |
+| 20 | `BlockBodyRenderer` | Ship/block bodies (fills + strokes using vertex data) |
+| 30 | `BlockFrillsRenderer` | Decorative frills on block edges |
+| 40 | `ShieldRenderer` | Shield gradient + collapse ring |
+| 50 | `ShipHighlightRenderer` | Hover/selected bounding boxes, locked-target brackets |
+| 60 | `AimingDebugRenderer` | Weapon arc, distance rings, aim line |
+| 70 | `BlockPickupRenderer` | Block pickup ghost/snap overlay |
+
 ## Projectile Collision Detection (Tunneling Prevention)
 
 Fast-moving projectiles (lasers, missiles) can "tunnel" through targets if they move farther than the target's width in a single physics tick. Two mechanisms prevent this:

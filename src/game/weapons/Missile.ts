@@ -87,7 +87,7 @@ export class Missile {
             inertia: 0.5, // Lower moment of inertia for quicker rotation
             angle: initialAngle,
             // Enable Matter.js Continuous Collision Detection for high-speed bodies
-            // @ts-ignore - bullet is a valid Matter.js option but not in the TypeScript definitions
+            // @ts-expect-error - bullet is a valid Matter.js option but not in the TypeScript definitions
             bullet: true,
             collisionFilter: {
                 category: 0x0004, // Missile collision category

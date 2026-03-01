@@ -17,13 +17,14 @@ node scripts/<name>.js  # Run individual physics/logic test scripts
 ```
 scripts/        # Node.js test/debug scripts (node scripts/<name>.js)
 src/
-  ui/           # React UI overlay (HUD, radar, power management)
+  ui/           # React UI overlay (HUD, radar, power management, SettingsPanel)
   game/
-    core/       # Fundamental physics objects: GameEngine, Assembly, Entity
+    core/       # Fundamental physics objects: GameEngine, Assembly, Entity, RenderSystem
     ai/         # Control & decision-making: AIController, FlightController, ControllerManager, Controller
     weapons/    # Missile and MissileSystem
     ship/       # Ship design: BlockSystem, ShipDesigner, ShipDesignManager
     systems/    # Singletons & services: PowerSystem, ToastSystem, BlockPickupSystem
+    rendering/  # IRenderer, Viewport, and individual renderer classes
   types/        # Shared TypeScript interfaces and enums (GameTypes.ts)
   data/         # Ship definitions (ships.json)
 ```
@@ -72,7 +73,18 @@ src/
 - Collapse: when `currentHp` reaches 0, `isActive = false` and `cooldownUntil = now + SHIELD_COLLAPSE_COOLDOWN_MS` (8 s).
 - All three constants (`SHIELD_REGEN_DELAY_MS`, `SHIELD_REGEN_DURATION_MS`, `SHIELD_COLLAPSE_COOLDOWN_MS`) live in `GameTypes.ts`.
 - Interception is wired in three places: `GameEngine.handleBulletHit` (lasers), `GameEngine.handleEntityCollision` (collisions), `MissileSystem.handleMissileHit` (missiles).
-- Rendering: `GameEngine.renderShields()` draws translucent blue gradient circles after `renderBlockFrills` in the afterRender event.
+- Rendering: `ShieldRenderer` (priority 40) in `src/game/rendering/` draws translucent blue gradient circles each frame via `RenderSystem`.
+
+**Rendering system (`RenderSystem` + `src/game/rendering/`):**
+- `Matter.Render.run()` is **not called** — Matter.js is physics-only; `RenderSystem` owns the `requestAnimationFrame` loop.
+- `Matter.Render.lookAt()` is still used for camera/viewport management; `RenderSystem` reads `this.render.bounds` each frame.
+- `IRenderer` interface: `renderPriority: number` + `render(ctx, viewport, timestamp)` + optional `dispose()`.
+- `Viewport` class: wraps `Matter.Bounds` + canvas, provides `worldToScreen(wx, wy)` and `scale` getter.
+- Renderer priorities: GridRenderer(10) → BlockBodyRenderer(20) → BlockFrillsRenderer(30) → ShieldRenderer(40) → ShipHighlightRenderer(50) → AimingDebugRenderer(60) → BlockPickupRenderer(70).
+- Each renderer receives data via getter functions injected in its constructor — no direct GameEngine coupling.
+- `RenderSystem.setDebugPhysics(enabled, engine, container)` creates/destroys a second wireframe `Matter.Render` canvas positioned absolutely over the game canvas (pointer-events: none).
+- `GameEngine.setDebugPhysics(enabled)` is the public API; `SettingsPanel.tsx` calls it via the ⚙ gear button.
+- `Entity.body.render.fillStyle/strokeStyle/lineWidth` remain the data contract between Entity's visual state and `BlockBodyRenderer`.
 
 ---
 

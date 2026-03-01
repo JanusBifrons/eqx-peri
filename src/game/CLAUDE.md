@@ -6,11 +6,12 @@ All game logic, physics, AI, and entity management. No React imports here — th
 
 | Directory | Contents |
 |-----------|----------|
-| `core/`    | `GameEngine`, `Assembly`, `Entity` — fundamental physics objects |
-| `ai/`      | `AIController`, `FlightController`, `ControllerManager`, `Controller` |
-| `weapons/` | `Missile`, `MissileSystem` |
-| `ship/`    | `BlockSystem`, `ShipDesigner`, `ShipDesignManager` |
-| `systems/` | `PowerSystem`, `ToastSystem`, `SoundSystem` — singletons and support services |
+| `core/`       | `GameEngine`, `Assembly`, `Entity`, `RenderSystem` — fundamental physics objects and render loop |
+| `ai/`         | `AIController`, `FlightController`, `ControllerManager`, `Controller` |
+| `weapons/`    | `Missile`, `MissileSystem` |
+| `ship/`       | `BlockSystem`, `ShipDesigner`, `ShipDesignManager` |
+| `systems/`    | `PowerSystem`, `ToastSystem`, `SoundSystem` — singletons and support services |
+| `rendering/`  | `IRenderer` interface, `Viewport`, and one renderer class per visual concern (grid, blocks, frills, shields, highlights, aiming, block-pickup) |
 
 ## Physics Conventions (Matter.js)
 
@@ -38,7 +39,7 @@ All game logic, physics, AI, and entity management. No React imports here — th
 - Damage from lasers, missiles, and collisions is routed through `Assembly.damageShield(damage, now)` before reaching entity HP.
 - `damageShield` returns `true` if the shield absorbed the hit — the caller must early-return and skip `entity.takeDamage()`.
 - Interception points: `GameEngine.handleBulletHit` (lasers), `GameEngine.handleEntityCollision` (collisions), `MissileSystem.handleMissileHit` (missiles).
-- Rendering: `GameEngine.renderShields()` is called in the Matter.js `afterRender` event handler.
+- Rendering: `ShieldRenderer` (priority 40, in `src/game/rendering/`) handles the shield visual each frame.
 
 **AI:**
 - AI teams: `PLAYER`, `ENEMY_RED`, `ENEMY_BLUE` (defined in `GameTypes.ts`)

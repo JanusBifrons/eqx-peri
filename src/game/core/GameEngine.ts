@@ -12,10 +12,20 @@ import { ToastSystem } from '../systems/ToastSystem';
 import { SoundSystem } from '../systems/SoundSystem';
 import { MissileSystem } from '../weapons/MissileSystem';
 import { BlockPickupSystem } from '../systems/BlockPickupSystem';
+import { RenderSystem } from './RenderSystem';
+import { GridRenderer } from '../rendering/GridRenderer';
+import { BlockBodyRenderer } from '../rendering/BlockBodyRenderer';
+import { BlockFrillsRenderer } from '../rendering/BlockFrillsRenderer';
+import { ShieldRenderer } from '../rendering/ShieldRenderer';
+import { ShipHighlightRenderer } from '../rendering/ShipHighlightRenderer';
+import { AimingDebugRenderer } from '../rendering/AimingDebugRenderer';
+import { BlockPickupRenderer } from '../rendering/BlockPickupRenderer';
 
 export class GameEngine {
   private engine: Matter.Engine;
   private render: Matter.Render; private world: Matter.World;
+  private renderSystem!: RenderSystem;
+  private container!: HTMLElement;
   private assemblies: Assembly[] = [];
   private bullets: Matter.Body[] = [];
   private missileSystem: MissileSystem;
@@ -67,6 +77,7 @@ export class GameEngine {
   private mouseWorldPos: Vector2 = { x: 0, y: 0 };
 
   constructor(container: HTMLElement) {
+    this.container = container;
     console.log('🎮 Creating GameEngine...');
 
     // Create engine
@@ -157,7 +168,9 @@ export class GameEngine {
     this.setupMouseInteraction();
     this.setupEventListeners();
     this.setupCollisionDetection();
-    this.setupRenderEvents();
+
+    // Build the rendering pipeline
+    this.setupRenderSystem();
   }
 
   private calculateDefaultZoom(containerWidth: number, containerHeight: number): void {
@@ -593,7 +606,7 @@ export class GameEngine {
     console.log('🖼️  About to start renderer...');
     console.log('Render object:', this.render);
     console.log('Render canvas:', this.render.canvas);
-    Matter.Render.run(this.render);
+    this.renderSystem.start();
     console.log('🖼️  Renderer started');
 
     // Apply initial zoom and center camera
@@ -610,7 +623,7 @@ export class GameEngine {
   }
   public stop(): void {
     this.running = false;
-    Matter.Render.stop(this.render);
+    this.renderSystem.stop();
     Matter.Runner.stop(this.runner);
     Matter.Engine.clear(this.engine);
 
@@ -705,6 +718,9 @@ export class GameEngine {
         this.findPlayerAssembly();
       }
     }
+
+    // Execute player commands (follow, orbit, lockOn, etc.)
+    this.executePlayerCommands();
 
     // Update camera with mouse influence
     this.updateCameraWithMouse();
@@ -871,99 +887,9 @@ export class GameEngine {
       const powerSystem = PowerSystem.getInstance();
       powerSystem.setPlayerAssembly(this.playerAssembly);
     }
-  } private renderGrid(): void {
-    const ctx = this.render.canvas.getContext('2d');
-    if (!ctx) return;
+  }
 
-    const bounds = this.render.bounds;
-
-    // Calculate zoom level based on viewport size
-    const viewportWidth = bounds.max.x - bounds.min.x;
-    const viewportHeight = bounds.max.y - bounds.min.y;
-    const rawZoomLevel = Math.min(viewportWidth, viewportHeight) / 1000;
-    // Clamp zoom to discrete levels to prevent constant grid movement
-    const zoomThresholds = [0.1, 0.25, 0.5, 1, 2, 4, 8, 16];
-    let clampedZoomLevel = zoomThresholds[0];
-    for (const threshold of zoomThresholds) {
-      if (rawZoomLevel >= threshold) {
-        clampedZoomLevel = threshold;
-      } else {
-        break;
-      }
-    }
-
-    // Use much larger grid spacing that scales with clamped zoom levels
-    const baseMinorGridSize = GRID_SIZE * 5 * clampedZoomLevel;
-    const baseMajorGridSize = GRID_SIZE * 15 * clampedZoomLevel;
-
-    const majorGridSize = baseMajorGridSize;
-    const minorGridSize = baseMinorGridSize;
-
-    const startXMajor = Math.floor(bounds.min.x / majorGridSize) * majorGridSize;
-    const endXMajor = Math.ceil(bounds.max.x / majorGridSize) * majorGridSize;
-    const startYMajor = Math.floor(bounds.min.y / majorGridSize) * majorGridSize;
-    const endYMajor = Math.ceil(bounds.max.y / majorGridSize) * majorGridSize;
-
-    const startXMinor = Math.floor(bounds.min.x / minorGridSize) * minorGridSize;
-    const endXMinor = Math.ceil(bounds.max.x / minorGridSize) * minorGridSize;
-    const startYMinor = Math.floor(bounds.min.y / minorGridSize) * minorGridSize;
-    const endYMinor = Math.ceil(bounds.max.y / minorGridSize) * minorGridSize;
-    // Save the current canvas state
-    ctx.save();
-    // Use destination-over to draw grid behind existing content
-    ctx.globalCompositeOperation = 'destination-over';
-    // Adjust opacity based on zoom level - fade out when too zoomed out
-    const baseOpacity = Math.min(1, Math.max(0.1, 2 / clampedZoomLevel));
-    // Draw minor grid lines (lighter, behind major lines)
-    ctx.strokeStyle = '#444477';
-    ctx.lineWidth = 1;
-    ctx.globalAlpha = baseOpacity * 0.4; // Slightly more visible minor lines
-
-    // Minor vertical lines
-    for (let x = startXMinor; x <= endXMinor; x += minorGridSize) {
-      if (x % majorGridSize !== 0) { // Skip major grid positions
-        const screenX = (x - bounds.min.x) * this.render.canvas.width / (bounds.max.x - bounds.min.x);
-        ctx.beginPath();
-        ctx.moveTo(screenX, 0);
-        ctx.lineTo(screenX, this.render.canvas.height);
-        ctx.stroke();
-      }
-    }
-
-    // Minor horizontal lines
-    for (let y = startYMinor; y <= endYMinor; y += minorGridSize) {
-      if (y % majorGridSize !== 0) { // Skip major grid positions
-        const screenY = (y - bounds.min.y) * this.render.canvas.height / (bounds.max.y - bounds.min.y);
-        ctx.beginPath();
-        ctx.moveTo(0, screenY);
-        ctx.lineTo(this.render.canvas.width, screenY);
-        ctx.stroke();
-      }
-    }    // Draw major grid lines (more visible)
-    ctx.strokeStyle = '#7788aa';
-    ctx.lineWidth = 2;
-    ctx.globalAlpha = baseOpacity * 0.8; // More visible major lines
-
-    // Major vertical lines
-    for (let x = startXMajor; x <= endXMajor; x += majorGridSize) {
-      const screenX = (x - bounds.min.x) * this.render.canvas.width / (bounds.max.x - bounds.min.x);
-      ctx.beginPath();
-      ctx.moveTo(screenX, 0);
-      ctx.lineTo(screenX, this.render.canvas.height);
-      ctx.stroke();
-    }
-
-    // Major horizontal lines
-    for (let y = startYMajor; y <= endYMajor; y += majorGridSize) {
-      const screenY = (y - bounds.min.y) * this.render.canvas.height / (bounds.max.y - bounds.min.y);
-      ctx.beginPath();
-      ctx.moveTo(0, screenY);
-      ctx.lineTo(this.render.canvas.width, screenY);
-      ctx.stroke();
-    }
-    // Restore the canvas state
-    ctx.restore();
-  } private toggleGrid(): void {
+  private toggleGrid(): void {
     this.showGrid = !this.showGrid;
   }
   /*
@@ -1307,35 +1233,40 @@ export class GameEngine {
       min: { x: targetX - width / 2, y: targetY - height / 2 },
       max: { x: targetX + width / 2, y: targetY + height / 2 }
     });
-  } private setupRenderEvents(): void {
-    console.log('🎯 Setting up render events for grid and connection points');
+  }
 
-    // Start stats monitoring before each render
-    Matter.Events.on(this.render, 'beforeRender', () => {
-      this.stats.begin();
-    });    // Use afterRender for grid and connection points
-    Matter.Events.on(this.render, 'afterRender', () => {
-      if (this.showGrid) {
-        this.renderGrid();
-      }
-      this.renderConnectionPoints();
-      this.renderBlockFrills();
-      this.renderShields();
-      this.renderShipHighlights();
-      this.renderAimingDebug(); // Add debug visuals for aiming system
-      this.executePlayerCommands(); // Execute player commands each frame
+  private setupRenderSystem(): void {
+    console.log('🎨 Setting up RenderSystem');
 
-      // Draw block pickup ghost overlay on top of everything
-      if (this.blockPickupSystem.isHolding()) {
-        const ctx = this.render.canvas.getContext('2d');
-        if (ctx) {
-          this.blockPickupSystem.renderOverlay(ctx, this.render.bounds, this.playerAssembly);
-        }
-      }
+    this.renderSystem = new RenderSystem(
+      this.render.canvas,
+      () => this.render.bounds,
+      this.stats,
+    );
 
-      // End stats monitoring after each render
-      this.stats.end();
-    });
+    this.renderSystem.register(new GridRenderer(() => this.showGrid));
+    this.renderSystem.register(new BlockBodyRenderer(
+      () => this.assemblies,
+      () => this.world,
+    ));
+    this.renderSystem.register(new BlockFrillsRenderer(() => this.assemblies));
+    this.renderSystem.register(new ShieldRenderer(() => this.assemblies));
+    this.renderSystem.register(new ShipHighlightRenderer(
+      () => this.playerAssembly,
+      () => this.hoveredAssembly,
+      () => this.getSelectedAssembly(),
+      (assembly) => this.getLockedTargets(assembly),
+    ));
+    this.renderSystem.register(new AimingDebugRenderer(() => this.playerAssembly));
+    this.renderSystem.register(new BlockPickupRenderer(
+      this.blockPickupSystem,
+      () => this.playerAssembly,
+    ));
+  }
+
+  /** Enable or disable the physics wireframe debug overlay (called from SettingsPanel). */
+  public setDebugPhysics(enabled: boolean, debugOnly: boolean = false): void {
+    this.renderSystem.setDebugPhysics(enabled, debugOnly, this.engine, this.container);
   }
   /**
    * Helper method to find which assembly contains a given Matter.js body
@@ -1366,270 +1297,6 @@ export class GameEngine {
     }
 
     return null;
-  }
-
-  private renderConnectionPoints(): void {
-    const ctx = this.render.canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Save canvas state
-    ctx.save();
-
-    // Get render bounds for culling
-    const bounds = this.render.bounds;
-
-    // Render connection points for all entities in all assemblies
-    this.assemblies.forEach(assembly => {
-      assembly.entities.forEach(entity => {
-        if (entity.destroyed) return;
-
-        const worldPos = entity.body.position;
-
-        // Basic culling - skip if entity is way outside view
-        if (worldPos.x < bounds.min.x - 100 || worldPos.x > bounds.max.x + 100 ||
-          worldPos.y < bounds.min.y - 100 || worldPos.y > bounds.max.y + 100) {
-          return;
-        }
-
-        this.renderEntityConnectionPoints(ctx, entity, bounds);
-      });
-    });
-
-    // Restore canvas state
-    ctx.restore();
-  }  private renderEntityConnectionPoints(_ctx: CanvasRenderingContext2D, _entity: Entity, _bounds: Matter.Bounds): void {
-    // Connection point rendering temporarily disabled during refactor
-    // TODO: Implement using ENTITY_DEFINITIONS attachment points instead of BlockSystem
-    return;
-  }
-
-  private renderBlockFrills(): void {
-    const ctx = this.render.canvas.getContext('2d');
-    if (!ctx) return;
-
-    const bounds = this.render.bounds;
-    const canvas = this.render.canvas;
-
-    ctx.save();
-    this.assemblies.forEach(assembly => {
-      // Use the compound root's live angle — individual part body .angle values are frozen
-      // at construction time and are not updated by the physics engine during rotation.
-      const assemblyAngle = assembly.rootBody.angle;
-      assembly.entities.forEach(entity => {
-        if (entity.destroyed) return;
-        const pos = entity.body.position;
-        if (pos.x < bounds.min.x - 100 || pos.x > bounds.max.x + 100 ||
-          pos.y < bounds.min.y - 100 || pos.y > bounds.max.y + 100) return;
-        entity.drawBlockFrills(ctx, bounds, canvas, assemblyAngle);
-      });
-    });
-    ctx.restore();
-  }
-
-  /**
-   * Draw shield field circles for all assemblies with an active shield.
-   * Called from afterRender, uses the same world→screen transform as other overlays.
-   */
-  private renderShields(): void {
-    const ctx = this.render.canvas.getContext('2d');
-    if (!ctx) return;
-
-    const bounds = this.render.bounds;
-    const bw = bounds.max.x - bounds.min.x;
-    const bh = bounds.max.y - bounds.min.y;
-    const sx = (wx: number) => (wx - bounds.min.x) / bw * this.render.canvas.width;
-    const sy = (wy: number) => (wy - bounds.min.y) / bh * this.render.canvas.height;
-    const scale = this.render.canvas.width / bw;
-    const now = Date.now();
-
-    ctx.save();
-
-    this.assemblies.forEach(assembly => {
-      const s = assembly.shieldState;
-      if (!s) return;
-
-      // The shield circle part tracks its world position in rootBody.parts (maintained by
-      // Matter.js). Fall back to rootBody.position if the shield part is not yet present.
-      const shieldPart = assembly.rootBody.parts.find((p: Matter.Body) => (p as any).isShieldPart);
-      const pos = shieldPart ? shieldPart.position : assembly.rootBody.position;
-
-      // Rough culling — skip if centre is far outside the viewport
-      if (pos.x < bounds.min.x - 400 || pos.x > bounds.max.x + 400 ||
-          pos.y < bounds.min.y - 400 || pos.y > bounds.max.y + 400) return;
-
-      const screenX = sx(pos.x);
-      const screenY = sy(pos.y);
-      const radius = assembly.getShieldRadius() * scale;
-
-      if (s.isActive && s.currentHp > 0) {
-        // Active shield — opacity and colour track current HP
-        const hpRatio = s.currentHp / Math.max(1, s.maxHp);
-        const timeSinceHit = now - s.lastHitTime;
-        // Flash brighter for 300 ms after each hit
-        const hitFlash = Math.max(0, 1 - timeSinceHit / 300);
-
-        // Regen glow: brightens when actively regenerating
-        const isRegen = s.currentHp < s.maxHp && timeSinceHit >= 3000;
-        const regenPulse = isRegen ? (Math.sin(now / 150) * 0.15 + 0.85) : 1;
-
-        const baseAlpha = hpRatio * 0.28 + 0.07;
-        const alpha = Math.min(1, (baseAlpha + hitFlash * 0.35) * regenPulse);
-
-        // Fill: translucent blue bubble
-        const gradient = ctx.createRadialGradient(screenX, screenY, radius * 0.6, screenX, screenY, radius);
-        gradient.addColorStop(0, `rgba(100, 180, 255, ${alpha * 0.15})`);
-        gradient.addColorStop(0.7, `rgba(60, 130, 255, ${alpha * 0.25})`);
-        gradient.addColorStop(1, `rgba(30, 80, 220, ${alpha * 0.6})`);
-
-        ctx.fillStyle = gradient;
-        ctx.beginPath();
-        ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Rim stroke — brighter on hit flash
-        const rimAlpha = Math.min(1, 0.5 + hitFlash * 0.5);
-        ctx.strokeStyle = `rgba(120, 200, 255, ${rimAlpha})`;
-        ctx.lineWidth = Math.max(1, scale * 2) * (1 + hitFlash * 0.5);
-        ctx.beginPath();
-        ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
-        ctx.stroke();
-
-      } else if (!s.isActive) {
-        // Collapsed — draw a faint pulsing ring to show it's recharging
-        const timeLeft = s.cooldownUntil - now;
-        if (timeLeft > 0) {
-          const pulse = Math.sin(now / 400) * 0.3 + 0.4;
-          ctx.strokeStyle = `rgba(60, 80, 160, ${pulse * 0.4})`;
-          ctx.lineWidth = Math.max(1, scale * 1.5);
-          ctx.setLineDash([Math.max(3, scale * 6), Math.max(4, scale * 8)]);
-          ctx.beginPath();
-          ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
-          ctx.stroke();
-          ctx.setLineDash([]);
-        }
-      }
-    });
-
-    ctx.restore();
-  }
-
-  private renderShipHighlights(): void {
-    const ctx = this.render.canvas.getContext('2d');
-    if (!ctx) return;
-
-    ctx.save();
-    const bounds = this.render.bounds;
-
-    // Render hover bounding box
-    if (this.hoveredAssembly && !this.hoveredAssembly.destroyed) {
-      this.renderAssemblyBoundingBox(ctx, this.hoveredAssembly, bounds, {
-        color: '#ffff00',
-        alpha: 0.3,
-        lineWidth: 2,
-        dashPattern: [5, 5]
-      });
-    }    // Render selected assembly highlight
-    if (this.selectedAssembly && !this.selectedAssembly.destroyed) {
-      this.renderAssemblyBoundingBox(ctx, this.selectedAssembly, bounds, {
-        color: '#00ffff',
-        alpha: 0.6,
-        lineWidth: 3,
-        dashPattern: []
-      });
-
-      // Add pulsing effect for selected ship
-      const pulse = Math.sin(Date.now() / 300) * 0.3 + 0.7;
-      this.renderAssemblyBoundingBox(ctx, this.selectedAssembly, bounds, {
-        color: '#ffffff',
-        alpha: pulse * 0.2,
-        lineWidth: 1,
-        dashPattern: []
-      });
-    }
-
-    // Render locked targets for player ship
-    if (this.playerAssembly && !this.playerAssembly.destroyed) {
-      const lockedTargets = this.getLockedTargets(this.playerAssembly);
-
-      lockedTargets.forEach(target => {
-        if (target.destroyed) return;
-
-        // Determine target color based on team
-        const isEnemy = target.team !== this.playerAssembly!.team;
-        const targetColor = isEnemy ? '#ff4444' : '#44ff44'; // Red for enemies, green for allies
-
-        // Draw target square
-        this.renderTargetSquare(ctx, target, bounds, targetColor);
-        // If this is the primary target, add extra highlighting
-        if (this.playerAssembly!.primaryTarget?.id === target.id) {
-          this.renderAssemblyBoundingBox(ctx, target, bounds, {
-            color: targetColor,
-            alpha: 0.8,
-            lineWidth: 4,
-            dashPattern: [10, 5]
-          });
-
-          // Add pulsing primary target indicator
-          const primaryPulse = Math.sin(Date.now() / 200) * 0.4 + 0.6;
-          this.renderAssemblyBoundingBox(ctx, target, bounds, {
-            color: '#ffffff',
-            alpha: primaryPulse * 0.3,
-            lineWidth: 2,
-            dashPattern: []
-          });
-        }
-      });
-    }
-
-    ctx.restore();
-  }
-
-  private renderAssemblyBoundingBox(
-    ctx: CanvasRenderingContext2D,
-    assembly: Assembly,
-    bounds: Matter.Bounds,
-    style: { color: string; alpha: number; lineWidth: number; dashPattern: number[] }
-  ): void {
-    if (assembly.entities.length === 0) return;
-
-    // Calculate assembly bounding box
-    let minX = Infinity, minY = Infinity;
-    let maxX = -Infinity, maxY = -Infinity;
-
-    assembly.entities.forEach(entity => {
-      if (entity.destroyed) return;
-      const entityBounds = entity.body.bounds;
-      minX = Math.min(minX, entityBounds.min.x);
-      minY = Math.min(minY, entityBounds.min.y);
-      maxX = Math.max(maxX, entityBounds.max.x);
-      maxY = Math.max(maxY, entityBounds.max.y);
-    });
-
-    // Add padding
-    const padding = 20;
-    minX -= padding;
-    minY -= padding;
-    maxX += padding;
-    maxY += padding;
-
-    // Convert to screen coordinates
-    const screenMinX = (minX - bounds.min.x) * this.render.canvas.width / (bounds.max.x - bounds.min.x);
-    const screenMinY = (minY - bounds.min.y) * this.render.canvas.height / (bounds.max.y - bounds.min.y);
-    const screenMaxX = (maxX - bounds.min.x) * this.render.canvas.width / (bounds.max.x - bounds.min.x);
-    const screenMaxY = (maxY - bounds.min.y) * this.render.canvas.height / (bounds.max.y - bounds.min.y);
-
-    // Draw bounding box
-    ctx.globalAlpha = style.alpha;
-    ctx.strokeStyle = style.color;
-    ctx.lineWidth = style.lineWidth;
-    ctx.setLineDash(style.dashPattern);
-
-    ctx.beginPath();
-    ctx.rect(screenMinX, screenMinY, screenMaxX - screenMinX, screenMaxY - screenMinY);
-    ctx.stroke();
-
-    ctx.globalAlpha = 1.0;
-    ctx.setLineDash([]);
   }
 
   public initializeBattle(): void {
@@ -2497,74 +2164,6 @@ export class GameEngine {
     return this.assemblies.filter(a => lockedIds.includes(a.id) && !a.destroyed);
   }
 
-  private renderTargetSquare(
-    ctx: CanvasRenderingContext2D,
-    target: Assembly,
-    bounds: Matter.Bounds,
-    color: string
-  ): void {
-    if (target.entities.length === 0) return;
-
-    // Calculate center position of the target
-    const centerPos = target.rootBody.position;
-
-    // Convert to screen coordinates
-    const screenX = (centerPos.x - bounds.min.x) * this.render.canvas.width / (bounds.max.x - bounds.min.x);
-    const screenY = (centerPos.y - bounds.min.y) * this.render.canvas.height / (bounds.max.y - bounds.min.y);
-
-    // Draw targeting square
-    const squareSize = 20;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
-    ctx.globalAlpha = 0.8;
-
-    // Draw square
-    ctx.beginPath();
-    ctx.rect(screenX - squareSize / 2, screenY - squareSize / 2, squareSize, squareSize);
-    ctx.stroke();
-
-    // Draw corner brackets for targeting feel
-    const bracketSize = 8;
-    const bracketOffset = squareSize / 2 + 2;
-
-    ctx.lineWidth = 3;
-
-    // Top-left bracket
-    ctx.beginPath();
-    ctx.moveTo(screenX - bracketOffset, screenY - bracketOffset + bracketSize);
-    ctx.lineTo(screenX - bracketOffset, screenY - bracketOffset);
-    ctx.lineTo(screenX - bracketOffset + bracketSize, screenY - bracketOffset);
-    ctx.stroke();
-
-    // Top-right bracket
-    ctx.beginPath();
-    ctx.moveTo(screenX + bracketOffset - bracketSize, screenY - bracketOffset);
-    ctx.lineTo(screenX + bracketOffset, screenY - bracketOffset);
-    ctx.lineTo(screenX + bracketOffset, screenY - bracketOffset + bracketSize);
-    ctx.stroke();
-
-    // Bottom-left bracket
-    ctx.beginPath();
-    ctx.moveTo(screenX - bracketOffset, screenY + bracketOffset - bracketSize);
-    ctx.lineTo(screenX - bracketOffset, screenY + bracketOffset);
-    ctx.lineTo(screenX - bracketOffset + bracketSize, screenY + bracketOffset);
-    ctx.stroke();
-
-    // Bottom-right bracket
-    ctx.beginPath();
-    ctx.moveTo(screenX + bracketOffset - bracketSize, screenY + bracketOffset);
-    ctx.lineTo(screenX + bracketOffset, screenY + bracketOffset);
-    ctx.lineTo(screenX + bracketOffset, screenY + bracketOffset - bracketSize);
-    ctx.stroke();
-
-    // Add target name text
-    ctx.fillStyle = color;
-    ctx.font = '12px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText(target.shipName, screenX, screenY + bracketOffset + 15);
-
-    ctx.globalAlpha = 1.0;
-  }
   private selectNearestEnemy(): void {
     if (!this.playerAssembly || this.playerAssembly.destroyed) return;
 
@@ -2627,129 +2226,5 @@ export class GameEngine {
 
     this.playerAssembly.setPrimaryTarget(nextTarget);
     console.log(`🎯 Cycled to target: ${nextTarget.shipName}`);
-  } private renderAimingDebug(): void {
-    if (!this.playerAssembly || this.playerAssembly.destroyed) return;
-
-    const ctx = this.render.canvas.getContext('2d');
-    if (!ctx) return;
-
-    ctx.save();
-    const bounds = this.render.bounds;
-    const currentAngle = this.playerAssembly.rootBody.angle;
-
-    // Get ship center position for reference lines
-    const shipPos = this.playerAssembly.rootBody.position;
-    const shipScreenX = (shipPos.x - bounds.min.x) * this.render.canvas.width / (bounds.max.x - bounds.min.x);
-    const shipScreenY = (shipPos.y - bounds.min.y) * this.render.canvas.height / (bounds.max.y - bounds.min.y);
-
-    const distanceRanges = [100, 200, 300, 500]; // World units
-    const maxDistance = Math.max(...distanceRanges);
-
-    // Draw weapon aiming visualization
-    const weapons = this.playerAssembly.entities.filter(e => e.canFire());
-    weapons.forEach((weapon) => {
-      // Use muzzle position so the arc origin matches where bullets/missiles actually spawn.
-      const weaponPos = weapon.getMuzzlePosition(currentAngle);
-
-      // Convert weapon position to screen coordinates
-      const weaponScreenX = (weaponPos.x - bounds.min.x) * this.render.canvas.width / (bounds.max.x - bounds.min.x);
-      const weaponScreenY = (weaponPos.y - bounds.min.y) * this.render.canvas.height / (bounds.max.y - bounds.min.y);
-
-      // Calculate weapon angles
-      const weaponNaturalAngle = currentAngle + (weapon.rotation * Math.PI / 180);
-      const aimingArc = this.playerAssembly!.getWeaponAimingArc(weapon.type);      // Draw distance guide arcs from this weapon's position within its aiming arc
-      ctx.strokeStyle = '#666666';
-      ctx.lineWidth = 1.5;
-      ctx.globalAlpha = 0.6; distanceRanges.forEach((worldDistance) => {
-        const screenDistance = worldDistance * this.render.canvas.width / (bounds.max.x - bounds.min.x);
-
-        // Draw arc only within the weapon's aiming range
-        const arcStartAngle = weaponNaturalAngle - aimingArc / 2;
-        const arcEndAngle = weaponNaturalAngle + aimingArc / 2;
-
-        ctx.beginPath();
-        ctx.arc(weaponScreenX, weaponScreenY, screenDistance, arcStartAngle, arcEndAngle);
-        ctx.stroke();
-      });
-
-      // Draw radial lines to cap off the arcs (pizza slice edges)
-      const largestScreenDistance = maxDistance * this.render.canvas.width / (bounds.max.x - bounds.min.x);
-      const leftBoundaryAngle = weaponNaturalAngle - aimingArc / 2;
-      const rightBoundaryAngle = weaponNaturalAngle + aimingArc / 2;
-
-      // Left boundary line
-      ctx.beginPath();
-      ctx.moveTo(weaponScreenX, weaponScreenY);
-      const leftEndX = weaponScreenX + Math.cos(leftBoundaryAngle) * largestScreenDistance;
-      const leftEndY = weaponScreenY + Math.sin(leftBoundaryAngle) * largestScreenDistance;
-      ctx.lineTo(leftEndX, leftEndY);
-      ctx.stroke();
-
-      // Right boundary line
-      ctx.beginPath();
-      ctx.moveTo(weaponScreenX, weaponScreenY);
-      const rightEndX = weaponScreenX + Math.cos(rightBoundaryAngle) * largestScreenDistance;
-      const rightEndY = weaponScreenY + Math.sin(rightBoundaryAngle) * largestScreenDistance;
-      ctx.lineTo(rightEndX, rightEndY);
-      ctx.stroke(); ctx.globalAlpha = 1.0;
-
-      // Draw distance labels for this weapon (only for the largest arc to avoid clutter)
-      const largestDistance = distanceRanges[distanceRanges.length - 1];
-      const largestLabelScreenDistance = largestDistance * this.render.canvas.width / (bounds.max.x - bounds.min.x);
-
-      ctx.fillStyle = '#888888';
-      ctx.font = '12px Arial';
-      ctx.textAlign = 'center';
-      ctx.globalAlpha = 0.8;      // Place label at the center of the weapon's aiming arc
-      const labelAngle = weaponNaturalAngle;
-      const labelX = weaponScreenX + Math.cos(labelAngle) * (largestLabelScreenDistance + 15);
-      const labelY = weaponScreenY + Math.sin(labelAngle) * (largestLabelScreenDistance + 15);
-      ctx.fillText(`${largestDistance}u`, labelX, labelY);
-      ctx.globalAlpha = 1.0;      // Draw line from ship center to weapon position
-      ctx.strokeStyle = '#aaaaaa';
-      ctx.lineWidth = 1;
-      ctx.globalAlpha = 0.5;
-      ctx.setLineDash([3, 3]);
-      ctx.beginPath();
-      ctx.moveTo(shipScreenX, shipScreenY);
-      ctx.lineTo(weaponScreenX, weaponScreenY);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.globalAlpha = 1.0;
-
-      // Draw weapon position marker
-      ctx.fillStyle = '#dddddd';
-      ctx.globalAlpha = 0.9;
-      ctx.beginPath();
-      ctx.arc(weaponScreenX, weaponScreenY, 5, 0, 2 * Math.PI);
-      ctx.fill();
-      ctx.globalAlpha = 1.0;
-
-      // Draw weapon type label
-      ctx.fillStyle = '#bbbbbb';
-      ctx.font = '11px Arial';
-      ctx.textAlign = 'center';
-      ctx.globalAlpha = 0.9;
-      ctx.fillText(weapon.type, weaponScreenX, weaponScreenY - 12);
-      ctx.globalAlpha = 1.0;
-
-      // Draw line from weapon to furthest distance arc
-      const maxDistanceScreen = maxDistance * this.render.canvas.width / (bounds.max.x - bounds.min.x);
-      const currentAimAngle = weapon.getCurrentFiringAngle(currentAngle);
-      ctx.strokeStyle = '#999999';
-      ctx.lineWidth = 2;
-      ctx.globalAlpha = 0.7;
-      ctx.setLineDash([3, 2]);
-      ctx.beginPath();
-      ctx.moveTo(weaponScreenX, weaponScreenY);
-
-      // Extend line in the direction of current weapon aim to the furthest arc
-      const extensionEndX = weaponScreenX + Math.cos(currentAimAngle) * maxDistanceScreen;
-      const extensionEndY = weaponScreenY + Math.sin(currentAimAngle) * maxDistanceScreen;
-      ctx.lineTo(extensionEndX, extensionEndY);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.globalAlpha = 1.0;
-    });    ctx.restore();
   }
 }

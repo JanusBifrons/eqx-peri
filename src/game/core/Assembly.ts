@@ -436,7 +436,7 @@ export class Assembly {
       frictionAir: 0, // No air resistance in space
       // Enable Matter.js Continuous Collision Detection for high-speed bodies
       // This makes the physics engine check for collisions along the movement path
-      // @ts-ignore - bullet is a valid Matter.js option but not in the TypeScript definitions
+      // @ts-expect-error - bullet is a valid Matter.js option but not in the TypeScript definitions
       bullet: true,
       collisionFilter: {
         category: 0x0002, // Laser category

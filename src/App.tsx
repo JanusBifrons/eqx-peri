@@ -6,6 +6,7 @@ import PowerManagement from './ui/PowerManagement';
 import PartsInfo from './ui/PartsInfo';
 import FlightControls from './ui/FlightControls';
 import MainMenu from './ui/MainMenu';
+import SettingsPanel from './ui/SettingsPanel';
 import {
   Paper,
   Typography,
@@ -222,6 +223,9 @@ const App: React.FC = () => {
 
         {/* Flight Controls - bottom right (inertial dampening + eject) */}
         <FlightControls gameEngine={gameEngine} />
+
+        {/* Settings panel - bottom left */}
+        <SettingsPanel gameEngine={gameEngine} />
       </div>
     </ThemeProvider>
   );
