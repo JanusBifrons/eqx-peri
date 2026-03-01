@@ -9,6 +9,8 @@
  *   SoundSystem.getInstance().playImpact();
  */
 
+import { Howl } from 'howler';
+
 export interface SoundSettings {
   masterVolume: number;
   musicVolume: number;
@@ -30,10 +32,9 @@ export class SoundSystem {
     enabled: true
   };
 
-  // Music state
-  private musicSource: AudioBufferSourceNode | null = null;
-  private musicPlaying: boolean = false;
-  private musicPending: boolean = false; // Track if music should start when context resumes
+  // Music state — Howler handles its own AudioContext independently from the SFX chain
+  private musicHowl: Howl | null = null;
+  private musicPlaying = false;
 
   private constructor() {
     // Audio context created on first user interaction
@@ -80,11 +81,7 @@ export class SoundSystem {
   public resume(): void {
     if (this.audioContext?.state === 'suspended') {
       this.audioContext.resume().then(() => {
-        console.log('🔊 Audio context resumed');
-        // Start music if it was pending
-        if (this.musicPending && !this.musicPlaying) {
-          this.actuallyStartMusic();
-        }
+        console.log('🔊 SoundSystem: SFX AudioContext resumed');
       });
     }
   }
@@ -96,6 +93,8 @@ export class SoundSystem {
     if (this.masterGain) {
       this.masterGain.gain.value = this.settings.masterVolume;
     }
+    // Howler bypasses the Web Audio gain chain, so sync its volume manually
+    this.musicHowl?.volume(this.settings.musicVolume * this.settings.masterVolume);
   }
 
   public setMusicVolume(volume: number): void {
@@ -103,6 +102,7 @@ export class SoundSystem {
     if (this.musicGain) {
       this.musicGain.gain.value = this.settings.musicVolume;
     }
+    this.musicHowl?.volume(this.settings.musicVolume * this.settings.masterVolume);
   }
 
   public setSfxVolume(volume: number): void {
@@ -127,115 +127,80 @@ export class SoundSystem {
 
   public startMusic(): void {
     if (!this.settings.enabled) return;
-
-    this.musicPending = true;
-
-    // If context is running, start immediately
-    if (this.audioContext?.state === 'running') {
-      this.actuallyStartMusic();
-    }
-    // Otherwise, music will start when resume() is called
+    if (this.musicPlaying) return;
+    this.actuallyStartMusic();
   }
 
   private actuallyStartMusic(): void {
-    if (!this.audioContext || !this.musicGain) return;
-    if (this.musicPlaying) return;
-
-    // Use oscillators for ambient drone instead of buffer (more reliable)
-    const ctx = this.audioContext;
-
-    // Create drone oscillators
-    const drone1 = ctx.createOscillator();
-    const drone1Gain = ctx.createGain();
-    drone1.type = 'sine';
-    drone1.frequency.value = 55; // Low A
-    drone1Gain.gain.value = 0.15;
-    drone1.connect(drone1Gain);
-    drone1Gain.connect(this.musicGain);
-    drone1.start();
-
-    const drone2 = ctx.createOscillator();
-    const drone2Gain = ctx.createGain();
-    drone2.type = 'sine';
-    drone2.frequency.value = 82.5; // Low E
-    drone2Gain.gain.value = 0.1;
-    drone2.connect(drone2Gain);
-    drone2Gain.connect(this.musicGain);
-    drone2.start();
-
-    const drone3 = ctx.createOscillator();
-    const drone3Gain = ctx.createGain();
-    drone3.type = 'triangle';
-    drone3.frequency.value = 110; // A2
-    drone3Gain.gain.value = 0.05;
-    drone3.connect(drone3Gain);
-    drone3Gain.connect(this.musicGain);
-    drone3.start();
-
-    // Store references for stopping later
-    (this as any).musicOscillators = [drone1, drone2, drone3];
-
+    this.musicHowl = new Howl({
+      src: ['/music/background.mp3', '/music/background.ogg'],
+      loop: true,
+      html5: true, // Use HTML5 Audio element — avoids Web Audio decodeAudioData codec restrictions
+      volume: this.settings.musicVolume * this.settings.masterVolume,
+      onload: () => {
+        console.log('🎵 SoundSystem: background music file loaded');
+      },
+      onloaderror: (_id, err) => {
+        console.warn(
+          '🎵 SoundSystem: failed to load music file.',
+          'Place your track at public/music/background.ogg (or .mp3).',
+          err
+        );
+        this.musicPlaying = false;
+        this.musicHowl = null;
+      },
+      onplay: () => {
+        console.log('🎵 SoundSystem: background music playing, volume:',
+          (this.settings.musicVolume * this.settings.masterVolume).toFixed(2));
+      },
+    });
+    this.musicHowl.play();
     this.musicPlaying = true;
-    console.log('🎵 Music started (oscillator-based drone)');
   }
 
   public stopMusic(): void {
-    this.musicPending = false;
-
-    // Stop oscillator-based music
-    const oscillators = (this as any).musicOscillators as OscillatorNode[] | undefined;
-    if (oscillators) {
-      oscillators.forEach(osc => {
-        try {
-          osc.stop();
-        } catch {
-          // Ignore if already stopped
-        }
-      });
-      (this as any).musicOscillators = null;
+    if (this.musicHowl) {
+      this.musicHowl.stop();
+      this.musicHowl.unload();
+      this.musicHowl = null;
     }
-
-    // Stop buffer-based music (legacy)
-    if (this.musicSource) {
-      try {
-        this.musicSource.stop();
-      } catch {
-        // Ignore if already stopped
-      }
-      this.musicSource = null;
-    }
-
     this.musicPlaying = false;
   }
 
   // ============ Sound Effects ============
 
   public playLaserFire(): void {
+    console.log('🔫 SoundSystem.playLaserFire called');
     if (!this.canPlaySound()) return;
     this.playProceduralLaser();
   }
 
   public playLaserImpact(): void {
+    console.log('💥 SoundSystem.playLaserImpact called');
     if (!this.canPlaySound()) return;
     this.playProceduralImpact();
   }
 
   public playBlockDestroyed(): void {
+    console.log('🧱 SoundSystem.playBlockDestroyed called');
     if (!this.canPlaySound()) return;
     this.playProceduralDestruction(0.3);
   }
 
   public playShipBreakApart(): void {
+    console.log('💀 SoundSystem.playShipBreakApart called');
     if (!this.canPlaySound()) return;
     this.playProceduralDestruction(0.6);
   }
 
   public playMissileLaunch(): void {
+    console.log('🚀 SoundSystem.playMissileLaunch called');
     if (!this.canPlaySound()) return;
     this.playProceduralMissileLaunch();
   }
 
   public playMissileExplosion(): void {
+    console.log('💣 SoundSystem.playMissileExplosion called');
     if (!this.canPlaySound()) return;
     this.playProceduralExplosion();
   }
@@ -243,10 +208,23 @@ export class SoundSystem {
   // ============ Helper Methods ============
 
   private canPlaySound(): boolean {
-    return this.settings.enabled &&
-           this.audioContext !== null &&
-           this.audioContext.state === 'running' &&
-           this.sfxGain !== null;
+    if (!this.settings.enabled) {
+      console.warn('🔇 SoundSystem: canPlaySound=false (disabled)');
+      return false;
+    }
+    if (!this.audioContext) {
+      console.warn('🔇 SoundSystem: canPlaySound=false (no AudioContext — init() not called yet?)');
+      return false;
+    }
+    if (this.audioContext.state !== 'running') {
+      console.warn(`🔇 SoundSystem: canPlaySound=false (AudioContext state="${this.audioContext.state}" — waiting for user interaction?)`);
+      return false;
+    }
+    if (!this.sfxGain) {
+      console.warn('🔇 SoundSystem: canPlaySound=false (sfxGain is null)');
+      return false;
+    }
+    return true;
   }
 
   // ============ Procedural Sound Generation ============
