@@ -63,6 +63,17 @@ src/
 - `ScenarioConfig.sandboxMode: boolean` — when true, `GameEngine.initializeBattle` calls `spawnSandboxScenario` instead of the normal team-spawn path (player gets a bare Cockpit; loose blocks are scattered nearby).
 - Snap detection uses player-local `localOffset` arithmetic, not world positions, so it is rotation-independent.
 
+**Shield system (`Assembly.shieldState`):**
+- `Shield` and `LargeShield` are physical block types (in `ENTITY_DEFINITIONS`) that grant an assembly a damage-absorbing shield field.
+- Shield state is tracked in `Assembly.shieldState: ShieldState | null` (initialized/refreshed by `initializeShieldState()`).
+- Damage interception is **game-logic only** — no Matter.js physics filter changes. `Assembly.damageShield(damage, now)` returns `true` if the shield absorbed the hit; callers must early-return and skip entity damage when it returns `true`.
+- Shield wear mechanic: each hit reduces both `currentHp` **and** `maxHp` (max HP degrades permanently per hit, within a session).
+- Regen: after `SHIELD_REGEN_DELAY_MS` with no hits, shield regenerates to current `maxHp` over `SHIELD_REGEN_DURATION_MS`.
+- Collapse: when `currentHp` reaches 0, `isActive = false` and `cooldownUntil = now + SHIELD_COLLAPSE_COOLDOWN_MS` (8 s).
+- All three constants (`SHIELD_REGEN_DELAY_MS`, `SHIELD_REGEN_DURATION_MS`, `SHIELD_COLLAPSE_COOLDOWN_MS`) live in `GameTypes.ts`.
+- Interception is wired in three places: `GameEngine.handleBulletHit` (lasers), `GameEngine.handleEntityCollision` (collisions), `MissileSystem.handleMissileHit` (missiles).
+- Rendering: `GameEngine.renderShields()` draws translucent blue gradient circles after `renderBlockFrills` in the afterRender event.
+
 ---
 
 MAINTENANCE MANDATE: If you establish a new pattern, change a library, or fix a systemic bug within the scope of this directory, you must update this CLAUDE.md file to reflect the new standard before concluding your task.

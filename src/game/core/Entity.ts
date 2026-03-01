@@ -288,6 +288,9 @@ export class Entity {
       case 'LargePowerCell':
       case 'PowerReactor':
         return '#3a5238'; // Dark green — energy
+      case 'Shield':
+      case 'LargeShield':
+        return '#1a3060'; // Deep blue — energy field generator
       default:
         return '#5e5e5e';
     }
@@ -319,6 +322,9 @@ export class Entity {
       case 'LargePowerCell':
       case 'PowerReactor':
         return '#1e3018';
+      case 'Shield':
+      case 'LargeShield':
+        return '#0a1840';
       default:
         return '#303030';
     }
@@ -711,6 +717,23 @@ export class Entity {
         ctx.fillStyle = '#48a848';
         ctx.beginPath();
         ctx.arc(sx(pos.x), sy(pos.y), dotR, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+      case 'Shield':
+      case 'LargeShield': {
+        // Hexagonal "emitter" symbol — two overlapping arcs forming a shield icon
+        const emitterR = Math.max(2, scale * Math.min(halfW, halfH) * 0.55);
+        const pulse = Math.sin(Date.now() / 600) * 0.2 + 0.8;
+        ctx.strokeStyle = `rgba(80, 160, 255, ${pulse})`;
+        ctx.lineWidth = Math.max(1, scale * 1.5);
+        ctx.beginPath();
+        ctx.arc(sx(pos.x), sy(pos.y), emitterR, 0, Math.PI * 2);
+        ctx.stroke();
+        // Inner dot
+        ctx.fillStyle = `rgba(120, 200, 255, ${pulse})`;
+        ctx.beginPath();
+        ctx.arc(sx(pos.x), sy(pos.y), Math.max(1, scale * 1.2), 0, Math.PI * 2);
         ctx.fill();
         break;
       }

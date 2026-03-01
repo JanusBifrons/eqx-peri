@@ -33,6 +33,17 @@ Matter.js compound bodies are created via `Matter.Body.create({ parts: [...] })`
 - **Always use `entity.localOffset`** (ship-local pixel coordinates, always multiples of `GRID_SIZE`) for grid-position lookup — never `entity.body.position` (world coordinates that are no longer grid-aligned after rotation). Using world positions causes every block destruction on a rotated ship to appear as a full fragmentation.
 - `entity.localOffset` is set once at Entity construction from `config.x/y` and never changes. Fragment assemblies (`createNewAssemblyFromComponent`) also compute configs from `localOffset` relative to the fragment center to preserve grid alignment.
 
+## Shield System
+
+`Assembly` manages an optional `shieldState: ShieldState | null` property for assemblies that contain `Shield` or `LargeShield` blocks.
+
+- **`initializeShieldState()`**: scans `this.entities` for shield blocks; sums their `shieldHp` values for `maxHp`. Preserves existing wear/cooldown state when called from `createFreshBody()` (after block destruction).
+- **`updateShield(deltaTimeMs)`**: called every frame from `Assembly.update()`. Handles regen timing and reactivation after cooldown.
+- **`damageShield(damage, now)`**: returns `true` if shield absorbed the hit (callers must skip entity damage). Reduces both `currentHp` and `maxHp` (wear). Triggers collapse (`isActive=false`, `cooldownUntil`) when HP hits 0.
+- **`hasActiveShield()`** / **`getShieldRadius()`**: utility accessors for rendering and interception checks.
+- Shield state is refreshed (via `initializeShieldState()`) at the end of `createFreshBody()` to account for destroyed shield blocks reducing max capacity.
+- Physics optimization (inner parts opt-out of collision) was evaluated and **not implemented** — Matter.js cannot change compound-body part collision filters without a full rebuild, and adding a separate shield body with constraint has force-transfer accuracy issues. The shield is purely game-logic interception.
+
 ## Projectile Collision Detection (Tunneling Prevention)
 
 Fast-moving projectiles (lasers, missiles) can "tunnel" through targets if they move farther than the target's width in a single physics tick. Two mechanisms prevent this:

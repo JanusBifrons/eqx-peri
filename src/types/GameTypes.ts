@@ -1,7 +1,8 @@
 export type EntityType = 'Cockpit' | 'Engine' | 'Gun' | 'Hull' | 'PowerCell' |
   'LargeCockpit' | 'LargeEngine' | 'LargeGun' | 'HeavyHull' | 'LargePowerCell' |
   'CapitalCore' | 'CapitalEngine' | 'CapitalWeapon' | 'MegaHull' | 'PowerReactor' |
-  'MissileLauncher' | 'LargeMissileLauncher' | 'CapitalMissileLauncher';
+  'MissileLauncher' | 'LargeMissileLauncher' | 'CapitalMissileLauncher' |
+  'Shield' | 'LargeShield';
 
 export interface EntityConfig {
   type: EntityType;
@@ -30,9 +31,24 @@ export interface EntityTypeDefinition {
   defaultHealth: number;
   color: string;
   thrust?: number; // Optional thrust value for engine parts
+  shieldHp?: number; // Max shield field HP for shield-type blocks
   canAttachTo: EntityType[];
   attachmentPoints: Vector2[]; // relative to center, in grid units
 }
+
+// Shield field state — stored on Assembly, not Entity.
+// currentHp regenerates; maxHp degrades when hits land.
+export interface ShieldState {
+  currentHp: number;
+  maxHp: number;
+  isActive: boolean;
+  lastHitTime: number;   // ms timestamp of last shield impact
+  cooldownUntil: number; // ms timestamp — shield cannot reactivate before this
+}
+
+export const SHIELD_REGEN_DELAY_MS = 3000;      // Time after last hit before regen begins
+export const SHIELD_REGEN_DURATION_MS = 1000;   // Full regen from 0→max in this many ms
+export const SHIELD_COLLAPSE_COOLDOWN_MS = 8000; // Post-collapse lockout before reactivation
 
 // Connection information for tracking what's attached to each attachment point
 export interface AttachmentConnection {
@@ -51,7 +67,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     defaultHealth: 1000, // 10x health for survival capability
     color: '#00ff00',
     thrust: 4.0, // Significantly increased thrust for high thrust-to-weight ratio
-    canAttachTo: ['Engine', 'Gun', 'Hull', 'PowerCell'],
+    canAttachTo: ['Engine', 'Gun', 'Hull', 'PowerCell', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 0, y: -1 }, // top
       { x: 1, y: 0 },  // right
@@ -67,7 +83,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     defaultHealth: 80,
     color: '#ff6600',
     thrust: 1.5, // Increased proportionally with mass (750/500 * 1.0)
-    canAttachTo: ['Cockpit', 'Hull', 'PowerCell'],
+    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 0, y: -1 }, // top (exhaust is bottom)
       { x: 1, y: 0 },  // right
@@ -81,7 +97,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 400, // Significantly increased for realistic physics
     defaultHealth: 60,
     color: '#ff0000',
-    canAttachTo: ['Cockpit', 'Hull', 'PowerCell'],
+    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 1, y: 0 },  // right
       { x: 0, y: 1 },  // bottom
@@ -95,7 +111,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 600, // Significantly increased for realistic physics
     defaultHealth: 120,
     color: '#888888',
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'PowerCell'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'PowerCell', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 0, y: -1 }, // top
       { x: 1, y: 0 },  // right
@@ -110,7 +126,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 300, // Significantly increased for realistic physics
     defaultHealth: 40,
     color: '#ffff00',
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 0, y: -1 }, // top
       { x: 1, y: 0 },  // right
@@ -128,7 +144,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     defaultHealth: 2500, // 10x health for survival capability
     color: '#00aa00',
     thrust: 16.0, // Very high thrust for excellent thrust-to-weight ratio
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 0, y: -2 }, // top center
       { x: 1, y: -1 }, // top right
@@ -148,7 +164,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     defaultHealth: 200,
     color: '#cc4400',
     thrust: 6.0, // Proportional to mass (3000/500 * 1.0)
-    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell'],
+    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 0, y: -2 }, // top center
       { x: 1, y: -1 }, // top right
@@ -165,7 +181,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 1600, // 4x mass for 4x size (2x2)
     defaultHealth: 150,
     color: '#cc0000',
-    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell'],
+    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 1, y: 1 },  // bottom right
       { x: 0, y: 2 },  // bottom center
@@ -182,7 +198,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 2400, // 4x mass for 4x size (2x2)
     defaultHealth: 300,
     color: '#666666',
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 0, y: -2 }, // top center
       { x: 1, y: -1 }, // top right
@@ -201,7 +217,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 1200, // 4x mass for 4x size (2x2)
     defaultHealth: 100,
     color: '#dddd00',
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 0, y: -2 }, // top center
       { x: 1, y: -1 }, // top right
@@ -223,7 +239,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     defaultHealth: 10000, // 10x health for survival capability
     color: '#0066ff',
     thrust: 64.0, // Massive thrust for incredible thrust-to-weight ratio
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 0, y: -4 }, // top center
       { x: 2, y: -2 }, // top right
@@ -243,7 +259,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     defaultHealth: 800,
     color: '#ff3300',
     thrust: 24.0, // Proportional to mass (12000/500 * 1.0)
-    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'MegaHull', 'PowerReactor'],
+    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 0, y: -4 }, // top center
       { x: 2, y: -2 }, // top right
@@ -260,7 +276,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 6400, // 16x mass for 16x size (4x4)
     defaultHealth: 600,
     color: '#aa0000',
-    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'MegaHull', 'PowerReactor'],
+    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 2, y: 2 },  // bottom right
       { x: 0, y: 4 },  // bottom center
@@ -277,7 +293,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 9600, // 16x mass for 16x size (4x4)
     defaultHealth: 1200,
     color: '#444444',
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 0, y: -4 }, // top center
       { x: 2, y: -2 }, // top right
@@ -296,7 +312,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 4800, // 16x mass for 16x size (4x4)
     defaultHealth: 400,
     color: '#ffaa00',
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 0, y: -4 }, // top center
       { x: 2, y: -2 }, // top right
@@ -317,7 +333,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 450, // Similar to guns but slightly heavier
     defaultHealth: 70,
     color: '#ff9900', // Orange color for missiles
-    canAttachTo: ['Cockpit', 'Hull', 'PowerCell'],
+    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 1, y: 0 },  // right
       { x: 0, y: 1 },  // bottom
@@ -331,7 +347,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 1800, // 4x mass for 4x size
     defaultHealth: 180,
     color: '#ff7700', // Darker orange for large launchers
-    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell'],
+    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 1, y: 1 },  // bottom right
       { x: 0, y: 2 },  // bottom center
@@ -347,13 +363,65 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 7200, // 16x mass for 16x size
     defaultHealth: 720,
     color: '#ff5500', // Even darker orange for capital launchers
-    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'MegaHull', 'PowerReactor'],
+    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 2, y: 2 },  // bottom right
       { x: 0, y: 4 },  // bottom center
       { x: -2, y: 2 }, // bottom left
       { x: -4, y: 0 }, // left center
       { x: 4, y: 0 }   // right center
+    ]
+  },
+
+  // Shield blocks — generate an energy field that absorbs damage.
+  // The field HP is stored separately on the Assembly (shieldState) and regenerates
+  // Halo-style: rapid regen after a delay, long lockout after full collapse.
+  Shield: {
+    type: 'Shield',
+    width: GRID_SIZE,
+    height: GRID_SIZE,
+    mass: 600,
+    defaultHealth: 200,
+    color: '#4488ff',
+    shieldHp: 300,
+    canAttachTo: [
+      'Cockpit', 'Engine', 'Gun', 'Hull', 'PowerCell',
+      'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell',
+      'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor',
+      'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher',
+      'LargeShield'
+    ],
+    attachmentPoints: [
+      { x: 0, y: -1 }, // top
+      { x: 1, y: 0 },  // right
+      { x: 0, y: 1 },  // bottom
+      { x: -1, y: 0 }  // left
+    ]
+  },
+  LargeShield: {
+    type: 'LargeShield',
+    width: GRID_SIZE * 2,
+    height: GRID_SIZE * 2,
+    mass: 2400,
+    defaultHealth: 400,
+    color: '#2255cc',
+    shieldHp: 700,
+    canAttachTo: [
+      'Cockpit', 'Engine', 'Gun', 'Hull', 'PowerCell',
+      'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell',
+      'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor',
+      'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher',
+      'Shield'
+    ],
+    attachmentPoints: [
+      { x: 0, y: -2 }, // top center
+      { x: 1, y: -1 }, // top right
+      { x: 2, y: 0 },  // right center
+      { x: 1, y: 1 },  // bottom right
+      { x: 0, y: 2 },  // bottom center
+      { x: -1, y: 1 }, // bottom left
+      { x: -2, y: 0 }, // left center
+      { x: -1, y: -1 } // top left
     ]
   }
 };

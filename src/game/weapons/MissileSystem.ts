@@ -61,7 +61,16 @@ export class MissileSystem {
         // Play missile explosion sound
         SoundSystem.getInstance().playMissileExplosion();
 
-        // Apply damage
+        // Shield interception — if the target assembly has an active shield it absorbs the hit.
+        const targetAssembly = (targetEntity.body as any)?.assembly;
+        if (targetAssembly && typeof targetAssembly.damageShield === 'function') {
+            if (targetAssembly.damageShield(missile.getDamage(), Date.now())) {
+                missile.destroy();
+                return;
+            }
+        }
+
+        // Apply damage to the entity directly
         if (targetEntity.takeDamage) {
             targetEntity.takeDamage(missile.getDamage());
         }

@@ -1,6 +1,6 @@
 import * as Matter from 'matter-js';
 import { Entity } from './Entity';
-import { EntityConfig, Vector2, EntityType, ENTITY_DEFINITIONS } from '../../types/GameTypes';
+import { EntityConfig, Vector2, EntityType, ENTITY_DEFINITIONS, ShieldState, SHIELD_REGEN_DELAY_MS, SHIELD_REGEN_DURATION_MS, SHIELD_COLLAPSE_COOLDOWN_MS } from '../../types/GameTypes';
 import { PowerSystem } from '../systems/PowerSystem';
 import { MissileType } from '../weapons/Missile';
 
@@ -35,6 +35,9 @@ export class Assembly {
   public lastHitByPlayer: boolean = false;
   public lastHitByAssemblyId: string | null = null;
 
+  // Shield field state — null when the assembly has no shield blocks
+  public shieldState: ShieldState | null = null;
+
   constructor(entityConfigs: EntityConfig[], position: Vector2 = { x: 0, y: 0 }) {
     this.id = Math.random().toString(36).substr(2, 9);
 
@@ -44,41 +47,61 @@ export class Assembly {
     // Build connection graph between entities
     this.buildConnectionGraph();
 
+    // Initialize shield state before body creation so hasActiveShield() is accurate
+    // when deciding whether to include the physical shield circle in the compound.
+    this.shieldState = this.initializeShieldState();
+
     // Calculate expected total mass
-    const expectedTotalMass = this.entities.reduce((sum, e) => sum + e.body.mass, 0);    // Assembly created with combined mass
+    const expectedTotalMass = this.entities.reduce((sum, e) => sum + e.body.mass, 0);
+
+    // Build parts list — include shield circle when field is active.
+    const constructorParts: Matter.Body[] = this.entities.map(e => e.body);
+    if (this.hasActiveShield()) {
+      const center = this.getShieldCenterLocal();
+      const shieldCircle = Matter.Bodies.circle(center.x, center.y, this.getShieldRadius(), {
+        density: 0.000001,
+        restitution: 0.3,
+        frictionAir: 0,
+        friction: 0,
+        render: { visible: false },
+      });
+      (shieldCircle as any).isShieldPart = true;
+      (shieldCircle as any).parentAssembly = this;
+      constructorParts.push(shieldCircle);
+    }
 
     // Create root body with realistic physics settings
     this.rootBody = Matter.Body.create({
-      parts: this.entities.map(e => e.body),
+      parts: constructorParts,
       isStatic: false,
-      frictionAir: 0, // No air resistance in space
-      friction: 0, // No surface friction in space
-      restitution: 0.2 // Low bounce for realistic space debris
+      frictionAir: 0,
+      friction: 0,
+      restitution: 0.2
     });
 
-    // Debug: Check if Matter.js calculated the mass correctly
-    // Create the Matter.js compound body
     if (Math.abs(this.rootBody.mass - expectedTotalMass) > 0.1) {
       console.warn(`⚠️ Mass mismatch! Matter.js mass: ${this.rootBody.mass}, calculated: ${expectedTotalMass} `);
     }
 
     // Set position
-    Matter.Body.setPosition(this.rootBody, position);    // Store reference to this assembly in the body
+    Matter.Body.setPosition(this.rootBody, position);
     this.rootBody.assembly = this;
 
-    // Also set assembly reference on individual entity bodies
     this.entities.forEach(entity => {
       entity.body.assembly = this;
     });
   }
-  public update(): void {
+  public update(deltaTimeMs: number = 16): void {
     if (this.destroyed) return;
 
     // Update visual effects for ALL entities (including destroyed ones that are still flashing)
     // This allows destroyed entities to complete their flash animation before being removed
     this.entities.forEach(entity => {
-      entity.updateVisualEffects(16); // Assuming ~60fps, 16ms per frame
+      entity.updateVisualEffects(deltaTimeMs);
     });
+
+    // Tick shield field regen/cooldown
+    this.updateShield(deltaTimeMs);
 
     // Check if we still have a control center
     const hasControlCenter = this.entities.some(e => e.isControlCenter());
@@ -545,9 +568,31 @@ export class Assembly {
     // Rebuild connections using localOffset (grid-aligned, rotation-independent).
     this.buildConnectionGraph();
 
+    // Refresh shield state now (after entity rebuild) so hasActiveShield() is accurate
+    // when we decide whether to include the physical shield circle in the compound.
+    this.shieldState = this.initializeShieldState();
+
+    // Build the parts list. When the shield field is active, add a low-mass circle body
+    // centred on the shield block's local position. render.visible=false so Matter.js
+    // doesn't draw it — the visual overlay in renderShields() handles the appearance.
+    const parts: Matter.Body[] = this.entities.map(e => e.body);
+    if (this.hasActiveShield()) {
+      const center = this.getShieldCenterLocal();
+      const shieldCircle = Matter.Bodies.circle(center.x, center.y, this.getShieldRadius(), {
+        density: 0.000001,
+        restitution: 0.3,
+        frictionAir: 0,
+        friction: 0,
+        render: { visible: false },
+      });
+      (shieldCircle as any).isShieldPart = true;
+      (shieldCircle as any).parentAssembly = this;
+      parts.push(shieldCircle);
+    }
+
     // Create the replacement compound body.
     this.rootBody = Matter.Body.create({
-      parts: this.entities.map(e => e.body),
+      parts,
       isStatic: false,
       frictionAir: 0,
       friction: 0,
@@ -710,6 +755,157 @@ export class Assembly {
     this.destroyed = true;
     this.entities.forEach(entity => entity.destroy());
   }
+
+  // ─── Shield field management ──────────────────────────────────────────────
+
+  /**
+   * Build initial ShieldState from the current set of entities.
+   * Returns null if no shield blocks are present.
+   */
+  private initializeShieldState(): ShieldState | null {
+    const shieldBlocks = this.entities.filter(
+      e => (e.type === 'Shield' || e.type === 'LargeShield') && !e.destroyed
+    );
+    if (shieldBlocks.length === 0) return null;
+
+    const totalHp = shieldBlocks.reduce((sum, block) => {
+      const def = ENTITY_DEFINITIONS[block.type];
+      return sum + (def.shieldHp ?? 0);
+    }, 0);
+
+    // Preserve existing state when refreshing after body rebuild (so regen/cooldown persists)
+    if (this.shieldState) {
+      return {
+        currentHp: Math.min(this.shieldState.currentHp, totalHp),
+        maxHp: Math.min(this.shieldState.maxHp, totalHp),
+        isActive: this.shieldState.isActive,
+        lastHitTime: this.shieldState.lastHitTime,
+        cooldownUntil: this.shieldState.cooldownUntil,
+      };
+    }
+
+    return {
+      currentHp: totalHp,
+      maxHp: totalHp,
+      isActive: true,
+      lastHitTime: 0,
+      cooldownUntil: 0,
+    };
+  }
+
+  /**
+   * Per-frame shield tick: handles regen and post-collapse reactivation.
+   * deltaTimeMs is elapsed time in milliseconds.
+   */
+  public updateShield(deltaTimeMs: number): void {
+    // Drop shield state if all shield blocks have been destroyed
+    const hasBlocks = this.entities.some(
+      e => (e.type === 'Shield' || e.type === 'LargeShield') && !e.destroyed
+    );
+    if (!hasBlocks) {
+      this.shieldState = null;
+      return;
+    }
+
+    if (!this.shieldState) return;
+    const s = this.shieldState;
+    const now = Date.now();
+
+    if (!s.isActive) {
+      // Check whether the post-collapse lockout has expired
+      if (s.maxHp > 0 && now >= s.cooldownUntil) {
+        s.isActive = true;
+        s.currentHp = s.maxHp;
+        s.lastHitTime = now; // Grace period so regen doesn't immediately fire
+        // Rebuild compound body to add the physical shield circle part back.
+        this.createFreshBody();
+      }
+      return;
+    }
+
+    // Regen: starts after SHIELD_REGEN_DELAY_MS of no hits
+    if (s.currentHp < s.maxHp && (now - s.lastHitTime) >= SHIELD_REGEN_DELAY_MS) {
+      const regenPerMs = s.maxHp / SHIELD_REGEN_DURATION_MS;
+      s.currentHp = Math.min(s.maxHp, s.currentHp + regenPerMs * deltaTimeMs);
+    }
+  }
+
+  /**
+   * Attempt to absorb `damage` with the shield field.
+   * Returns true if the shield was active and absorbed the hit (caller should
+   * skip normal entity damage). Returns false if the shield is down.
+   *
+   * Per hit: reduces both currentHp and maxHp by the damage amount so the
+   * shield's regen ceiling degrades over time (Halo-style wear mechanic).
+   */
+  public damageShield(damage: number, now: number): boolean {
+    if (!this.shieldState || !this.shieldState.isActive) return false;
+
+    const s = this.shieldState;
+    s.lastHitTime = now;
+
+    // maxHp degrades with every hit — regen ceiling lowers over time
+    s.maxHp = Math.max(0, s.maxHp - damage);
+    s.currentHp = Math.max(0, s.currentHp - damage);
+
+    if (s.currentHp <= 0) {
+      // Final hit absorbed; field collapses. Lockout before reactivation.
+      s.currentHp = 0;
+      s.isActive = false;
+      s.cooldownUntil = now + SHIELD_COLLAPSE_COOLDOWN_MS;
+      // Rebuild compound body to remove the physical shield circle part.
+      this.createFreshBody();
+    }
+
+    return true; // Damage was absorbed — don't hit inner blocks
+  }
+
+  /** True when the shield field is active and has HP remaining. */
+  public hasActiveShield(): boolean {
+    return this.shieldState !== null && this.shieldState.isActive && this.shieldState.currentHp > 0;
+  }
+
+  /**
+   * Local-space centroid of all active shield blocks.
+   * Used as the centre of both the physical circle part and the visual overlay.
+   */
+  public getShieldCenterLocal(): { x: number; y: number } {
+    const blocks = this.entities.filter(
+      e => (e.type === 'Shield' || e.type === 'LargeShield') && !e.destroyed
+    );
+    if (blocks.length === 0) return { x: 0, y: 0 };
+    return {
+      x: blocks.reduce((s, e) => s + e.localOffset.x, 0) / blocks.length,
+      y: blocks.reduce((s, e) => s + e.localOffset.y, 0) / blocks.length,
+    };
+  }
+
+  /**
+   * Radius of the shield circle in local-space pixels.
+   * Measured from the shield block centroid to the farthest corner of any entity.
+   */
+  public getShieldRadius(): number {
+    const PADDING = 28;
+    const center = this.getShieldCenterLocal();
+    let maxDistSq = 0;
+    this.entities.forEach(entity => {
+      if (entity.destroyed) return;
+      const def = ENTITY_DEFINITIONS[entity.type];
+      const halfW = def.width / 2;
+      const halfH = def.height / 2;
+      const cx = entity.localOffset.x - center.x;
+      const cy = entity.localOffset.y - center.y;
+      for (const dx of [-halfW, halfW]) {
+        for (const dy of [-halfH, halfH]) {
+          const distSq = (cx + dx) * (cx + dx) + (cy + dy) * (cy + dy);
+          if (distSq > maxDistSq) maxDistSq = distSq;
+        }
+      }
+    });
+    return Math.sqrt(maxDistSq) + PADDING;
+  }
+
+  // ─── End shield field management ─────────────────────────────────────────
 
   public getControlCenter(): Entity | null {
     return this.entities.find(e => e.isControlCenter()) || null;

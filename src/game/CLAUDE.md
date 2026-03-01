@@ -34,6 +34,12 @@ All game logic, physics, AI, and entity management. No React imports here — th
 - `SoundSystem` — access via `SoundSystem.getInstance()`; call `init()` after user interaction, uses Web Audio API for procedural sounds
 - Do not create additional singletons without documenting them here
 
+**Shield damage interception:**
+- Damage from lasers, missiles, and collisions is routed through `Assembly.damageShield(damage, now)` before reaching entity HP.
+- `damageShield` returns `true` if the shield absorbed the hit — the caller must early-return and skip `entity.takeDamage()`.
+- Interception points: `GameEngine.handleBulletHit` (lasers), `GameEngine.handleEntityCollision` (collisions), `MissileSystem.handleMissileHit` (missiles).
+- Rendering: `GameEngine.renderShields()` is called in the Matter.js `afterRender` event handler.
+
 **AI:**
 - AI teams: `PLAYER`, `ENEMY_RED`, `ENEMY_BLUE` (defined in `GameTypes.ts`)
 - Behaviours: `AGGRESSIVE`, `DEFENSIVE`, `PATROL`, `ESCORT`

@@ -298,16 +298,28 @@ export class GameEngine {
           this.handleBulletHit(bodyA, bodyB.entity);
         } else if (bodyB.isBullet && bodyA.entity) {
           this.handleBulletHit(bodyB, bodyA.entity);
+        } else if (bodyA.isBullet && (bodyB as any).isShieldPart) {
+          this.handleBulletHitShield(bodyA, (bodyB as any).parentAssembly);
+        } else if (bodyB.isBullet && (bodyA as any).isShieldPart) {
+          this.handleBulletHitShield(bodyB, (bodyA as any).parentAssembly);
         }
         // Check for missile collisions
         else if ((bodyA as any).isMissile && bodyB.entity) {
           this.handleMissileHit((bodyA as any).missile, bodyB.entity);
         } else if ((bodyB as any).isMissile && bodyA.entity) {
           this.handleMissileHit((bodyB as any).missile, bodyA.entity);
+        } else if ((bodyA as any).isMissile && (bodyB as any).isShieldPart) {
+          this.handleMissileHitShield((bodyA as any).missile, (bodyB as any).parentAssembly);
+        } else if ((bodyB as any).isMissile && (bodyA as any).isShieldPart) {
+          this.handleMissileHitShield((bodyB as any).missile, (bodyA as any).parentAssembly);
         }
         // Check for entity-to-entity collisions (for flash effect)
         else if (bodyA.entity && bodyB.entity) {
           this.handleEntityCollision(bodyA.entity, bodyB.entity);
+        } else if (bodyA.entity && (bodyB as any).isShieldPart) {
+          this.handleEntityHitShield(bodyA.entity, (bodyB as any).parentAssembly);
+        } else if ((bodyA as any).isShieldPart && bodyB.entity) {
+          this.handleEntityHitShield(bodyB.entity, (bodyA as any).parentAssembly);
         }
       });
     });
@@ -321,7 +333,9 @@ export class GameEngine {
     }
     if (!entityB.destroyed && !entityB.isFlashing) {
       entityB.triggerCollisionFlash();
-    }    // Calculate realistic collision impact based on mass and velocity differences
+    }
+
+    // Calculate realistic collision impact based on mass and velocity differences
     const massA = entityA.body.mass;
     const massB = entityB.body.mass;
     const velocityA = Matter.Vector.magnitude(entityA.body.velocity);
@@ -333,23 +347,33 @@ export class GameEngine {
     const massRatio = Math.min(massA, massB) / Math.max(massA, massB);
 
     // Only cause collision damage if there's significant impact
-    // Light debris hitting heavy ships should cause minimal damage
-    if (relativeVelocity > 3 && massRatio > 0.1) { // Minimum speed and mass ratio for damage
-      const impactForce = (relativeVelocity * Math.min(massA, massB)) / 1000; if (impactForce > 1) {
+    if (relativeVelocity > 3 && massRatio > 0.1) {
+      const impactForce = (relativeVelocity * Math.min(massA, massB)) / 1000;
+      if (impactForce > 1) {
         const damage = Math.floor(impactForce);
-
-        // Apply damage proportional to mass ratio - lighter objects take more damage
         const damageA = Math.floor(damage * (massB / totalMass));
         const damageB = Math.floor(damage * (massA / totalMass));
+        const now = Date.now();
 
-        if (damageA > 0) entityA.takeDamage(damageA);
-        if (damageB > 0) entityB.takeDamage(damageB);
+        // Shield interception: route collision damage through the shield field
+        // when active. Matter.js still applies the physical impulse normally.
+        const assemblyA = this.assemblies.find(a => a.entities.includes(entityA));
+        const assemblyB = this.assemblies.find(a => a.entities.includes(entityB));
+
+        if (damageA > 0 && !(assemblyA?.damageShield(damageA, now))) {
+          entityA.takeDamage(damageA);
+        }
+        if (damageB > 0 && !(assemblyB?.damageShield(damageB, now))) {
+          entityB.takeDamage(damageB);
+        }
       }
     }
   } private handleBulletHit(bullet: Matter.Body, entity: Entity): void {
+    const LASER_DAMAGE = 10;
     const sourceAssemblyId = (bullet as any).sourceAssemblyId;
+    const hitAssembly = this.assemblies.find(a => a.entities.includes(entity));
+
     if (sourceAssemblyId) {
-      const hitAssembly = this.assemblies.find(a => a.entities.includes(entity));
       if (hitAssembly && hitAssembly.id === sourceAssemblyId) return; // self-hit
 
       if (hitAssembly) {
@@ -365,15 +389,23 @@ export class GameEngine {
     // Play impact sound
     SoundSystem.getInstance().playLaserImpact();
 
+    // Shield interception — if active the field absorbs the hit entirely.
+    if (hitAssembly?.damageShield(LASER_DAMAGE, Date.now())) {
+      hitAssembly.entities
+        .filter(e => (e.type === 'Shield' || e.type === 'LargeShield') && !e.destroyed)
+        .forEach(e => e.triggerCollisionFlash());
+      return;
+    }
+
     if (!entity.destroyed) entity.triggerCollisionFlash();
 
-    const entityDestroyed = entity.takeDamage(10);
+    const entityDestroyed = entity.takeDamage(LASER_DAMAGE);
     if (!entityDestroyed) return;
 
     // Play block destroyed sound
     SoundSystem.getInstance().playBlockDestroyed();
 
-    const assembly = this.assemblies.find(a => a.entities.includes(entity));
+    const assembly = hitAssembly;
     if (!assembly) return;
 
     // Capture the old compound body BEFORE removeEntity() can replace assembly.rootBody
@@ -450,6 +482,101 @@ export class GameEngine {
   private handleMissileHit(missile: any, entity: Entity): void {
     // Use the missile system to handle the hit
     this.missileSystem.handleMissileHit(missile, entity);
+  }
+
+  private handleBulletHitShield(bullet: Matter.Body, shieldAssembly: Assembly): void {
+    const LASER_DAMAGE = 10;
+    const sourceAssemblyId = (bullet as any).sourceAssemblyId;
+
+    // Self-hit prevention — don't let a ship's own lasers hit its own shield.
+    if (sourceAssemblyId && shieldAssembly.id === sourceAssemblyId) return;
+
+    if (sourceAssemblyId) {
+      const sourceAssembly = this.assemblies.find(a => a.id === sourceAssemblyId);
+      shieldAssembly.lastHitByAssemblyId = sourceAssemblyId;
+      shieldAssembly.lastHitByPlayer = sourceAssembly?.isPlayerControlled || false;
+    }
+
+    Matter.World.remove(this.world, bullet);
+    this.bullets = this.bullets.filter(b => b !== bullet);
+    SoundSystem.getInstance().playLaserImpact();
+
+    shieldAssembly.damageShield(LASER_DAMAGE, Date.now());
+    shieldAssembly.entities
+      .filter(e => (e.type === 'Shield' || e.type === 'LargeShield') && !e.destroyed)
+      .forEach(e => e.triggerCollisionFlash());
+
+    // Swap the compound body if the shield just collapsed (shield circle removed).
+    if (shieldAssembly.pendingBodySwap) {
+      this.removeBodyWithParts(shieldAssembly.pendingBodySwap.oldBody);
+      Matter.World.add(this.world, shieldAssembly.rootBody);
+      shieldAssembly.pendingBodySwap = null;
+    }
+  }
+
+  private handleMissileHitShield(missile: any, shieldAssembly: Assembly): void {
+    if (!missile || !shieldAssembly) return;
+
+    // Launch delay — missiles shouldn't collide immediately after launch.
+    if (missile.age < missile.launchCollisionDelay) return;
+
+    // Self-hit prevention.
+    if (missile.sourceAssemblyId === shieldAssembly.id) return;
+
+    SoundSystem.getInstance().playMissileExplosion();
+    shieldAssembly.damageShield(missile.getDamage(), Date.now());
+    shieldAssembly.entities
+      .filter(e => (e.type === 'Shield' || e.type === 'LargeShield') && !e.destroyed)
+      .forEach(e => e.triggerCollisionFlash());
+    missile.destroy();
+
+    // Swap the compound body if the shield just collapsed.
+    if (shieldAssembly.pendingBodySwap) {
+      this.removeBodyWithParts(shieldAssembly.pendingBodySwap.oldBody);
+      Matter.World.add(this.world, shieldAssembly.rootBody);
+      shieldAssembly.pendingBodySwap = null;
+    }
+  }
+
+  private handleEntityHitShield(entity: Entity, shieldAssembly: Assembly): void {
+    if (!shieldAssembly || entity.destroyed) return;
+
+    const entityAssembly = this.assemblies.find(a => a.entities.includes(entity));
+    // Skip same-assembly (cannot happen with compound parts but guard anyway).
+    if (entityAssembly?.id === shieldAssembly.id) return;
+
+    // Flash shield blocks on impact.
+    shieldAssembly.entities
+      .filter(e => (e.type === 'Shield' || e.type === 'LargeShield') && !e.destroyed)
+      .forEach(e => { if (!e.isFlashing) e.triggerCollisionFlash(); });
+    if (!entity.isFlashing) entity.triggerCollisionFlash();
+
+    // Collision damage — same formula as handleEntityCollision.
+    const entityVel = Matter.Vector.magnitude(entity.body.velocity);
+    const shieldVel = Matter.Vector.magnitude(shieldAssembly.rootBody.velocity);
+    const relativeVelocity = Math.abs(entityVel - shieldVel);
+
+    if (relativeVelocity > 3) {
+      const massEntity = entity.body.mass;
+      const massShield = shieldAssembly.rootBody.mass;
+      const massRatio = Math.min(massEntity, massShield) / Math.max(massEntity, massShield);
+      if (massRatio > 0.1) {
+        const impactForce = (relativeVelocity * Math.min(massEntity, massShield)) / 1000;
+        if (impactForce > 1) {
+          const damage = Math.floor(impactForce);
+          const totalMass = massEntity + massShield;
+          const now = Date.now();
+          const damageEntity = Math.floor(damage * (massShield / totalMass));
+          const damageShieldSide = Math.floor(damage * (massEntity / totalMass));
+
+          if (damageEntity > 0 && !(entityAssembly?.damageShield(damageEntity, now))) {
+            entity.takeDamage(damageEntity);
+          }
+          shieldAssembly.damageShield(damageShieldSide, now);
+          // pendingBodySwap from shield collapse (if any) is handled by the game loop.
+        }
+      }
+    }
   }
 
   public start(): void {
@@ -529,9 +656,10 @@ export class GameEngine {
     // });
 
     // Handle additional player input (mouse controls, etc.)
-    this.handlePlayerInput();// Update assemblies
+    this.handlePlayerInput();// Update assemblies (deltaTime is in seconds; update() expects milliseconds)
+    const deltaTimeMs = deltaTime * 1000;
     this.assemblies.forEach(assembly => {
-      assembly.update();
+      assembly.update(deltaTimeMs);
       assembly.updateWeaponAiming();
     });
 
@@ -1192,6 +1320,7 @@ export class GameEngine {
       }
       this.renderConnectionPoints();
       this.renderBlockFrills();
+      this.renderShields();
       this.renderShipHighlights();
       this.renderAimingDebug(); // Add debug visuals for aiming system
       this.executePlayerCommands(); // Execute player commands each frame
@@ -1294,6 +1423,93 @@ export class GameEngine {
         entity.drawBlockFrills(ctx, bounds, canvas, assemblyAngle);
       });
     });
+    ctx.restore();
+  }
+
+  /**
+   * Draw shield field circles for all assemblies with an active shield.
+   * Called from afterRender, uses the same world→screen transform as other overlays.
+   */
+  private renderShields(): void {
+    const ctx = this.render.canvas.getContext('2d');
+    if (!ctx) return;
+
+    const bounds = this.render.bounds;
+    const bw = bounds.max.x - bounds.min.x;
+    const bh = bounds.max.y - bounds.min.y;
+    const sx = (wx: number) => (wx - bounds.min.x) / bw * this.render.canvas.width;
+    const sy = (wy: number) => (wy - bounds.min.y) / bh * this.render.canvas.height;
+    const scale = this.render.canvas.width / bw;
+    const now = Date.now();
+
+    ctx.save();
+
+    this.assemblies.forEach(assembly => {
+      const s = assembly.shieldState;
+      if (!s) return;
+
+      // The shield circle part tracks its world position in rootBody.parts (maintained by
+      // Matter.js). Fall back to rootBody.position if the shield part is not yet present.
+      const shieldPart = assembly.rootBody.parts.find((p: Matter.Body) => (p as any).isShieldPart);
+      const pos = shieldPart ? shieldPart.position : assembly.rootBody.position;
+
+      // Rough culling — skip if centre is far outside the viewport
+      if (pos.x < bounds.min.x - 400 || pos.x > bounds.max.x + 400 ||
+          pos.y < bounds.min.y - 400 || pos.y > bounds.max.y + 400) return;
+
+      const screenX = sx(pos.x);
+      const screenY = sy(pos.y);
+      const radius = assembly.getShieldRadius() * scale;
+
+      if (s.isActive && s.currentHp > 0) {
+        // Active shield — opacity and colour track current HP
+        const hpRatio = s.currentHp / Math.max(1, s.maxHp);
+        const timeSinceHit = now - s.lastHitTime;
+        // Flash brighter for 300 ms after each hit
+        const hitFlash = Math.max(0, 1 - timeSinceHit / 300);
+
+        // Regen glow: brightens when actively regenerating
+        const isRegen = s.currentHp < s.maxHp && timeSinceHit >= 3000;
+        const regenPulse = isRegen ? (Math.sin(now / 150) * 0.15 + 0.85) : 1;
+
+        const baseAlpha = hpRatio * 0.28 + 0.07;
+        const alpha = Math.min(1, (baseAlpha + hitFlash * 0.35) * regenPulse);
+
+        // Fill: translucent blue bubble
+        const gradient = ctx.createRadialGradient(screenX, screenY, radius * 0.6, screenX, screenY, radius);
+        gradient.addColorStop(0, `rgba(100, 180, 255, ${alpha * 0.15})`);
+        gradient.addColorStop(0.7, `rgba(60, 130, 255, ${alpha * 0.25})`);
+        gradient.addColorStop(1, `rgba(30, 80, 220, ${alpha * 0.6})`);
+
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Rim stroke — brighter on hit flash
+        const rimAlpha = Math.min(1, 0.5 + hitFlash * 0.5);
+        ctx.strokeStyle = `rgba(120, 200, 255, ${rimAlpha})`;
+        ctx.lineWidth = Math.max(1, scale * 2) * (1 + hitFlash * 0.5);
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
+        ctx.stroke();
+
+      } else if (!s.isActive) {
+        // Collapsed — draw a faint pulsing ring to show it's recharging
+        const timeLeft = s.cooldownUntil - now;
+        if (timeLeft > 0) {
+          const pulse = Math.sin(now / 400) * 0.3 + 0.4;
+          ctx.strokeStyle = `rgba(60, 80, 160, ${pulse * 0.4})`;
+          ctx.lineWidth = Math.max(1, scale * 1.5);
+          ctx.setLineDash([Math.max(3, scale * 6), Math.max(4, scale * 8)]);
+          ctx.beginPath();
+          ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      }
+    });
+
     ctx.restore();
   }
 
@@ -1449,6 +1665,7 @@ export class GameEngine {
 
   private spawnSandboxScenario(): void {
     const SANDBOX_BLOCK_TYPES: EntityType[] = [
+      'Shield', 'Shield', 'LargeShield',
       'Engine', 'Engine', 'Engine', 'Engine',
       'LargeEngine',
       'Gun', 'Gun', 'Gun',
