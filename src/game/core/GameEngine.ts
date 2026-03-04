@@ -171,7 +171,9 @@ export class GameEngine {
       // onPickUp: remove from tracked assembly list when grabbed
       (assembly) => { this.assemblies = this.assemblies.filter(a => a !== assembly); },
       // onDrop: add back to tracked assembly list when dropped without snapping
-      (assembly) => { this.assemblies.push(assembly); }
+      (assembly) => { this.assemblies.push(assembly); },
+      (constraint) => Matter.World.add(this.world, constraint),
+      (constraint) => Matter.World.remove(this.world, constraint),
     );
 
     // Initialize mouse interaction
@@ -276,7 +278,7 @@ export class GameEngine {
           break;
         case 'r':
           if (this.blockPickupSystem.isHolding()) {
-            this.blockPickupSystem.rotateHeld(); // Rotate held block 90° CCW
+            this.blockPickupSystem.rotateHeld(); // Rotate held block 90° CCW relative to player
           } else {
             this.initializeBattle(); // Restart battle
           }
@@ -1118,12 +1120,18 @@ export class GameEngine {
         this.setHoveredAssembly(hoveredAssembly);
 
         // Cursor style: grab hand over pickable blocks, crosshair otherwise
-        if (
-          hoveredAssembly &&
-          !hoveredAssembly.hasControlCenter() &&
-          hoveredAssembly !== this.playerAssembly
-        ) {
+        if (hoveredAssembly && !hoveredAssembly.hasControlCenter() && hoveredAssembly !== this.playerAssembly) {
           this.render.canvas.style.cursor = 'grab';
+        } else if (hoveredAssembly === this.playerAssembly && this.playerAssembly) {
+          // Check if hovering a detachable block on the player's own ship
+          const cursorWorld = this.screenToWorld(this.mousePosition.x, this.mousePosition.y);
+          const isDetachable = this.playerAssembly.entities.some(e => {
+            const b = e.body.bounds;
+            return cursorWorld.x >= b.min.x && cursorWorld.x <= b.max.x &&
+                   cursorWorld.y >= b.min.y && cursorWorld.y <= b.max.y &&
+                   this.playerAssembly!.canDetachEntity(e);
+          });
+          this.render.canvas.style.cursor = isDetachable ? 'grab' : 'crosshair';
         } else {
           this.render.canvas.style.cursor = 'crosshair';
         }
@@ -1273,7 +1281,10 @@ export class GameEngine {
       () => this.assemblies,
       () => this.world,
     ));
-    this.renderSystem.register(new BlockFrillsRenderer(() => this.assemblies));
+    this.renderSystem.register(new BlockFrillsRenderer(
+      () => this.assemblies,
+      () => this.blockPickupSystem.getHeldAssembly(),
+    ));
     this.renderSystem.register(new ShieldRenderer(() => this.assemblies));
     this.renderSystem.register(new BeamRenderer(this.beamSystem));
     this.renderSystem.register(new ShipHighlightRenderer(

@@ -1,6 +1,6 @@
 import * as Matter from 'matter-js';
 import { Entity } from './Entity';
-import { EntityConfig, Vector2, EntityType, ENTITY_DEFINITIONS, ShieldState, SHIELD_REGEN_DELAY_MS, SHIELD_REGEN_DURATION_MS, SHIELD_COLLAPSE_COOLDOWN_MS } from '../../types/GameTypes';
+import { EntityConfig, Vector2, EntityType, ENTITY_DEFINITIONS, ShieldState, SHIELD_REGEN_DELAY_MS, SHIELD_REGEN_DURATION_MS, SHIELD_COLLAPSE_COOLDOWN_MS, GRID_SIZE } from '../../types/GameTypes';
 import { PowerSystem } from '../systems/PowerSystem';
 import { MissileType } from '../weapons/Missile';
 
@@ -777,6 +777,98 @@ export class Assembly {
     }
 
     return components;  }
+
+  /**
+   * Returns true if the given entity can be detached from this assembly without
+   * splitting the remaining entities into disconnected fragments.
+   * A control-center (cockpit) is never detachable.
+   * Pure read-only — no state mutation.
+   */
+  public canDetachEntity(entity: Entity): boolean {
+    if (entity.isControlCenter()) return false;
+    if (!this.entities.includes(entity)) return false;
+
+    const remaining = this.entities.filter(e => e !== entity);
+    if (remaining.length === 0) return false;
+
+    // Build localOffset-based adjacency (mirrors buildConnectionGraph, read-only)
+    const gridMap = new Map<string, Entity>();
+    remaining.forEach(e => {
+      const gx = Math.round(e.localOffset.x / GRID_SIZE);
+      const gy = Math.round(e.localOffset.y / GRID_SIZE);
+      gridMap.set(`${gx},${gy}`, e);
+    });
+
+    const adj = new Map<string, Set<string>>();
+    remaining.forEach(e => adj.set(e.id, new Set()));
+
+    const dirs = [{ dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 }];
+    remaining.forEach(e => {
+      const gx = Math.round(e.localOffset.x / GRID_SIZE);
+      const gy = Math.round(e.localOffset.y / GRID_SIZE);
+      dirs.forEach(({ dx, dy }) => {
+        const nbr = gridMap.get(`${gx + dx},${gy + dy}`);
+        if (nbr && this.canEntitiesConnect(e, nbr)) {
+          adj.get(e.id)!.add(nbr.id);
+          adj.get(nbr.id)!.add(e.id);
+        }
+      });
+    });
+
+    // BFS from first remaining entity — all remaining must be reachable
+    const visited = new Set<string>([remaining[0].id]);
+    const queue = [remaining[0].id];
+    while (queue.length > 0) {
+      const cur = queue.shift()!;
+      adj.get(cur)?.forEach(id => {
+        if (!visited.has(id)) { visited.add(id); queue.push(id); }
+      });
+    }
+    return visited.size === remaining.length;
+  }
+
+  /**
+   * Detach a single entity from this assembly and return it as a new single-entity
+   * Assembly positioned at the entity's current world location.
+   * The caller MUST process `this.pendingBodySwap` synchronously after this call.
+   */
+  public detachEntity(entity: Entity): Assembly {
+    // Snapshot world state before any structural changes (createFreshBody discards old entities)
+    const entityWorldPos = { x: entity.body.position.x, y: entity.body.position.y };
+    const shipVelocity = { x: this.rootBody.velocity.x, y: this.rootBody.velocity.y };
+    const shipAngle = this.rootBody.angle;
+    const shipAngularVelocity = this.rootBody.angularVelocity;
+
+    const config: EntityConfig = {
+      type: entity.type,
+      x: 0,
+      y: 0,
+      rotation: entity.rotation,
+      health: entity.health,
+      maxHealth: entity.maxHealth,
+    };
+
+    // Remove from this assembly and disconnect neighbors
+    this.entities = this.entities.filter(e => e !== entity);
+    this.entities.forEach(other => other.disconnectFrom(entity));
+
+    // Rebuild this assembly (sets pendingBodySwap — caller must process it)
+    this.buildConnectionGraph();
+    this.createFreshBody();
+
+    if (this.isPlayerControlled) {
+      const powerSystem = PowerSystem.getInstance();
+      powerSystem.setPlayerAssembly(this);
+      powerSystem.updatePowerAfterDamage();
+    }
+
+    // Build detached single-entity assembly at the block's world position
+    const detached = new Assembly([config], entityWorldPos);
+    Matter.Body.setAngle(detached.rootBody, shipAngle);
+    Matter.Body.setVelocity(detached.rootBody, shipVelocity);
+    Matter.Body.setAngularVelocity(detached.rootBody, shipAngularVelocity);
+    return detached;
+  }
 
   private dfsComponent(
     entityId: string,

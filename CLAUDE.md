@@ -59,10 +59,17 @@ src/
 
 **Block pickup / assembly building (`BlockPickupSystem`):**
 - Lives in `src/game/systems/BlockPickupSystem.ts`; instantiated by `GameEngine` (not a singleton).
-- `GameEngine.removeBodyWithParts` is **public** — required so BlockPickupSystem can remove a picked-up assembly's compound body and all its part bodies from the physics world in one call.
+- `GameEngine.removeBodyWithParts` is **public** — required so BlockPickupSystem can remove compound bodies and all their part bodies from the physics world in one call.
 - `Assembly.attachExternalAssembly(source, newLocalOffsets)` merges a source assembly's entities into the receiver at the caller-supplied grid offsets, then calls `buildConnectionGraph()` + `createFreshBody()`.  The source assembly is discarded after this call.
 - `ScenarioConfig.sandboxMode: boolean` — when true, `GameEngine.initializeBattle` calls `spawnSandboxScenario` instead of the normal team-spawn path (player gets a bare Cockpit; loose blocks are scattered nearby).
 - Snap detection uses player-local `localOffset` arithmetic, not world positions, so it is rotation-independent.
+- **Physics-based drag**: blocks stay in the Matter.js world when held. A `Matter.Constraint` spring pulls the held assembly's body toward an invisible static `cursorBody` (radius 4px). Collisions on the held body are disabled (`mask: 0`) while dragged and restored on drop.
+- **Pre-detach state** (`PreDetachState`): clicking a player-ship block enters this state instead of immediately detaching. A tension line is drawn from block to cursor. When the cursor moves ≥ `DETACH_PULL_THRESHOLD` (80px) from the block, `triggerDetach` fires: calls `Assembly.detachEntity(entity)`, processes `pendingBodySwap` synchronously, adds the new single-entity assembly to the world, then begins a physics drag on it.
+- **`Assembly.canDetachEntity(entity)`**: read-only BFS check — returns `false` if removing the entity would fragment remaining entities or if the entity is a control center. Uses `localOffset`-based grid adjacency + `canEntitiesConnect()`.
+- **`Assembly.detachEntity(entity)`**: removes the entity from the assembly, calls `createFreshBody()` (sets `pendingBodySwap`), and returns a new single-entity Assembly at the block's world position. The caller must process `pendingBodySwap` synchronously.
+- **Orientation locking**: while dragging, the held body's angle is set each frame to `playerAngle + pendingRotationSteps * π/2` (zeroing angular velocity), so the block visually aligns with the ship. R key cycles through 4 × 90° offsets from this default; `rotateHeld()` increments `pendingRotationSteps`. R key restarts battle when not holding.
+- **`BlockFrillsRenderer`** takes a second `getHeldAssembly` getter so the dragged block's frills render even though it's removed from the main assemblies list.
+- **`BlockPickupSystem` constructor**: takes 6 callbacks — `removeBodyWithParts`, `addBodyToWorld`, `onPickUp`, `onDrop`, `addConstraintToWorld`, `removeConstraintFromWorld`.
 
 **Shield system (`Assembly.shieldState`):**
 - `Shield` and `LargeShield` are physical block types (in `ENTITY_DEFINITIONS`) that grant an assembly a damage-absorbing shield field.
