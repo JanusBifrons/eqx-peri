@@ -2,6 +2,7 @@ import * as Matter from 'matter-js';
 import { EntityType, BEAM_DISPLAY_DURATION_MS } from '../../types/GameTypes';
 import { Assembly } from '../core/Assembly';
 import { Entity } from '../core/Entity';
+import { SoundSystem } from '../systems/SoundSystem';
 
 // Spec describing one beam fire event, produced by Assembly.getBeamFires()
 export interface BeamFireSpec {
@@ -132,6 +133,11 @@ export class BeamSystem {
       hitEndX = spec.origin.x + dirX * closestT;
       hitEndY = spec.origin.y + dirY * closestT;
     }
+
+    // Sound: beam-fire hum always; impact sizzle only when the ray hit something
+    const sound = SoundSystem.getInstance();
+    sound.playBeamFire();
+    if (closestBody !== null) sound.playBeamHit();
 
     // Apply damage based on what was hit
     if (closestBody) {

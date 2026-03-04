@@ -36,6 +36,12 @@ export class SoundSystem {
   private musicHowl: Howl | null = null;
   private musicPlaying = false;
 
+  // Beam sound throttle — prevent a new buffer from being created every frame (~60 fps)
+  private lastBeamFireSoundAt = 0;
+  private lastBeamHitSoundAt = 0;
+  private static readonly BEAM_FIRE_SOUND_INTERVAL_MS = 50;
+  private static readonly BEAM_HIT_SOUND_INTERVAL_MS = 55;
+
   private constructor() {
     // Audio context created on first user interaction
   }
@@ -203,6 +209,24 @@ export class SoundSystem {
     console.log('💣 SoundSystem.playMissileExplosion called');
     if (!this.canPlaySound()) return;
     this.playProceduralExplosion();
+  }
+
+  /** Sustained beam-firing hum — throttled so it plays at most every BEAM_FIRE_SOUND_INTERVAL_MS. */
+  public playBeamFire(): void {
+    if (!this.canPlaySound()) return;
+    const now = Date.now();
+    if (now - this.lastBeamFireSoundAt < SoundSystem.BEAM_FIRE_SOUND_INTERVAL_MS) return;
+    this.lastBeamFireSoundAt = now;
+    this.playProceduralBeamFire();
+  }
+
+  /** Sizzle/crackle sound when a beam is actively hitting a target — throttled. */
+  public playBeamHit(): void {
+    if (!this.canPlaySound()) return;
+    const now = Date.now();
+    if (now - this.lastBeamHitSoundAt < SoundSystem.BEAM_HIT_SOUND_INTERVAL_MS) return;
+    this.lastBeamHitSoundAt = now;
+    this.playProceduralBeamHit();
   }
 
   // ============ Helper Methods ============
@@ -423,6 +447,104 @@ export class SoundSystem {
     attackGain.connect(this.sfxGain);
     attack.start(now);
     attack.stop(now + 0.1);
+  }
+
+  /**
+   * Sustained high-frequency sine tone — sounds like a continuous sci-fi laser beam.
+   * Duration is slightly longer than the throttle interval so successive calls overlap
+   * and blend into a smooth hum rather than a staccato pulse.
+   */
+  private playProceduralBeamFire(): void {
+    if (!this.audioContext || !this.sfxGain) return;
+
+    const DURATION = 0.075; // s — slightly longer than the 50 ms throttle interval
+    const ctx = this.audioContext;
+    const now = ctx.currentTime;
+
+    // Carrier: high-pitched sine, slight downward pitch drift to give it texture
+    const carrier = ctx.createOscillator();
+    const carrierGain = ctx.createGain();
+    carrier.type = 'sine';
+    carrier.frequency.setValueAtTime(2400, now);
+    carrier.frequency.linearRampToValueAtTime(2200, now + DURATION);
+
+    // Soft envelope — fast attack, smooth release so overlapping instances blend
+    carrierGain.gain.setValueAtTime(0, now);
+    carrierGain.gain.linearRampToValueAtTime(0.09, now + 0.005);
+    carrierGain.gain.setValueAtTime(0.09, now + DURATION - 0.012);
+    carrierGain.gain.linearRampToValueAtTime(0, now + DURATION);
+
+    // Thin harmonic layer at 3× frequency to add brightness without bulk
+    const harmonic = ctx.createOscillator();
+    const harmonicGain = ctx.createGain();
+    harmonic.type = 'sine';
+    harmonic.frequency.setValueAtTime(7200, now);
+    harmonicGain.gain.setValueAtTime(0.025, now);
+    harmonicGain.gain.linearRampToValueAtTime(0, now + DURATION);
+
+    carrier.connect(carrierGain);
+    carrierGain.connect(this.sfxGain);
+    carrier.start(now);
+    carrier.stop(now + DURATION);
+
+    harmonic.connect(harmonicGain);
+    harmonicGain.connect(this.sfxGain);
+    harmonic.start(now);
+    harmonic.stop(now + DURATION);
+  }
+
+  /**
+   * Sizzle/crackle burst — played on top of the beam-fire hum when the beam is
+   * actively cutting through a target.  White noise through a high bandpass filter
+   * gives it a burning/scorching character distinct from the base beam tone.
+   */
+  private playProceduralBeamHit(): void {
+    if (!this.audioContext || !this.sfxGain) return;
+
+    const DURATION = 0.065;
+    const ctx = this.audioContext;
+    const now = ctx.currentTime;
+
+    // White-noise sizzle through a high-frequency bandpass
+    const bufferSize = Math.floor(ctx.sampleRate * DURATION);
+    const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
+
+    const noiseSource = ctx.createBufferSource();
+    noiseSource.buffer = noiseBuffer;
+
+    const noiseFilter = ctx.createBiquadFilter();
+    noiseFilter.type = 'bandpass';
+    noiseFilter.frequency.value = 4500;
+    noiseFilter.Q.value = 2.5;
+
+    const noiseGain = ctx.createGain();
+    noiseGain.gain.setValueAtTime(0.18, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.01, now + DURATION);
+
+    noiseSource.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(this.sfxGain);
+    noiseSource.start(now);
+    noiseSource.stop(now + DURATION);
+
+    // Short sawtooth overtone — rises in pitch like material being cut
+    const osc = ctx.createOscillator();
+    const oscGain = ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(1400, now);
+    osc.frequency.exponentialRampToValueAtTime(3000, now + DURATION * 0.35);
+    osc.frequency.exponentialRampToValueAtTime(1000, now + DURATION);
+    oscGain.gain.setValueAtTime(0.055, now);
+    oscGain.gain.exponentialRampToValueAtTime(0.01, now + DURATION);
+
+    osc.connect(oscGain);
+    oscGain.connect(this.sfxGain);
+    osc.start(now);
+    osc.stop(now + DURATION);
   }
 
   /**
