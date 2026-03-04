@@ -17,6 +17,8 @@
     "@types/howler": "^2.2.12",
     "howler": "^2.2.4",
     "matter-js": "^0.19.0",
+    "pixi-filters": "^5.3.0",
+    "pixi.js": "^7.4.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "stats.js": "^0.17.0"

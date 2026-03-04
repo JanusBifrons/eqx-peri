@@ -1,22 +1,19 @@
+import * as PIXI from 'pixi.js';
 import { IRenderer } from './IRenderer';
 import { Viewport } from './Viewport';
 import { ActiveBeam, BeamSystem } from '../weapons/BeamSystem';
 import { BEAM_DISPLAY_DURATION_MS } from '../../types/GameTypes';
 
-// Visual configuration per weapon type
-const BEAM_STYLES: Record<string, { coreColor: string; glowColor: string; coreWidth: number; glowWidth: number }> = {
-  Beam: {
-    coreColor: '#ffffff',
-    glowColor: '#00ddff',
-    coreWidth: 2,
-    glowWidth: 8,
-  },
-  LargeBeam: {
-    coreColor: '#ffffff',
-    glowColor: '#4488ff',
-    coreWidth: 4,
-    glowWidth: 14,
-  },
+interface BeamStyle {
+  coreColor: number;
+  glowColor: number;
+  coreWidth: number;
+  glowWidth: number;
+}
+
+const BEAM_STYLES: Record<string, BeamStyle> = {
+  Beam:      { coreColor: 0xffffff, glowColor: 0x00ddff, coreWidth: 2, glowWidth: 8 },
+  LargeBeam: { coreColor: 0xffffff, glowColor: 0x4488ff, coreWidth: 4, glowWidth: 14 },
 };
 
 const DEFAULT_STYLE = BEAM_STYLES['Beam'];
@@ -24,9 +21,18 @@ const DEFAULT_STYLE = BEAM_STYLES['Beam'];
 export class BeamRenderer implements IRenderer {
   readonly renderPriority = 45;
 
+  private graphics!: PIXI.Graphics;
+
   constructor(private readonly beamSystem: BeamSystem) {}
 
-  render(ctx: CanvasRenderingContext2D, viewport: Viewport, _timestamp: number): void {
+  init(stage: PIXI.Container): void {
+    this.graphics = new PIXI.Graphics();
+    stage.addChild(this.graphics);
+  }
+
+  render(viewport: Viewport, _timestamp: number): void {
+    this.graphics.clear();
+
     const { bounds, canvas } = viewport;
     const bw = bounds.max.x - bounds.min.x;
     const bh = bounds.max.y - bounds.min.y;
@@ -36,7 +42,6 @@ export class BeamRenderer implements IRenderer {
     const now = Date.now();
 
     for (const beam of this.beamSystem.getActiveBeams()) {
-      // Rough culling — skip if entirely off-screen
       if (
         Math.max(beam.startX, beam.endX) < bounds.min.x - 50 ||
         Math.min(beam.startX, beam.endX) > bounds.max.x + 50 ||
@@ -45,78 +50,46 @@ export class BeamRenderer implements IRenderer {
       ) continue;
 
       const age = now - beam.lastUpdatedAt;
-      // Fade out over the last half of the display duration
       const fadeStart = BEAM_DISPLAY_DURATION_MS * 0.5;
       const alpha = age < fadeStart
         ? 1.0
         : 1.0 - (age - fadeStart) / (BEAM_DISPLAY_DURATION_MS - fadeStart);
-
       if (alpha <= 0) continue;
 
-      this.drawBeam(ctx, viewport, sx, sy, scale, beam, alpha);
+      this.drawBeam(sx, sy, scale, beam, alpha);
     }
   }
 
   private drawBeam(
-    ctx: CanvasRenderingContext2D,
-    _viewport: Viewport,
     sx: (wx: number) => number,
     sy: (wy: number) => number,
     scale: number,
     beam: ActiveBeam,
     alpha: number,
   ): void {
-    const x1 = sx(beam.startX);
-    const y1 = sy(beam.startY);
-    const x2 = sx(beam.endX);
-    const y2 = sy(beam.endY);
-
+    const x1 = sx(beam.startX), y1 = sy(beam.startY);
+    const x2 = sx(beam.endX),   y2 = sy(beam.endY);
     const style = BEAM_STYLES[beam.weaponType] ?? DEFAULT_STYLE;
+    const sf = scale * 0.25;
 
-    // --- Outer glow ---
-    ctx.globalAlpha = alpha * 0.35;
-    ctx.strokeStyle = style.glowColor;
-    ctx.lineWidth = style.glowWidth * scale * 0.25;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
+    this.graphics.lineStyle(style.glowWidth * sf,       style.glowColor, alpha * 0.35);
+    this.graphics.moveTo(x1, y1); this.graphics.lineTo(x2, y2);
 
-    // --- Mid glow ---
-    ctx.globalAlpha = alpha * 0.6;
-    ctx.strokeStyle = style.glowColor;
-    ctx.lineWidth = (style.glowWidth * 0.5) * scale * 0.25;
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
+    this.graphics.lineStyle(style.glowWidth * 0.5 * sf, style.glowColor, alpha * 0.6);
+    this.graphics.moveTo(x1, y1); this.graphics.lineTo(x2, y2);
 
-    // --- Bright core ---
-    ctx.globalAlpha = alpha;
-    ctx.strokeStyle = style.coreColor;
-    ctx.lineWidth = style.coreWidth * scale * 0.25;
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
+    this.graphics.lineStyle(style.coreWidth * sf,       style.coreColor, alpha);
+    this.graphics.moveTo(x1, y1); this.graphics.lineTo(x2, y2);
 
-    // --- Impact flash at hit point ---
     if (beam.hit) {
-      const flashRadius = style.glowWidth * scale * 0.25;
-      ctx.globalAlpha = alpha * 0.7;
-      ctx.fillStyle = style.coreColor;
-      ctx.beginPath();
-      ctx.arc(x2, y2, flashRadius, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.globalAlpha = alpha * 0.4;
-      ctx.fillStyle = style.glowColor;
-      ctx.beginPath();
-      ctx.arc(x2, y2, flashRadius * 2.5, 0, Math.PI * 2);
-      ctx.fill();
+      const r = style.glowWidth * sf;
+      this.graphics.lineStyle(0);
+      this.graphics.beginFill(style.coreColor, alpha * 0.7);
+      this.graphics.drawCircle(x2, y2, r);
+      this.graphics.endFill();
+      this.graphics.beginFill(style.glowColor, alpha * 0.4);
+      this.graphics.drawCircle(x2, y2, r * 2.5);
+      this.graphics.endFill();
     }
-
-    ctx.globalAlpha = 1;
   }
 }

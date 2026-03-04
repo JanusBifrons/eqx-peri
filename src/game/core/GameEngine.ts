@@ -1285,6 +1285,7 @@ export class GameEngine {
     console.log('🎨 Setting up RenderSystem');
 
     this.renderSystem = new RenderSystem(
+      this.container,
       this.render.canvas,
       () => this.render.bounds,
       this.stats,

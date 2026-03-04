@@ -1,16 +1,40 @@
+import * as PIXI from 'pixi.js';
 import { IRenderer } from './IRenderer';
 import { Viewport } from './Viewport';
 import { Assembly } from '../core/Assembly';
+import { Entity } from '../core/Entity';
 
 const DISTANCE_RANGES = [100, 200, 300, 500];
 const MAX_DISTANCE = 500;
 
+const LABEL_STYLE = new PIXI.TextStyle({ fontFamily: 'Arial', fontSize: 11, fill: '#bbbbbb' });
+const DIST_STYLE  = new PIXI.TextStyle({ fontFamily: 'Arial', fontSize: 12, fill: '#888888' });
+
 export class AimingDebugRenderer implements IRenderer {
   readonly renderPriority = 60;
 
+  private graphics!: PIXI.Graphics;
+  private labelContainer!: PIXI.Container;
+  private labelCache = new Map<string, PIXI.Text>();
+  private distLabel!: PIXI.Text;
+
   constructor(private readonly getPlayerAssembly: () => Assembly | null) {}
 
-  render(ctx: CanvasRenderingContext2D, viewport: Viewport, _timestamp: number): void {
+  init(stage: PIXI.Container): void {
+    this.graphics = new PIXI.Graphics();
+    stage.addChild(this.graphics);
+    this.labelContainer = new PIXI.Container();
+    stage.addChild(this.labelContainer);
+    this.distLabel = new PIXI.Text('', DIST_STYLE);
+    this.distLabel.anchor.set(0.5, 0.5);
+    this.labelContainer.addChild(this.distLabel);
+  }
+
+  render(viewport: Viewport, _timestamp: number): void {
+    this.graphics.clear();
+    for (const t of this.labelCache.values()) t.visible = false;
+    this.distLabel.visible = false;
+
     const player = this.getPlayerAssembly();
     if (!player || player.destroyed) return;
 
@@ -22,106 +46,80 @@ export class AimingDebugRenderer implements IRenderer {
 
     const currentAngle = player.rootBody.angle;
     const shipPos = player.rootBody.position;
-    const shipScreenX = sx(shipPos.x);
-    const shipScreenY = sy(shipPos.y);
+    const shipSX = sx(shipPos.x);
+    const shipSY = sy(shipPos.y);
 
     const weapons = player.entities.filter(e => e.canFire());
     for (const weapon of weapons) {
       const weaponPos = weapon.getMuzzlePosition(currentAngle);
-      const weaponScreenX = sx(weaponPos.x);
-      const weaponScreenY = sy(weaponPos.y);
-
-      const weaponNaturalAngle = currentAngle + (weapon.rotation * Math.PI / 180);
+      const wsx = sx(weaponPos.x);
+      const wsy = sy(weaponPos.y);
+      const naturalAngle = currentAngle + (weapon.rotation * Math.PI / 180);
       const aimingArc = player.getWeaponAimingArc(weapon.type);
 
-      // Distance guide arcs
-      ctx.strokeStyle = '#666666';
-      ctx.lineWidth = 1.5;
-      ctx.globalAlpha = 0.6;
-
-      for (const worldDistance of DISTANCE_RANGES) {
-        const screenDistance = worldDistance * canvas.width / bw;
-        const arcStart = weaponNaturalAngle - aimingArc / 2;
-        const arcEnd   = weaponNaturalAngle + aimingArc / 2;
-        ctx.beginPath();
-        ctx.arc(weaponScreenX, weaponScreenY, screenDistance, arcStart, arcEnd);
-        ctx.stroke();
+      // Distance arcs
+      this.graphics.lineStyle(1.5, 0x666666, 0.6);
+      for (const wd of DISTANCE_RANGES) {
+        const sd = wd * canvas.width / bw;
+        this.graphics.arc(wsx, wsy, sd, naturalAngle - aimingArc / 2, naturalAngle + aimingArc / 2);
       }
 
-      // Radial boundary lines
-      const largestScreenDist = MAX_DISTANCE * canvas.width / bw;
-      const leftAngle  = weaponNaturalAngle - aimingArc / 2;
-      const rightAngle = weaponNaturalAngle + aimingArc / 2;
+      // Boundary lines
+      const maxSD = MAX_DISTANCE * canvas.width / bw;
+      const leftA  = naturalAngle - aimingArc / 2;
+      const rightA = naturalAngle + aimingArc / 2;
+      this.graphics.moveTo(wsx, wsy);
+      this.graphics.lineTo(wsx + Math.cos(leftA) * maxSD, wsy + Math.sin(leftA) * maxSD);
+      this.graphics.moveTo(wsx, wsy);
+      this.graphics.lineTo(wsx + Math.cos(rightA) * maxSD, wsy + Math.sin(rightA) * maxSD);
 
-      ctx.beginPath();
-      ctx.moveTo(weaponScreenX, weaponScreenY);
-      ctx.lineTo(weaponScreenX + Math.cos(leftAngle) * largestScreenDist,
-                 weaponScreenY + Math.sin(leftAngle) * largestScreenDist);
-      ctx.stroke();
+      // Dashed ship→weapon line (approximated as semi-transparent solid)
+      this.graphics.lineStyle(1, 0xaaaaaa, 0.5);
+      this.graphics.moveTo(shipSX, shipSY);
+      this.graphics.lineTo(wsx, wsy);
 
-      ctx.beginPath();
-      ctx.moveTo(weaponScreenX, weaponScreenY);
-      ctx.lineTo(weaponScreenX + Math.cos(rightAngle) * largestScreenDist,
-                 weaponScreenY + Math.sin(rightAngle) * largestScreenDist);
-      ctx.stroke();
+      // Aim direction
+      this.graphics.lineStyle(2, 0x999999, 0.7);
+      const aimAngle = weapon.getCurrentFiringAngle(currentAngle);
+      this.graphics.moveTo(wsx, wsy);
+      this.graphics.lineTo(wsx + Math.cos(aimAngle) * maxSD, wsy + Math.sin(aimAngle) * maxSD);
 
-      ctx.globalAlpha = 1;
+      // Weapon dot
+      this.graphics.lineStyle(0);
+      this.graphics.beginFill(0xdddddd, 0.9);
+      this.graphics.drawCircle(wsx, wsy, 5);
+      this.graphics.endFill();
 
-      // Distance label at largest arc
-      const largestLabelDist = MAX_DISTANCE * canvas.width / bw;
-      ctx.fillStyle = '#888888';
-      ctx.font = '12px Arial';
-      ctx.textAlign = 'center';
-      ctx.globalAlpha = 0.8;
-      const labelX = weaponScreenX + Math.cos(weaponNaturalAngle) * (largestLabelDist + 15);
-      const labelY = weaponScreenY + Math.sin(weaponNaturalAngle) * (largestLabelDist + 15);
-      ctx.fillText(`${MAX_DISTANCE}u`, labelX, labelY);
-      ctx.globalAlpha = 1;
-
-      // Dashed line from ship center to weapon
-      ctx.strokeStyle = '#aaaaaa';
-      ctx.lineWidth = 1;
-      ctx.globalAlpha = 0.5;
-      ctx.setLineDash([3, 3]);
-      ctx.beginPath();
-      ctx.moveTo(shipScreenX, shipScreenY);
-      ctx.lineTo(weaponScreenX, weaponScreenY);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.globalAlpha = 1;
-
-      // Weapon position dot
-      ctx.fillStyle = '#dddddd';
-      ctx.globalAlpha = 0.9;
-      ctx.beginPath();
-      ctx.arc(weaponScreenX, weaponScreenY, 5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 1;
+      // Distance label
+      const labelX = wsx + Math.cos(naturalAngle) * (maxSD + 15);
+      const labelY = wsy + Math.sin(naturalAngle) * (maxSD + 15);
+      this.distLabel.text = `${MAX_DISTANCE}u`;
+      this.distLabel.x = labelX;
+      this.distLabel.y = labelY;
+      this.distLabel.visible = true;
 
       // Weapon type label
-      ctx.fillStyle = '#bbbbbb';
-      ctx.font = '11px Arial';
-      ctx.textAlign = 'center';
-      ctx.globalAlpha = 0.9;
-      ctx.fillText(weapon.type, weaponScreenX, weaponScreenY - 12);
-      ctx.globalAlpha = 1;
-
-      // Current aim direction line
-      const currentAimAngle = weapon.getCurrentFiringAngle(currentAngle);
-      const maxDistScreen = MAX_DISTANCE * canvas.width / bw;
-      ctx.strokeStyle = '#999999';
-      ctx.lineWidth = 2;
-      ctx.globalAlpha = 0.7;
-      ctx.setLineDash([3, 2]);
-      ctx.beginPath();
-      ctx.moveTo(weaponScreenX, weaponScreenY);
-      ctx.lineTo(
-        weaponScreenX + Math.cos(currentAimAngle) * maxDistScreen,
-        weaponScreenY + Math.sin(currentAimAngle) * maxDistScreen,
-      );
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.globalAlpha = 1;
+      this.getWeaponLabel(weapon).x = wsx;
+      this.getWeaponLabel(weapon).y = wsy - 12;
+      this.getWeaponLabel(weapon).visible = true;
     }
+  }
+
+  private getWeaponLabel(weapon: Entity): PIXI.Text {
+    const key = weapon.id;
+    let text = this.labelCache.get(key);
+    if (!text) {
+      text = new PIXI.Text(weapon.type, LABEL_STYLE);
+      text.anchor.set(0.5, 0.5);
+      this.labelContainer.addChild(text);
+      this.labelCache.set(key, text);
+    }
+    text.visible = true;
+    return text;
+  }
+
+  dispose(): void {
+    for (const t of this.labelCache.values()) t.destroy();
+    this.labelCache.clear();
   }
 }

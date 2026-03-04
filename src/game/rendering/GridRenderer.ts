@@ -1,15 +1,27 @@
+import * as PIXI from 'pixi.js';
 import { IRenderer } from './IRenderer';
 import { Viewport } from './Viewport';
 import { GRID_SIZE } from '../../types/GameTypes';
 
 const ZOOM_THRESHOLDS = [0.1, 0.25, 0.5, 1, 2, 4, 8, 16];
 
+const MINOR_COLOR = 0x444477;
+const MAJOR_COLOR = 0x7788aa;
+
 export class GridRenderer implements IRenderer {
   readonly renderPriority = 10;
 
+  private graphics!: PIXI.Graphics;
+
   constructor(private readonly getVisible: () => boolean) {}
 
-  render(ctx: CanvasRenderingContext2D, viewport: Viewport, _timestamp: number): void {
+  init(stage: PIXI.Container): void {
+    this.graphics = new PIXI.Graphics();
+    stage.addChild(this.graphics);
+  }
+
+  render(viewport: Viewport, _timestamp: number): void {
+    this.graphics.clear();
     if (!this.getVisible()) return;
 
     const { bounds, canvas } = viewport;
@@ -18,14 +30,10 @@ export class GridRenderer implements IRenderer {
     const viewportHeight = bounds.max.y - bounds.min.y;
     const rawZoomLevel = Math.min(viewportWidth, viewportHeight) / 1000;
 
-    // Clamp zoom to discrete levels to prevent constant grid movement
     let clampedZoomLevel = ZOOM_THRESHOLDS[0];
     for (const threshold of ZOOM_THRESHOLDS) {
-      if (rawZoomLevel >= threshold) {
-        clampedZoomLevel = threshold;
-      } else {
-        break;
-      }
+      if (rawZoomLevel >= threshold) clampedZoomLevel = threshold;
+      else break;
     }
 
     const baseMinorGridSize = GRID_SIZE * 5 * clampedZoomLevel;
@@ -49,45 +57,29 @@ export class GridRenderer implements IRenderer {
     const baseOpacity = Math.min(1, Math.max(0.1, 2 / clampedZoomLevel));
 
     // Minor grid lines
-    ctx.strokeStyle = '#444477';
-    ctx.lineWidth = 1;
-    ctx.globalAlpha = baseOpacity * 0.4;
-
+    this.graphics.lineStyle(1, MINOR_COLOR, baseOpacity * 0.4);
     for (let x = startXMinor; x <= endXMinor; x += baseMinorGridSize) {
       if (x % baseMajorGridSize !== 0) {
-        ctx.beginPath();
-        ctx.moveTo(sx(x), 0);
-        ctx.lineTo(sx(x), canvas.height);
-        ctx.stroke();
+        this.graphics.moveTo(sx(x), 0);
+        this.graphics.lineTo(sx(x), canvas.height);
       }
     }
     for (let y = startYMinor; y <= endYMinor; y += baseMinorGridSize) {
       if (y % baseMajorGridSize !== 0) {
-        ctx.beginPath();
-        ctx.moveTo(0, sy(y));
-        ctx.lineTo(canvas.width, sy(y));
-        ctx.stroke();
+        this.graphics.moveTo(0, sy(y));
+        this.graphics.lineTo(canvas.width, sy(y));
       }
     }
 
     // Major grid lines
-    ctx.strokeStyle = '#7788aa';
-    ctx.lineWidth = 2;
-    ctx.globalAlpha = baseOpacity * 0.8;
-
+    this.graphics.lineStyle(2, MAJOR_COLOR, baseOpacity * 0.8);
     for (let x = startXMajor; x <= endXMajor; x += baseMajorGridSize) {
-      ctx.beginPath();
-      ctx.moveTo(sx(x), 0);
-      ctx.lineTo(sx(x), canvas.height);
-      ctx.stroke();
+      this.graphics.moveTo(sx(x), 0);
+      this.graphics.lineTo(sx(x), canvas.height);
     }
     for (let y = startYMajor; y <= endYMajor; y += baseMajorGridSize) {
-      ctx.beginPath();
-      ctx.moveTo(0, sy(y));
-      ctx.lineTo(canvas.width, sy(y));
-      ctx.stroke();
+      this.graphics.moveTo(0, sy(y));
+      this.graphics.lineTo(canvas.width, sy(y));
     }
-
-    ctx.globalAlpha = 1;
   }
 }

@@ -95,13 +95,19 @@ src/
 **Rendering system (`RenderSystem` + `src/game/rendering/`):**
 - `Matter.Render.run()` is **not called** — Matter.js is physics-only; `RenderSystem` owns the `requestAnimationFrame` loop.
 - `Matter.Render.lookAt()` is still used for camera/viewport management; `RenderSystem` reads `this.render.bounds` each frame.
-- `IRenderer` interface: `renderPriority: number` + `render(ctx, viewport, timestamp)` + optional `dispose()`.
-- `Viewport` class: wraps `Matter.Bounds` + canvas, provides `worldToScreen(wx, wy)` and `scale` getter.
+- **PixiJS is the rendering engine**: `pixi.js@7` (`PIXI.Application`, `PIXI.Graphics`, `PIXI.Container`, `PIXI.Text`). The PIXI canvas overlays the Matter.js canvas (`position: absolute`, `pointer-events: none`); the Matter.js canvas is `opacity: 0` (invisible but still handles mouse events and provides `render.bounds`).
+- `IRenderer` interface: `renderPriority: number` + `init(stage: PIXI.Container)` + `render(viewport, timestamp)` + optional `dispose()`. **No Canvas 2D context** — all drawing uses `PIXI.Graphics` created in `init()` and cleared/redrawn each frame.
+- `Viewport` class: wraps `Matter.Bounds` + PIXI canvas, provides `worldToScreen(wx, wy)` and `scale` getter.
 - Renderer priorities: GridRenderer(10) → BlockBodyRenderer(20) → BlockFrillsRenderer(30) → ShieldRenderer(40) → BeamRenderer(45) → ShipHighlightRenderer(50) → AimingDebugRenderer(60) → BlockPickupRenderer(70).
 - Each renderer receives data via getter functions injected in its constructor — no direct GameEngine coupling.
 - `RenderSystem.setDebugPhysics(enabled, engine, container)` creates/destroys a second wireframe `Matter.Render` canvas positioned absolutely over the game canvas (pointer-events: none).
 - `GameEngine.setDebugPhysics(enabled)` is the public API; `SettingsPanel.tsx` calls it via the ⚙ gear button.
-- `Entity.body.render.fillStyle/strokeStyle/lineWidth` remain the data contract between Entity's visual state and `BlockBodyRenderer`.
+- `Entity.body.render.fillStyle/strokeStyle/lineWidth` remain the data contract between Entity's visual state and `BlockBodyRenderer`. `BlockBodyRenderer` uses a `cssColor(css, fallback)` helper that handles `#rrggbb`, `rgb(r,g,b)` (from `Entity.interpolateColor()`), and `'transparent'`.
+- **Text pooling**: `ShipHighlightRenderer` and `AimingDebugRenderer` reuse `PIXI.Text` objects by toggling `visible` — avoids per-frame GPU texture uploads.
+- **Rotated rectangles**: `BlockPickupSystem` uses a module-level `drawRotatedRect(gfx, cx, cy, w, h, angle)` helper (manually computes rotated corners) since PIXI.Graphics has no transform stack equivalent.
+- **Radial gradients**: `ShieldRenderer` approximates them with concentric `drawCircle()` calls at varying alpha.
+- **Dashed lines**: approximated as solid semi-transparent lines (PIXI v7 has no native dash support).
+- `pixi-filters@5` is installed but no filters are currently active.
 
 ---
 

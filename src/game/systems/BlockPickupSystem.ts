@@ -1,7 +1,9 @@
 import * as Matter from 'matter-js';
+import * as PIXI from 'pixi.js';
 import { Assembly } from '../core/Assembly';
 import { Entity } from '../core/Entity';
 import { Vector2, GRID_SIZE, ENTITY_DEFINITIONS } from '../../types/GameTypes';
+import { Viewport } from '../rendering/Viewport';
 
 interface SnapCandidate {
   anchorEntity: Entity;       // entity in heldAssembly closest to the attachment slot
@@ -528,46 +530,37 @@ export class BlockPickupSystem {
   // ---------------------------------------------------------------------------
 
   public renderOverlay(
-    ctx: CanvasRenderingContext2D,
-    bounds: Matter.Bounds,
+    gfx: PIXI.Graphics,
+    viewport: Viewport,
     playerAssembly: Assembly | null
   ): void {
     if (this.preDetachState) {
-      ctx.save();
-      this.renderPreDetachTension(ctx, bounds);
-      ctx.restore();
+      this.renderPreDetachTension(gfx, viewport);
       return;
     }
 
     if (!this.activeDrag) return;
 
-    ctx.save();
-
-    // Show available attachment slots on player assembly whenever dragging a block
     if (playerAssembly && !playerAssembly.destroyed) {
-      this.renderAvailableSlots(ctx, bounds, playerAssembly);
+      this.renderAvailableSlots(gfx, viewport, playerAssembly);
     }
 
-    // Show snap preview when a valid slot is nearby
     if (this.activeSnap && playerAssembly && !playerAssembly.destroyed) {
-      this.renderSnapPreview(ctx, bounds, playerAssembly, this.activeDrag.heldAssembly);
+      this.renderSnapPreview(gfx, viewport, playerAssembly, this.activeDrag.heldAssembly);
     }
-
-    ctx.restore();
   }
 
   /**
    * Draw a tension line from the held block to the cursor while in pre-detach state.
    */
-  private renderPreDetachTension(ctx: CanvasRenderingContext2D, bounds: Matter.Bounds): void {
+  private renderPreDetachTension(gfx: PIXI.Graphics, viewport: Viewport): void {
     if (!this.preDetachState) return;
     const { entity } = this.preDetachState;
-
-    const canvas = ctx.canvas;
+    const { bounds, canvas } = viewport;
     const scaleX = canvas.width / (bounds.max.x - bounds.min.x);
     const scaleY = canvas.height / (bounds.max.y - bounds.min.y);
-    const toCanvasX = (wx: number) => (wx - bounds.min.x) * scaleX;
-    const toCanvasY = (wy: number) => (wy - bounds.min.y) * scaleY;
+    const toX = (wx: number) => (wx - bounds.min.x) * scaleX;
+    const toY = (wy: number) => (wy - bounds.min.y) * scaleY;
 
     const blockPos = entity.body.position;
     const cursorPos = this.lastCursorWorldPos;
@@ -576,51 +569,41 @@ export class BlockPickupSystem {
     const dist = Math.sqrt(dx * dx + dy * dy);
     const tension = Math.min(dist / DETACH_PULL_THRESHOLD, 1);
 
-    // Interpolate color yellow → orange-red as tension increases
-    const g = Math.round(255 * (1 - tension));
+    // Colour: yellow → orange-red (approximate: lerp green channel)
+    const greenFrac = 1 - tension;
+    const lineColor = (0xff << 16) | (Math.round(greenFrac * 255) << 8);
     const lineAlpha = 0.5 + tension * 0.4;
 
-    // Dashed line from block to cursor
-    ctx.strokeStyle = `rgba(255,${g},0,${lineAlpha})`;
-    ctx.lineWidth = 2;
-    ctx.setLineDash([5, 5]);
-    ctx.beginPath();
-    ctx.moveTo(toCanvasX(blockPos.x), toCanvasY(blockPos.y));
-    ctx.lineTo(toCanvasX(cursorPos.x), toCanvasY(cursorPos.y));
-    ctx.stroke();
+    // Tension line (solid, semi-transparent to approximate dashed)
+    gfx.lineStyle(2, lineColor, lineAlpha);
+    gfx.moveTo(toX(blockPos.x), toY(blockPos.y));
+    gfx.lineTo(toX(cursorPos.x), toY(cursorPos.y));
 
-    // Highlight rect around the block
+    // Highlight rect around the block (rotated)
     const def = ENTITY_DEFINITIONS[entity.type];
     const w = def.width * scaleX;
     const h = def.height * scaleY;
     const rectAlpha = 0.3 + tension * 0.5;
-
-    ctx.setLineDash([]);
-    ctx.strokeStyle = `rgba(255,${g},0,${rectAlpha})`;
-    ctx.lineWidth = 2;
-    ctx.save();
-    ctx.translate(toCanvasX(blockPos.x), toCanvasY(blockPos.y));
-    ctx.rotate(entity.body.angle);
-    ctx.strokeRect(-w / 2, -h / 2, w, h);
-    ctx.restore();
+    gfx.lineStyle(2, lineColor, rectAlpha);
+    drawRotatedRect(gfx, toX(blockPos.x), toY(blockPos.y), w, h, entity.body.angle);
   }
 
   /**
    * Draw snap preview: bright anchor line + hint lines + target slot border.
    */
   private renderSnapPreview(
-    ctx: CanvasRenderingContext2D,
-    bounds: Matter.Bounds,
+    gfx: PIXI.Graphics,
+    viewport: Viewport,
     playerAssembly: Assembly,
     heldAssembly: Assembly,
   ): void {
     if (!this.activeSnap) return;
 
-    const canvas = ctx.canvas;
+    const { bounds, canvas } = viewport;
     const scaleX = canvas.width / (bounds.max.x - bounds.min.x);
     const scaleY = canvas.height / (bounds.max.y - bounds.min.y);
-    const toCanvasX = (wx: number) => (wx - bounds.min.x) * scaleX;
-    const toCanvasY = (wy: number) => (wy - bounds.min.y) * scaleY;
+    const toX = (wx: number) => (wx - bounds.min.x) * scaleX;
+    const toY = (wy: number) => (wy - bounds.min.y) * scaleY;
 
     const playerAngle = playerAssembly.rootBody.angle;
     const refEntity = this.activeSnap.targetEntity;
@@ -629,7 +612,6 @@ export class BlockPickupSystem {
     const activeAnchorId = this.activeSnap.anchorEntity.id;
     const heldEntities = heldAssembly.entities;
 
-    // Precompute occupied offsets + open-slot world positions for hint lines
     const occupiedOffsets = new Set<string>();
     playerAssembly.entities.forEach(e => {
       occupiedOffsets.add(`${e.localOffset.x},${e.localOffset.y}`);
@@ -645,7 +627,7 @@ export class BlockPickupSystem {
       const ghostY = heldWorldPos.y;
 
       if (heldEntity.id === activeAnchorId) {
-        // Bright dashed line: anchor ghost → exact snap landing position
+        // Bright line: anchor ghost → snap landing position
         const anchorSnapData = this.activeSnap.previewLocalOffsets.get(heldEntity.id);
         if (anchorSnapData) {
           const dlx = anchorSnapData.localOffset.x - refEntity.localOffset.x;
@@ -653,22 +635,15 @@ export class BlockPickupSystem {
           const landX = refEntity.body.position.x + dlx * cosP - dly * sinP;
           const landY = refEntity.body.position.y + dlx * sinP + dly * cosP;
 
-          ctx.save();
-          ctx.globalAlpha = 0.75;
-          ctx.strokeStyle = '#00ff88';
-          ctx.lineWidth = 1.5;
-          ctx.setLineDash([4, 4]);
-          ctx.beginPath();
-          ctx.moveTo(toCanvasX(ghostX), toCanvasY(ghostY));
-          ctx.lineTo(toCanvasX(landX), toCanvasY(landY));
-          ctx.stroke();
-          ctx.setLineDash([]);
-          ctx.globalAlpha = 0.9;
-          ctx.fillStyle = '#00ff88';
-          ctx.beginPath();
-          ctx.arc(toCanvasX(ghostX), toCanvasY(ghostY), 3, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.restore();
+          // Anchor line (solid semi-transparent, approximating dashed)
+          gfx.lineStyle(1.5, 0x00ff88, 0.75);
+          gfx.moveTo(toX(ghostX), toY(ghostY));
+          gfx.lineTo(toX(landX), toY(landY));
+          // Anchor dot
+          gfx.lineStyle(0);
+          gfx.beginFill(0x00ff88, 0.9);
+          gfx.drawCircle(toX(ghostX), toY(ghostY), 3);
+          gfx.endFill();
         }
       } else {
         // Faint hint: find nearest compatible open slot for this entity
@@ -707,16 +682,10 @@ export class BlockPickupSystem {
         }
 
         if (found) {
-          ctx.save();
-          ctx.globalAlpha = 0.25 * Math.max(0, 1 - nearestDist / HINT_RANGE);
-          ctx.strokeStyle = '#00ff88';
-          ctx.lineWidth = 1;
-          ctx.setLineDash([2, 5]);
-          ctx.beginPath();
-          ctx.moveTo(toCanvasX(ghostX), toCanvasY(ghostY));
-          ctx.lineTo(toCanvasX(nearestSlotX), toCanvasY(nearestSlotY));
-          ctx.stroke();
-          ctx.restore();
+          const hintAlpha = 0.25 * Math.max(0, 1 - nearestDist / HINT_RANGE);
+          gfx.lineStyle(1, 0x00ff88, hintAlpha);
+          gfx.moveTo(toX(ghostX), toY(ghostY));
+          gfx.lineTo(toX(nearestSlotX), toY(nearestSlotY));
         }
       }
     }
@@ -727,19 +696,8 @@ export class BlockPickupSystem {
     const attachWorldX = target.body.position.x + (dir.x * cosP - dir.y * sinP) * GRID_SIZE;
     const attachWorldY = target.body.position.y + (dir.x * sinP + dir.y * cosP) * GRID_SIZE;
 
-    ctx.save();
-    ctx.translate(toCanvasX(attachWorldX), toCanvasY(attachWorldY));
-    ctx.rotate(playerAngle);
-    ctx.globalAlpha = 0.7;
-    ctx.strokeStyle = '#00ff00';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(
-      -GRID_SIZE * scaleX / 2,
-      -GRID_SIZE * scaleY / 2,
-      GRID_SIZE * scaleX,
-      GRID_SIZE * scaleY
-    );
-    ctx.restore();
+    gfx.lineStyle(2, 0x00ff00, 0.7);
+    drawRotatedRect(gfx, toX(attachWorldX), toY(attachWorldY), GRID_SIZE * scaleX, GRID_SIZE * scaleY, playerAngle);
   }
 
   /**
@@ -747,15 +705,15 @@ export class BlockPickupSystem {
    * Gives the player a spatial map of where they can attach the held block.
    */
   private renderAvailableSlots(
-    ctx: CanvasRenderingContext2D,
-    bounds: Matter.Bounds,
+    gfx: PIXI.Graphics,
+    viewport: Viewport,
     playerAssembly: Assembly
   ): void {
-    const canvas = ctx.canvas;
+    const { bounds, canvas } = viewport;
     const scaleX = canvas.width / (bounds.max.x - bounds.min.x);
     const scaleY = canvas.height / (bounds.max.y - bounds.min.y);
-    const toCanvasX = (wx: number) => (wx - bounds.min.x) * scaleX;
-    const toCanvasY = (wy: number) => (wy - bounds.min.y) * scaleY;
+    const toX = (wx: number) => (wx - bounds.min.x) * scaleX;
+    const toY = (wy: number) => (wy - bounds.min.y) * scaleY;
 
     const playerAngle = playerAssembly.rootBody.angle;
     const cosP = Math.cos(playerAngle);
@@ -773,7 +731,7 @@ export class BlockPickupSystem {
     // Track drawn slots to avoid duplicating indicators for shared edges
     const drawnSlots = new Set<string>();
 
-    ctx.save();
+    gfx.lineStyle(1.5, 0x00ccff, 0.35);
     for (const entity of playerAssembly.entities) {
       for (const dir of localDirs) {
         const candidateX = entity.localOffset.x + dir.x * GRID_SIZE;
@@ -787,22 +745,36 @@ export class BlockPickupSystem {
         const worldX = entity.body.position.x + (dir.x * cosP - dir.y * sinP) * GRID_SIZE;
         const worldY = entity.body.position.y + (dir.x * sinP + dir.y * cosP) * GRID_SIZE;
 
-        ctx.save();
-        ctx.translate(toCanvasX(worldX), toCanvasY(worldY));
-        ctx.rotate(playerAngle);
-        ctx.globalAlpha = 0.35;
-        ctx.strokeStyle = '#00ccff';
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([3, 3]);
-        ctx.strokeRect(
-          -GRID_SIZE * scaleX / 2,
-          -GRID_SIZE * scaleY / 2,
-          GRID_SIZE * scaleX,
-          GRID_SIZE * scaleY
-        );
-        ctx.restore();
+        drawRotatedRect(gfx, toX(worldX), toY(worldY), GRID_SIZE * scaleX, GRID_SIZE * scaleY, playerAngle);
       }
     }
-    ctx.restore();
   }
+}
+
+function drawRotatedRect(
+  gfx: PIXI.Graphics,
+  cx: number,
+  cy: number,
+  w: number,
+  h: number,
+  angle: number,
+): void {
+  const hw = w / 2;
+  const hh = h / 2;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const corners = [
+    { x: -hw, y: -hh },
+    { x:  hw, y: -hh },
+    { x:  hw, y:  hh },
+    { x: -hw, y:  hh },
+  ].map(({ x, y }) => ({
+    x: cx + x * cos - y * sin,
+    y: cy + x * sin + y * cos,
+  }));
+  gfx.moveTo(corners[0].x, corners[0].y);
+  gfx.lineTo(corners[1].x, corners[1].y);
+  gfx.lineTo(corners[2].x, corners[2].y);
+  gfx.lineTo(corners[3].x, corners[3].y);
+  gfx.lineTo(corners[0].x, corners[0].y);
 }

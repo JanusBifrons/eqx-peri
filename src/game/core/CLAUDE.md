@@ -61,7 +61,7 @@ Matter.js compound bodies are created via `Matter.Body.create({ parts: [...] })`
 | Priority | Renderer | Visual concern |
 |----------|----------|----------------|
 | 10 | `GridRenderer` | Background grid lines |
-| 20 | `BlockBodyRenderer` | Ship/block bodies (fills + strokes using vertex data) |
+| 20 | `BlockBodyRenderer` | Ship/block bodies with `shadowBlur` glow; bullets/missiles without glow |
 | 30 | `BlockFrillsRenderer` | Decorative frills on block edges |
 | 40 | `ShieldRenderer` | Shield gradient + collapse ring |
 | 45 | `BeamRenderer` | Continuous beam weapon visuals (glow + core line + impact flash) |

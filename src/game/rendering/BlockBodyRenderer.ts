@@ -1,21 +1,49 @@
+import * as PIXI from 'pixi.js';
 import * as Matter from 'matter-js';
+import { GlowFilter } from 'pixi-filters';
 import { IRenderer } from './IRenderer';
 import { Viewport } from './Viewport';
 import { Assembly } from '../core/Assembly';
 
+const GLOW_DISTANCE    = 15;
+const GLOW_OUTER       = 2.5;
+const GLOW_INNER       = 0.5;
+const GLOW_COLOR       = 0xffffff;
+const GLOW_QUALITY     = 0.1;
+
 export class BlockBodyRenderer implements IRenderer {
   readonly renderPriority = 20;
+
+  private blockGraphics!:  PIXI.Graphics;
+  private bulletGraphics!: PIXI.Graphics;
 
   constructor(
     private readonly getAssemblies: () => Assembly[],
     private readonly getWorld: () => Matter.World,
   ) {}
 
-  render(ctx: CanvasRenderingContext2D, viewport: Viewport, _timestamp: number): void {
+  init(stage: PIXI.Container): void {
+    this.blockGraphics = new PIXI.Graphics();
+    this.blockGraphics.filters = [new GlowFilter({
+      distance:      GLOW_DISTANCE,
+      outerStrength: GLOW_OUTER,
+      innerStrength: GLOW_INNER,
+      color:         GLOW_COLOR,
+      quality:       GLOW_QUALITY,
+    })];
+    stage.addChild(this.blockGraphics);
+
+    this.bulletGraphics = new PIXI.Graphics();
+    stage.addChild(this.bulletGraphics);
+  }
+
+  render(viewport: Viewport, _timestamp: number): void {
+    this.blockGraphics.clear();
+    this.bulletGraphics.clear();
     const scale = viewport.scale;
     const assemblies = this.getAssemblies();
 
-    // Collect entity body IDs so we can skip them during the world-body pass
+    // Collect entity body IDs to skip during the world-body pass
     const entityBodyIds = new Set<number>();
     for (const assembly of assemblies) {
       for (const entity of assembly.entities) {
@@ -23,59 +51,63 @@ export class BlockBodyRenderer implements IRenderer {
       }
     }
 
-    // --- Render entity bodies (ship blocks) ---
+    // --- Entity bodies (ship blocks) ---
     for (const assembly of assemblies) {
       for (const entity of assembly.entities) {
         if (entity.destroyed || entity.body.render?.visible === false) continue;
-        this.renderBodyVertices(ctx, viewport, entity.body, scale);
+        this.drawPolygon(this.blockGraphics, viewport, entity.body, scale);
       }
     }
 
-    // --- Render non-entity bodies (bullets, missiles, etc.) ---
-    // Filter to top-level bodies only (parent === body), skipping compound sub-bodies
+    // --- Non-entity bodies (bullets, missiles, etc.) ---
     const worldBodies = Matter.Composite.allBodies(this.getWorld());
     for (const body of worldBodies) {
       if (body.render?.visible === false) continue;
-      // Skip entity bodies already rendered above
       if (entityBodyIds.has(body.id)) continue;
-      // Skip compound sub-bodies — their parent compound is the top-level entry
       if (body.parent !== body) continue;
 
-      // Compound body: render each part individually
       if (body.parts.length > 1) {
         for (let i = 1; i < body.parts.length; i++) {
           const part = body.parts[i];
           if (part.render?.visible === false) continue;
-          this.renderBodyVertices(ctx, viewport, part, scale);
+          this.drawPolygon(this.bulletGraphics, viewport, part, scale);
         }
       } else {
-        this.renderBodyVertices(ctx, viewport, body, scale);
+        this.drawPolygon(this.bulletGraphics, viewport, body, scale);
       }
     }
   }
 
-  private renderBodyVertices(
-    ctx: CanvasRenderingContext2D,
-    viewport: Viewport,
-    body: Matter.Body,
-    scale: number,
-  ): void {
+  private drawPolygon(gfx: PIXI.Graphics, viewport: Viewport, body: Matter.Body, scale: number): void {
     const verts = body.vertices;
     if (!verts || verts.length === 0) return;
 
-    ctx.beginPath();
+    const fillColor   = this.cssColor(body.render.fillStyle,   0x5e5e5e);
+    const strokeColor = this.cssColor(body.render.strokeStyle, 0x303030);
+    const lineWidth   = (body.render.lineWidth || 3) * scale;
+
+    gfx.lineStyle(lineWidth, strokeColor, 1);
+    gfx.beginFill(fillColor, 1);
+
     const first = viewport.worldToScreen(verts[0].x, verts[0].y);
-    ctx.moveTo(first.x, first.y);
+    gfx.moveTo(first.x, first.y);
     for (let i = 1; i < verts.length; i++) {
       const p = viewport.worldToScreen(verts[i].x, verts[i].y);
-      ctx.lineTo(p.x, p.y);
+      gfx.lineTo(p.x, p.y);
     }
-    ctx.closePath();
+    gfx.closePath();
+    gfx.endFill();
+  }
 
-    ctx.fillStyle = body.render.fillStyle || '#5e5e5e';
-    ctx.strokeStyle = body.render.strokeStyle || '#303030';
-    ctx.lineWidth = (body.render.lineWidth || 3) * scale;
-    ctx.fill();
-    ctx.stroke();
+  /** Convert any CSS color string to a PIXI hex integer. */
+  private cssColor(css: string | undefined, fallback: number): number {
+    if (!css || css === 'transparent') return fallback;
+    if (css.startsWith('#')) {
+      const v = parseInt(css.slice(1), 16);
+      return isNaN(v) ? fallback : v;
+    }
+    const m = css.match(/rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+    if (m) return (parseInt(m[1]) << 16) | (parseInt(m[2]) << 8) | parseInt(m[3]);
+    return fallback;
   }
 }

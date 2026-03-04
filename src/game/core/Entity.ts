@@ -1,5 +1,7 @@
 import * as Matter from 'matter-js';
+import * as PIXI from 'pixi.js';
 import { EntityConfig, EntityType, ENTITY_DEFINITIONS, Vector2, GRID_SIZE, AttachmentConnection } from '../../types/GameTypes';
+import { Viewport } from '../rendering/Viewport';
 
 export class Entity {
   public id: string;
@@ -615,22 +617,18 @@ export class Entity {
    * @param overrideRotationDeg - Block-local rotation in degrees. Defaults to `this.rotation`.
    *   Must be provided when drawing a ghost with a different orientation than the live entity.
    */
-  public drawBlockFrills(ctx: CanvasRenderingContext2D, bounds: Matter.Bounds, canvas: HTMLCanvasElement, assemblyAngle: number, overridePos?: Vector2, overrideRotationDeg?: number): void {
+  public drawBlockFrills(gfx: PIXI.Graphics, viewport: Viewport, assemblyAngle: number, overridePos?: Vector2, overrideRotationDeg?: number): void {
     if (this.destroyed) return;
 
     const pos = overridePos ?? this.body.position;
-    const bw = bounds.max.x - bounds.min.x;
-    const bh = bounds.max.y - bounds.min.y;
-    const sx = (wx: number) => (wx - bounds.min.x) / bw * canvas.width;
-    const sy = (wy: number) => (wy - bounds.min.y) / bh * canvas.height;
-    const scale = canvas.width / bw;
+    const scale = viewport.scale;
+    const sx = (wx: number) => viewport.worldToScreen(wx, 0).x;
+    const sy = (wy: number) => viewport.worldToScreen(0, wy).y;
+    const s = (wx: number, wy: number) => viewport.worldToScreen(wx, wy);
 
-    // assemblyAngle is the compound root's live physics angle; adding this block's
-    // local rotation gives its world-space facing direction (same logic as getCurrentFiringAngle).
     const facingAngle = assemblyAngle + ((overrideRotationDeg ?? this.rotation) * Math.PI / 180);
     const fcos = Math.cos(facingAngle);
     const fsin = Math.sin(facingAngle);
-    // Perpendicular (lateral) direction
     const pcos = Math.cos(facingAngle + Math.PI / 2);
     const psin = Math.sin(facingAngle + Math.PI / 2);
 
@@ -638,32 +636,29 @@ export class Entity {
     const halfW = def.width / 2;
     const halfH = def.height / 2;
 
-    ctx.save();
-    ctx.lineCap = 'round';
+    // Suppress unused warnings — sx/sy are used as coordinate shorthands below
+    void sx; void sy;
 
     switch (this.type) {
       case 'Gun':
       case 'LargeGun':
       case 'CapitalWeapon': {
-        // Barrel base is fixed at the muzzle (natural facing direction); tip tracks aim direction.
         const aimAngle = facingAngle + this.currentAimAngle;
         const aCos = Math.cos(aimAngle);
         const aSin = Math.sin(aimAngle);
         const barrelLen = halfW;
-        const startX = pos.x + fcos * halfW;  // muzzle — anchored to block's natural front face
+        const startX = pos.x + fcos * halfW;
         const startY = pos.y + fsin * halfW;
-        ctx.strokeStyle = '#8898a8';
-        ctx.lineWidth = Math.max(1.5, scale * 2.5);
-        ctx.beginPath();
-        ctx.moveTo(sx(startX), sy(startY));
-        ctx.lineTo(sx(startX + aCos * barrelLen), sy(startY + aSin * barrelLen));
-        ctx.stroke();
+        const p0 = s(startX, startY);
+        const p1 = s(startX + aCos * barrelLen, startY + aSin * barrelLen);
+        gfx.lineStyle(Math.max(1.5, scale * 2.5), 0x8898a8, 1);
+        gfx.moveTo(p0.x, p0.y);
+        gfx.lineTo(p1.x, p1.y);
         break;
       }
       case 'MissileLauncher':
       case 'LargeMissileLauncher':
       case 'CapitalMissileLauncher': {
-        // Tubes track actual aiming direction
         const aimAngle = facingAngle + this.currentAimAngle;
         const aCos = Math.cos(aimAngle);
         const aSin = Math.sin(aimAngle);
@@ -671,91 +666,74 @@ export class Entity {
         const aPsin = Math.sin(aimAngle + Math.PI / 2);
         const tubeLen = halfW * 0.9;
         const spread = halfH * 0.35;
-        const startX = pos.x + fcos * (halfW * 0.4);  // anchored in natural facing direction
+        const startX = pos.x + fcos * (halfW * 0.4);
         const startY = pos.y + fsin * (halfW * 0.4);
-        ctx.strokeStyle = '#6a8880';
-        ctx.lineWidth = Math.max(1.5, scale * 2);
-        ctx.beginPath();
-        ctx.moveTo(sx(startX - aPcos * spread), sy(startY - aPsin * spread));
-        ctx.lineTo(sx(startX + aCos * tubeLen - aPcos * spread), sy(startY + aSin * tubeLen - aPsin * spread));
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(sx(startX + aPcos * spread), sy(startY + aPsin * spread));
-        ctx.lineTo(sx(startX + aCos * tubeLen + aPcos * spread), sy(startY + aSin * tubeLen + aPsin * spread));
-        ctx.stroke();
+        gfx.lineStyle(Math.max(1.5, scale * 2), 0x6a8880, 1);
+        const tA0 = s(startX - aPcos * spread, startY - aPsin * spread);
+        const tA1 = s(startX + aCos * tubeLen - aPcos * spread, startY + aSin * tubeLen - aPsin * spread);
+        gfx.moveTo(tA0.x, tA0.y); gfx.lineTo(tA1.x, tA1.y);
+        const tB0 = s(startX + aPcos * spread, startY + aPsin * spread);
+        const tB1 = s(startX + aCos * tubeLen + aPcos * spread, startY + aSin * tubeLen + aPsin * spread);
+        gfx.moveTo(tB0.x, tB0.y); gfx.lineTo(tB1.x, tB1.y);
         break;
       }
       case 'Engine':
       case 'LargeEngine':
       case 'CapitalEngine': {
-        // Nozzle bell: a V-chevron at the facing end of the engine block
         const baseX = pos.x + fcos * halfW;
         const baseY = pos.y + fsin * halfW;
         const tipX = baseX + fcos * (halfW * 0.7);
         const tipY = baseY + fsin * (halfW * 0.7);
         const spread = halfH * 0.65;
-        ctx.strokeStyle = '#705040';
-        ctx.lineWidth = Math.max(1, scale * 2);
-        ctx.beginPath();
-        ctx.moveTo(sx(baseX - pcos * spread), sy(baseY - psin * spread));
-        ctx.lineTo(sx(tipX), sy(tipY));
-        ctx.lineTo(sx(baseX + pcos * spread), sy(baseY + psin * spread));
-        ctx.stroke();
+        gfx.lineStyle(Math.max(1, scale * 2), 0x705040, 1);
+        const e0 = s(baseX - pcos * spread, baseY - psin * spread);
+        const tip = s(tipX, tipY);
+        const e1 = s(baseX + pcos * spread, baseY + psin * spread);
+        gfx.moveTo(e0.x, e0.y); gfx.lineTo(tip.x, tip.y); gfx.lineTo(e1.x, e1.y);
         break;
       }
       case 'Cockpit':
       case 'LargeCockpit':
       case 'CapitalCore': {
-        // Canopy: a short blue bar across the forward face + a small nose point
         const canopyHalf = halfH * 0.55;
         const frontX = pos.x + fcos * (halfW - 1);
         const frontY = pos.y + fsin * (halfW - 1);
-        ctx.strokeStyle = '#6ab0e0';
-        ctx.lineWidth = Math.max(2, scale * 2.5);
-        ctx.beginPath();
-        ctx.moveTo(sx(frontX - pcos * canopyHalf), sy(frontY - psin * canopyHalf));
-        ctx.lineTo(sx(frontX + pcos * canopyHalf), sy(frontY + psin * canopyHalf));
-        ctx.stroke();
-        // Small nose extension
-        ctx.lineWidth = Math.max(1.5, scale * 1.8);
-        ctx.beginPath();
-        ctx.moveTo(sx(pos.x + fcos * halfW), sy(pos.y + fsin * halfW));
-        ctx.lineTo(sx(pos.x + fcos * (halfW + halfW * 0.45)), sy(pos.y + fsin * (halfW + halfW * 0.45)));
-        ctx.stroke();
+        gfx.lineStyle(Math.max(2, scale * 2.5), 0x6ab0e0, 1);
+        const c0 = s(frontX - pcos * canopyHalf, frontY - psin * canopyHalf);
+        const c1 = s(frontX + pcos * canopyHalf, frontY + psin * canopyHalf);
+        gfx.moveTo(c0.x, c0.y); gfx.lineTo(c1.x, c1.y);
+        gfx.lineStyle(Math.max(1.5, scale * 1.8), 0x6ab0e0, 1);
+        const n0 = s(pos.x + fcos * halfW, pos.y + fsin * halfW);
+        const n1 = s(pos.x + fcos * (halfW + halfW * 0.45), pos.y + fsin * (halfW + halfW * 0.45));
+        gfx.moveTo(n0.x, n0.y); gfx.lineTo(n1.x, n1.y);
         break;
       }
       case 'PowerCell':
       case 'LargePowerCell':
       case 'PowerReactor': {
-        // Small filled circle at the center — subtle energy indicator
         const dotR = Math.max(2, scale * 2.5);
-        ctx.fillStyle = '#48a848';
-        ctx.beginPath();
-        ctx.arc(sx(pos.x), sy(pos.y), dotR, 0, Math.PI * 2);
-        ctx.fill();
+        const center = s(pos.x, pos.y);
+        gfx.lineStyle(0);
+        gfx.beginFill(0x48a848, 1);
+        gfx.drawCircle(center.x, center.y, dotR);
+        gfx.endFill();
         break;
       }
       case 'Shield':
       case 'LargeShield': {
-        // Hexagonal "emitter" symbol — two overlapping arcs forming a shield icon
         const emitterR = Math.max(2, scale * Math.min(halfW, halfH) * 0.55);
         const pulse = Math.sin(Date.now() / 600) * 0.2 + 0.8;
-        ctx.strokeStyle = `rgba(80, 160, 255, ${pulse})`;
-        ctx.lineWidth = Math.max(1, scale * 1.5);
-        ctx.beginPath();
-        ctx.arc(sx(pos.x), sy(pos.y), emitterR, 0, Math.PI * 2);
-        ctx.stroke();
-        // Inner dot
-        ctx.fillStyle = `rgba(120, 200, 255, ${pulse})`;
-        ctx.beginPath();
-        ctx.arc(sx(pos.x), sy(pos.y), Math.max(1, scale * 1.2), 0, Math.PI * 2);
-        ctx.fill();
+        const center = s(pos.x, pos.y);
+        gfx.lineStyle(Math.max(1, scale * 1.5), 0x50a0ff, pulse);
+        gfx.drawCircle(center.x, center.y, emitterR);
+        gfx.lineStyle(0);
+        gfx.beginFill(0x78c8ff, pulse);
+        gfx.drawCircle(center.x, center.y, Math.max(1, scale * 1.2));
+        gfx.endFill();
         break;
       }
       case 'Beam':
       case 'LargeBeam': {
-        // Wide emitter aperture — a full-width glowing bar across the muzzle face,
-        // plus a pulsing dot at the centre to distinguish it from a gun barrel.
         const aimAngle = facingAngle + this.currentAimAngle;
         const aCos = Math.cos(aimAngle);
         const aSin = Math.sin(aimAngle);
@@ -764,34 +742,26 @@ export class Entity {
         const muzzleX = pos.x + fcos * halfW;
         const muzzleY = pos.y + fsin * halfW;
         const beamPulse = Math.sin(Date.now() / 300) * 0.25 + 0.75;
-        // Outer glow span (full block width)
-        ctx.strokeStyle = `rgba(0, 220, 255, ${beamPulse * 0.5})`;
-        ctx.lineWidth = Math.max(3, scale * 5);
-        ctx.beginPath();
-        ctx.moveTo(sx(muzzleX - aPcos * halfH), sy(muzzleY - aPsin * halfH));
-        ctx.lineTo(sx(muzzleX + aPcos * halfH), sy(muzzleY + aPsin * halfH));
-        ctx.stroke();
-        // Bright core line
-        ctx.strokeStyle = `rgba(160, 255, 255, ${beamPulse})`;
-        ctx.lineWidth = Math.max(1.5, scale * 2);
-        ctx.beginPath();
-        ctx.moveTo(sx(muzzleX - aPcos * halfH * 0.8), sy(muzzleY - aPsin * halfH * 0.8));
-        ctx.lineTo(sx(muzzleX + aPcos * halfH * 0.8), sy(muzzleY + aPsin * halfH * 0.8));
-        ctx.stroke();
-        // Small aiming direction nub (shows which way it points)
-        ctx.strokeStyle = `rgba(0, 255, 255, ${beamPulse})`;
-        ctx.lineWidth = Math.max(1, scale * 1.5);
-        ctx.beginPath();
-        ctx.moveTo(sx(muzzleX), sy(muzzleY));
-        ctx.lineTo(sx(muzzleX + aCos * halfW * 0.4), sy(muzzleY + aSin * halfW * 0.4));
-        ctx.stroke();
+        const muzzle = s(muzzleX, muzzleY);
+        // Outer glow bar
+        gfx.lineStyle(Math.max(3, scale * 5), 0x00dcff, beamPulse * 0.5);
+        const bg0 = s(muzzleX - aPcos * halfH, muzzleY - aPsin * halfH);
+        const bg1 = s(muzzleX + aPcos * halfH, muzzleY + aPsin * halfH);
+        gfx.moveTo(bg0.x, bg0.y); gfx.lineTo(bg1.x, bg1.y);
+        // Core bar
+        gfx.lineStyle(Math.max(1.5, scale * 2), 0xa0ffff, beamPulse);
+        const bc0 = s(muzzleX - aPcos * halfH * 0.8, muzzleY - aPsin * halfH * 0.8);
+        const bc1 = s(muzzleX + aPcos * halfH * 0.8, muzzleY + aPsin * halfH * 0.8);
+        gfx.moveTo(bc0.x, bc0.y); gfx.lineTo(bc1.x, bc1.y);
+        // Aim nub
+        gfx.lineStyle(Math.max(1, scale * 1.5), 0x00ffff, beamPulse);
+        const nub = s(muzzleX + aCos * halfW * 0.4, muzzleY + aSin * halfW * 0.4);
+        gfx.moveTo(muzzle.x, muzzle.y); gfx.lineTo(nub.x, nub.y);
         break;
       }
       default:
         break;
     }
-
-    ctx.restore();
   }
   private updateWeaponAiming(deltaTime: number): void {
     // Only update aiming for weapons

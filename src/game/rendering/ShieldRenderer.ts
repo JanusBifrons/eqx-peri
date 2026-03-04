@@ -1,3 +1,4 @@
+import * as PIXI from 'pixi.js';
 import * as Matter from 'matter-js';
 import { IRenderer } from './IRenderer';
 import { Viewport } from './Viewport';
@@ -6,9 +7,18 @@ import { Assembly } from '../core/Assembly';
 export class ShieldRenderer implements IRenderer {
   readonly renderPriority = 40;
 
+  private graphics!: PIXI.Graphics;
+
   constructor(private readonly getAssemblies: () => Assembly[]) {}
 
-  render(ctx: CanvasRenderingContext2D, viewport: Viewport, timestamp: number): void {
+  init(stage: PIXI.Container): void {
+    this.graphics = new PIXI.Graphics();
+    stage.addChild(this.graphics);
+  }
+
+  render(viewport: Viewport, timestamp: number): void {
+    this.graphics.clear();
+
     const { bounds, canvas } = viewport;
     const bw = bounds.max.x - bounds.min.x;
     const bh = bounds.max.y - bounds.min.y;
@@ -21,14 +31,15 @@ export class ShieldRenderer implements IRenderer {
       const s = assembly.shieldState;
       if (!s) continue;
 
-      // The shield circle part tracks its world position in rootBody.parts (maintained by
-      // Matter.js). Fall back to rootBody.position if the shield part is not present.
-      const shieldPart = assembly.rootBody.parts.find((p: Matter.Body) => (p as any).isShieldPart);
+      const shieldPart = assembly.rootBody.parts.find(
+        (p: Matter.Body) => (p as unknown as Record<string, unknown>)['isShieldPart'],
+      );
       const pos = shieldPart ? shieldPart.position : assembly.rootBody.position;
 
-      // Rough culling
-      if (pos.x < bounds.min.x - 400 || pos.x > bounds.max.x + 400 ||
-          pos.y < bounds.min.y - 400 || pos.y > bounds.max.y + 400) continue;
+      if (
+        pos.x < bounds.min.x - 400 || pos.x > bounds.max.x + 400 ||
+        pos.y < bounds.min.y - 400 || pos.y > bounds.max.y + 400
+      ) continue;
 
       const screenX = sx(pos.x);
       const screenY = sy(pos.y);
@@ -38,41 +49,36 @@ export class ShieldRenderer implements IRenderer {
         const hpRatio = s.currentHp / Math.max(1, s.maxHp);
         const timeSinceHit = now - s.lastHitTime;
         const hitFlash = Math.max(0, 1 - timeSinceHit / 300);
-
         const isRegen = s.currentHp < s.maxHp && timeSinceHit >= 3000;
         const regenPulse = isRegen ? (Math.sin(timestamp / 150) * 0.15 + 0.85) : 1;
-
         const baseAlpha = hpRatio * 0.28 + 0.07;
         const alpha = Math.min(1, (baseAlpha + hitFlash * 0.35) * regenPulse);
 
-        const gradient = ctx.createRadialGradient(screenX, screenY, radius * 0.6, screenX, screenY, radius);
-        gradient.addColorStop(0, `rgba(100, 180, 255, ${alpha * 0.15})`);
-        gradient.addColorStop(0.7, `rgba(60, 130, 255, ${alpha * 0.25})`);
-        gradient.addColorStop(1, `rgba(30, 80, 220, ${alpha * 0.6})`);
+        // Approximate radial gradient with concentric filled circles (outer→inner)
+        this.graphics.lineStyle(0);
+        this.graphics.beginFill(0x1e50dc, alpha * 0.6);
+        this.graphics.drawCircle(screenX, screenY, radius);
+        this.graphics.endFill();
+        this.graphics.beginFill(0x3c82ff, alpha * 0.25);
+        this.graphics.drawCircle(screenX, screenY, radius * 0.7);
+        this.graphics.endFill();
+        this.graphics.beginFill(0x64b4ff, alpha * 0.15);
+        this.graphics.drawCircle(screenX, screenY, radius * 0.4);
+        this.graphics.endFill();
 
-        ctx.fillStyle = gradient;
-        ctx.beginPath();
-        ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
-        ctx.fill();
-
+        // Rim
         const rimAlpha = Math.min(1, 0.5 + hitFlash * 0.5);
-        ctx.strokeStyle = `rgba(120, 200, 255, ${rimAlpha})`;
-        ctx.lineWidth = Math.max(1, scale * 2) * (1 + hitFlash * 0.5);
-        ctx.beginPath();
-        ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
-        ctx.stroke();
+        const rimWidth = Math.max(1, scale * 2) * (1 + hitFlash * 0.5);
+        this.graphics.lineStyle(rimWidth, 0x78c8ff, rimAlpha);
+        this.graphics.drawCircle(screenX, screenY, radius);
 
       } else if (!s.isActive) {
         const timeLeft = s.cooldownUntil - now;
         if (timeLeft > 0) {
           const pulse = Math.sin(timestamp / 400) * 0.3 + 0.4;
-          ctx.strokeStyle = `rgba(60, 80, 160, ${pulse * 0.4})`;
-          ctx.lineWidth = Math.max(1, scale * 1.5);
-          ctx.setLineDash([Math.max(3, scale * 6), Math.max(4, scale * 8)]);
-          ctx.beginPath();
-          ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
-          ctx.stroke();
-          ctx.setLineDash([]);
+          // Approximated dashed ring as a solid ring at low alpha
+          this.graphics.lineStyle(Math.max(1, scale * 1.5), 0x3c50a0, pulse * 0.4);
+          this.graphics.drawCircle(screenX, screenY, radius);
         }
       }
     }
