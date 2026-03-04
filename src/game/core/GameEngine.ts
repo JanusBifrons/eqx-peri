@@ -711,9 +711,7 @@ export class GameEngine {
     });
 
     // Update BlockPickupSystem: reposition ghost and refresh snap candidate
-    if (this.blockPickupSystem.isHolding()) {
-      this.blockPickupSystem.update(this.mouseWorldPos, this.playerAssembly);
-    }
+    this.blockPickupSystem.update(this.mouseWorldPos, this.mousePosition, this.playerAssembly);
 
     // Update entity flash effects
     this.updateEntityFlashes(deltaTime);
@@ -1111,9 +1109,13 @@ export class GameEngine {
       this.updateCursorWorldPosition();
 
       if (this.blockPickupSystem.isHolding()) {
-        // While holding a block, skip normal hover detection and set grabbing cursor
+        // Actively dragging — skip hover detection and show grabbing cursor
         this.setHoveredAssembly(null);
         this.render.canvas.style.cursor = 'grabbing';
+      } else if (this.blockPickupSystem.isPendingPickup()) {
+        // Mousedown on a block, waiting for hold/drag threshold — keep grab cursor
+        this.setHoveredAssembly(null);
+        this.render.canvas.style.cursor = 'grab';
       } else {
         // Normal hover detection
         const hoveredAssembly = this.getAssemblyAtPosition(this.mousePosition.x, this.mousePosition.y);
@@ -1149,7 +1151,7 @@ export class GameEngine {
         const worldPos = this.screenToWorld(screenX, screenY);
 
         // BlockPickupSystem intercepts clicks on non-cockpit assemblies
-        if (this.blockPickupSystem.tryPickUp(worldPos, this.assemblies, this.playerAssembly)) {
+        if (this.blockPickupSystem.tryPickUp(worldPos, { x: screenX, y: screenY }, this.assemblies, this.playerAssembly)) {
           this.mouseDown = false; // suppress weapon fire while holding
         } else {
           this.mouseDown = true;
@@ -1169,6 +1171,18 @@ export class GameEngine {
     });    // Add click event for target selection
     this.render.canvas.addEventListener('click', (event) => {
       this.handleCanvasClick(event);
+    });
+
+    // Double-click locks on target (same as right-click targeting)
+    this.render.canvas.addEventListener('dblclick', (event) => {
+      if (this.blockPickupSystem.isHolding()) return;
+      const rect = this.render.canvas.getBoundingClientRect();
+      const screenX = event.clientX - rect.left;
+      const screenY = event.clientY - rect.top;
+      const clickedAssembly = this.getAssemblyAtPosition(screenX, screenY);
+      if (clickedAssembly && clickedAssembly !== this.playerAssembly) {
+        this.handleTargetClick(clickedAssembly);
+      }
     });
 
     // Mouse wheel for zoom
@@ -1561,9 +1575,10 @@ export class GameEngine {
   }
   // Ship selection methods
   private getAssemblyAtPosition(x: number, y: number): Assembly | null {
-    // Convert screen coordinates to world coordinates
-    const worldX = x + this.render.bounds.min.x;
-    const worldY = y + this.render.bounds.min.y;
+    // Convert screen coordinates to world coordinates (proper scaled transform)
+    const bounds = this.render.bounds;
+    const worldX = (x / this.render.canvas.width) * (bounds.max.x - bounds.min.x) + bounds.min.x;
+    const worldY = (y / this.render.canvas.height) * (bounds.max.y - bounds.min.y) + bounds.min.y;
 
     // console.log('🔍 Looking for assembly at screen:', x, y, 'world:', worldX, worldY);
 

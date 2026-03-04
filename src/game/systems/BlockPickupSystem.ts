@@ -17,6 +17,12 @@ interface PreDetachState {
   playerAssembly: Assembly;
 }
 
+interface PendingPickupState {
+  assembly: Assembly;
+  startScreenPos: { x: number; y: number };
+  startTime: number;
+}
+
 interface ActiveDragState {
   heldAssembly: Assembly;
   cursorBody: Matter.Body;
@@ -30,12 +36,17 @@ const DETACH_RADIUS = 64;
 
 // Physics-drag constants
 const DETACH_PULL_THRESHOLD = 40;  // px — how far to pull before block pops off
+
+// Floating-block pickup thresholds — drag only starts after one of these is exceeded
+const DRAG_HOLD_MS = 400;        // hold mousedown this long to start drag
+const DRAG_MIN_SCREEN_PX = 6;    // or move this many screen pixels while held
 const SPRING_STIFFNESS = 0.04;
 const SPRING_DAMPING = 0.1;
 const SPRING_LENGTH = 0;
 const CURSOR_BODY_RADIUS = 4;
 
 export class BlockPickupSystem {
+  private pendingPickupState: PendingPickupState | null = null;
   private preDetachState: PreDetachState | null = null;
   private activeDrag: ActiveDragState | null = null;
   private activeSnap: SnapCandidate | null = null;
@@ -68,8 +79,14 @@ export class BlockPickupSystem {
     this.doRemoveConstraintFromWorld = removeConstraintFromWorld;
   }
 
+  /** True once a block is actually being dragged or pre-detached (not just pending). */
   public isHolding(): boolean {
     return this.preDetachState !== null || this.activeDrag !== null;
+  }
+
+  /** True during the hold/distance waiting period before drag actually begins. */
+  public isPendingPickup(): boolean {
+    return this.pendingPickupState !== null;
   }
 
   public getHeldAssembly(): Assembly | null {
@@ -89,10 +106,12 @@ export class BlockPickupSystem {
   /**
    * Try to pick up a block at the given world position.
    * Checks player's own blocks first (for pre-detach), then floating assemblies.
-   * Returns true if something was picked up or a pre-detach was initiated.
+   * Returns true if an interaction was initiated (suppresses weapon fire).
+   * Floating blocks enter a pending state — drag only starts after hold/distance threshold.
    */
   public tryPickUp(
     worldPos: Vector2,
+    screenPos: { x: number; y: number },
     assemblies: Assembly[],
     playerAssembly: Assembly | null
   ): boolean {
@@ -128,7 +147,12 @@ export class BlockPickupSystem {
           worldPos.x >= bounds.min.x && worldPos.x <= bounds.max.x &&
           worldPos.y >= bounds.min.y && worldPos.y <= bounds.max.y
         ) {
-          this.startPhysicsDrag(assembly);
+          // Don't drag immediately — wait for hold time or minimum movement
+          this.pendingPickupState = {
+            assembly,
+            startScreenPos: { ...screenPos },
+            startTime: performance.now(),
+          };
           return true;
         }
       }
@@ -137,10 +161,29 @@ export class BlockPickupSystem {
   }
 
   /**
-   * Called each frame while holding. Updates cursor position and recalculates snap candidate.
+   * Called each frame. Advances pending → active drag if thresholds met,
+   * then updates cursor position and recalculates snap candidate.
    */
-  public update(mouseWorldPos: Vector2, playerAssembly: Assembly | null): void {
+  public update(mouseWorldPos: Vector2, mouseScreenPos: { x: number; y: number }, playerAssembly: Assembly | null): void {
     this.lastCursorWorldPos = { ...mouseWorldPos };
+
+    // Check pending pickup: promote to active drag if hold time or distance exceeded
+    if (this.pendingPickupState) {
+      const { assembly, startScreenPos, startTime } = this.pendingPickupState;
+      if (assembly.destroyed) {
+        this.pendingPickupState = null;
+      } else {
+        const elapsed = performance.now() - startTime;
+        const dx = mouseScreenPos.x - startScreenPos.x;
+        const dy = mouseScreenPos.y - startScreenPos.y;
+        const screenDist = Math.sqrt(dx * dx + dy * dy);
+        if (elapsed >= DRAG_HOLD_MS || screenDist >= DRAG_MIN_SCREEN_PX) {
+          this.pendingPickupState = null;
+          this.startPhysicsDrag(assembly);
+        }
+      }
+      return;
+    }
 
     if (this.preDetachState) {
       const { entity, playerAssembly: pa } = this.preDetachState;
@@ -181,6 +224,12 @@ export class BlockPickupSystem {
    * If dragging with a valid snap, attach. Otherwise drop freely.
    */
   public tryRelease(playerAssembly: Assembly | null): void {
+    if (this.pendingPickupState) {
+      // Released before reaching drag threshold — no-op, just cancel
+      this.pendingPickupState = null;
+      return;
+    }
+
     if (this.preDetachState) {
       this.preDetachState = null;
       this.activeSnap = null;
@@ -210,6 +259,11 @@ export class BlockPickupSystem {
    * Immediately drop the held assembly into the physics world (used when player dies).
    */
   public forceDropAtCurrentPosition(): void {
+    if (this.pendingPickupState) {
+      this.pendingPickupState = null;
+      return;
+    }
+
     if (this.preDetachState) {
       this.preDetachState = null;
       return;

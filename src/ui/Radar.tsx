@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     Paper,
     Table,
@@ -95,10 +95,16 @@ const RadarDot = styled('div')<{ team: number; isPlayer: boolean; isSelected: bo
 const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
     const [radarData, setRadarData] = useState<any[]>([]);
     const [selectedShip, setSelectedShip] = useState<any>(null);
+    const [hoveredShipId, setHoveredShipId] = useState<string | null>(null);
     const [activeCommand, setActiveCommand] = useState<string | null>(null);
     const [commandTarget, setCommandTarget] = useState<string | null>(null);
     const [currentZoom, setCurrentZoom] = useState<number>(0.1);
     const [currentSpeed, setCurrentSpeed] = useState<number>(0); const [speedBasedZoom, setSpeedBasedZoom] = useState<boolean>(true);
+
+    const selectedRowRef = useRef<HTMLTableRowElement | null>(null);
+    const setSelectedRowRef = useCallback((el: HTMLTableRowElement | null) => {
+        selectedRowRef.current = el;
+    }, []);
 
     useEffect(() => {
         if (!gameEngine) return;
@@ -136,6 +142,10 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
                 } else {
                     setSelectedShip(null);
                 }
+
+                // Track world hover for radar row highlight
+                const hovered = gameEngine.getHoveredAssembly();
+                setHoveredShipId(hovered ? hovered.id : null);
             } catch (error) {
                 console.error('Radar update error:', error);
             }
@@ -144,6 +154,11 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
         const interval = setInterval(updateRadar, 100);
         return () => clearInterval(interval);
     }, [gameEngine]);
+
+    // Auto-scroll to selected row when selection changes
+    useEffect(() => {
+        selectedRowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, [selectedShip?.id]);
 
     const handleZoomIn = () => {
         if (gameEngine) {
@@ -415,17 +430,29 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
                             {radarData.slice(0, 20).map((item) => (
                                 <TableRow
                                     key={item.id}
-                                    hover
+                                    ref={selectedShip?.id === item.id ? setSelectedRowRef : undefined}
+                                    hover={!item.isMissile}
                                     onClick={(event) => {
                                         event.preventDefault();
                                         event.stopPropagation();
-                                        // Only allow selection of ships (not missiles)
                                         if (!item.isMissile) {
                                             handleShipSelect(item);
                                         }
                                     }}
+                                    onDoubleClick={(event) => {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        if (!item.isMissile && !item.isPlayer) {
+                                            handleLockOn(item);
+                                        }
+                                    }}
                                     sx={{
                                         cursor: item.isMissile ? 'default' : 'pointer',
+                                        backgroundColor: selectedShip?.id === item.id
+                                            ? 'rgba(0, 255, 255, 0.08)'
+                                            : hoveredShipId === item.id
+                                                ? 'rgba(255, 255, 0, 0.06)'
+                                                : 'inherit',
                                         '&:hover': { backgroundColor: item.isMissile ? 'inherit' : 'rgba(255, 255, 255, 0.05)' }
                                     }}
                                 >
