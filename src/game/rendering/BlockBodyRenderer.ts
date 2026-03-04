@@ -1,19 +1,17 @@
 import * as PIXI from 'pixi.js';
 import * as Matter from 'matter-js';
-import { GlowFilter } from 'pixi-filters';
 import { IRenderer } from './IRenderer';
 import { Viewport } from './Viewport';
 import { Assembly } from '../core/Assembly';
 
-const GLOW_DISTANCE    = 15;
-const GLOW_OUTER       = 2.5;
-const GLOW_INNER       = 0.5;
-const GLOW_COLOR       = 0xffffff;
-const GLOW_QUALITY     = 0.1;
+const GLOW_BLUR    = 50;
+const GLOW_QUALITY = 4;
+const GLOW_ALPHA   = 1.0;
 
 export class BlockBodyRenderer implements IRenderer {
   readonly renderPriority = 20;
 
+  private glowGraphics!:   PIXI.Graphics;
   private blockGraphics!:  PIXI.Graphics;
   private bulletGraphics!: PIXI.Graphics;
 
@@ -23,14 +21,14 @@ export class BlockBodyRenderer implements IRenderer {
   ) {}
 
   init(stage: PIXI.Container): void {
+    // Glow layer: each block drawn in its fill colour, blurred with additive blending
+    // ADD blend mode means the glow adds light on top of whatever is behind it
+    this.glowGraphics = new PIXI.Graphics();
+    this.glowGraphics.filters = [new PIXI.filters.BlurFilter(GLOW_BLUR, GLOW_QUALITY)];
+    this.glowGraphics.blendMode = PIXI.BLEND_MODES.ADD;
+    stage.addChild(this.glowGraphics);
+
     this.blockGraphics = new PIXI.Graphics();
-    this.blockGraphics.filters = [new GlowFilter({
-      distance:      GLOW_DISTANCE,
-      outerStrength: GLOW_OUTER,
-      innerStrength: GLOW_INNER,
-      color:         GLOW_COLOR,
-      quality:       GLOW_QUALITY,
-    })];
     stage.addChild(this.blockGraphics);
 
     this.bulletGraphics = new PIXI.Graphics();
@@ -38,12 +36,12 @@ export class BlockBodyRenderer implements IRenderer {
   }
 
   render(viewport: Viewport, _timestamp: number): void {
+    this.glowGraphics.clear();
     this.blockGraphics.clear();
     this.bulletGraphics.clear();
     const scale = viewport.scale;
     const assemblies = this.getAssemblies();
 
-    // Collect entity body IDs to skip during the world-body pass
     const entityBodyIds = new Set<number>();
     for (const assembly of assemblies) {
       for (const entity of assembly.entities) {
@@ -55,6 +53,7 @@ export class BlockBodyRenderer implements IRenderer {
     for (const assembly of assemblies) {
       for (const entity of assembly.entities) {
         if (entity.destroyed || entity.body.render?.visible === false) continue;
+        this.drawGlowPolygon(viewport, entity.body);
         this.drawPolygon(this.blockGraphics, viewport, entity.body, scale);
       }
     }
@@ -76,6 +75,24 @@ export class BlockBodyRenderer implements IRenderer {
         this.drawPolygon(this.bulletGraphics, viewport, body, scale);
       }
     }
+  }
+
+  /** Draws a filled polygon in the block's fill colour on the glow layer. */
+  private drawGlowPolygon(viewport: Viewport, body: Matter.Body): void {
+    const verts = body.vertices;
+    if (!verts || verts.length === 0) return;
+    const color = this.cssColor(body.render.fillStyle, 0x5e5e5e);
+
+    this.glowGraphics.lineStyle(0);
+    this.glowGraphics.beginFill(color, GLOW_ALPHA);
+    const first = viewport.worldToScreen(verts[0].x, verts[0].y);
+    this.glowGraphics.moveTo(first.x, first.y);
+    for (let i = 1; i < verts.length; i++) {
+      const p = viewport.worldToScreen(verts[i].x, verts[i].y);
+      this.glowGraphics.lineTo(p.x, p.y);
+    }
+    this.glowGraphics.closePath();
+    this.glowGraphics.endFill();
   }
 
   private drawPolygon(gfx: PIXI.Graphics, viewport: Viewport, body: Matter.Body, scale: number): void {
