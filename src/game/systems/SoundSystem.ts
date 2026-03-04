@@ -138,64 +138,11 @@ export class SoundSystem {
   }
 
   private actuallyStartMusic(): void {
-    if (!this.audioContext || !this.musicGain) return;
-    if (this.musicPlaying) return;
-
-    // Use oscillators for ambient drone instead of buffer (more reliable)
-    const ctx = this.audioContext;
-
-    // Create drone oscillators
-    const drone1 = ctx.createOscillator();
-    const drone1Gain = ctx.createGain();
-    drone1.type = 'sine';
-    drone1.frequency.value = 55; // Low A
-    drone1Gain.gain.value = 0.15;
-    drone1.connect(drone1Gain);
-    drone1Gain.connect(this.musicGain);
-    drone1.start();
-
-    const drone2 = ctx.createOscillator();
-    const drone2Gain = ctx.createGain();
-    drone2.type = 'sine';
-    drone2.frequency.value = 82.5; // Low E
-    drone2Gain.gain.value = 0.1;
-    drone2.connect(drone2Gain);
-    drone2Gain.connect(this.musicGain);
-    drone2.start();
-
-    const drone3 = ctx.createOscillator();
-    const drone3Gain = ctx.createGain();
-    drone3.type = 'triangle';
-    drone3.frequency.value = 110; // A2
-    drone3Gain.gain.value = 0.05;
-    drone3.connect(drone3Gain);
-    drone3Gain.connect(this.musicGain);
-    drone3.start();
-
-    // Store references for stopping later
-    (this as any).musicOscillators = [drone1, drone2, drone3];
-
-    this.musicPlaying = true;
-    console.log('🎵 Music started (oscillator-based drone)');
+    // No ambient music implemented — reserved for future use
   }
 
   public stopMusic(): void {
     this.musicPending = false;
-
-    // Stop oscillator-based music
-    const oscillators = (this as any).musicOscillators as OscillatorNode[] | undefined;
-    if (oscillators) {
-      oscillators.forEach(osc => {
-        try {
-          osc.stop();
-        } catch {
-          // Ignore if already stopped
-        }
-      });
-      (this as any).musicOscillators = null;
-    }
-
-    // Stop buffer-based music (legacy)
     if (this.musicSource) {
       try {
         this.musicSource.stop();
@@ -204,7 +151,6 @@ export class SoundSystem {
       }
       this.musicSource = null;
     }
-
     this.musicPlaying = false;
   }
 

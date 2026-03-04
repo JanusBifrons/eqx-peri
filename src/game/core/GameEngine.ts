@@ -600,7 +600,6 @@ export class GameEngine {
 
     // Initialize sound system (requires user interaction to have occurred)
     SoundSystem.getInstance().init();
-    SoundSystem.getInstance().startMusic();
 
     // Start renderer
     console.log('🖼️  About to start renderer...');
@@ -630,8 +629,6 @@ export class GameEngine {
     // Cleanup missile system
     this.missileSystem.cleanup();
 
-    // Stop music
-    SoundSystem.getInstance().stopMusic();
   } private gameLoop(): void {
     if (!this.running) return;
 
