@@ -21,7 +21,7 @@ src/
   game/
     core/       # Fundamental physics objects: GameEngine, Assembly, Entity, RenderSystem
     ai/         # Control & decision-making: AIController, FlightController, ControllerManager, Controller
-    weapons/    # Missile and MissileSystem
+    weapons/    # Missile, MissileSystem, BeamSystem
     ship/       # Ship design: BlockSystem, ShipDesigner, ShipDesignManager
     systems/    # Singletons & services: PowerSystem, ToastSystem, BlockPickupSystem
     rendering/  # IRenderer, Viewport, and individual renderer classes
@@ -75,12 +75,21 @@ src/
 - Interception is wired in three places: `GameEngine.handleBulletHit` (lasers), `GameEngine.handleEntityCollision` (collisions), `MissileSystem.handleMissileHit` (missiles).
 - Rendering: `ShieldRenderer` (priority 40) in `src/game/rendering/` draws translucent blue gradient circles each frame via `RenderSystem`.
 
+**Beam weapon system (`BeamSystem` + `BeamRenderer`):**
+- `Beam` (1×1) and `LargeBeam` (2×2) are block types that fire instant-hit continuous beams — no physics body is spawned.
+- Beam constants (`BEAM_SMALL_RANGE`, `BEAM_SMALL_DPS`, `BEAM_LARGE_RANGE`, `BEAM_LARGE_DPS`, `BEAM_DISPLAY_DURATION_MS`) live in `GameTypes.ts`. `beamRange` and `beamDps` optional fields added to `EntityTypeDefinition`.
+- `Entity.isBeamWeapon()` returns `true` for Beam/LargeBeam. `Assembly.fireWeapons()` excludes beam weapons (they are not projectiles); `Assembly.getBeamFires()` returns `BeamFireSpec[]` each tick while the trigger is held.
+- `ControllerManager.applyInput()` calls `assembly.getBeamFires()` and routes each spec to `BeamSystem.processBeamFire(spec, assemblies, deltaTime)`, which performs ray-convex-polygon intersection against all entity bodies, applies `DPS × deltaTime` damage, handles shield interception, and invokes an `onEntityDestroyed` callback when an entity is killed.
+- Entity destruction is routed through `GameEngine.processEntityDestruction()` — the shared cascade method now used by both `handleBulletHit` and `handleBeamEntityDestroyed`.
+- `BeamRenderer` (priority 45, between ShieldRenderer and ShipHighlightRenderer) draws active beams as a two-layer glow (outer halo + bright core) with an impact flash at the hit point. Beams fade over `BEAM_DISPLAY_DURATION_MS` (80 ms) after the last firing tick.
+- Active beams are stored in a `Map<weaponId, ActiveBeam>` in `BeamSystem`, overwritten each tick the weapon fires (so each weapon has at most one beam record at a time).
+
 **Rendering system (`RenderSystem` + `src/game/rendering/`):**
 - `Matter.Render.run()` is **not called** — Matter.js is physics-only; `RenderSystem` owns the `requestAnimationFrame` loop.
 - `Matter.Render.lookAt()` is still used for camera/viewport management; `RenderSystem` reads `this.render.bounds` each frame.
 - `IRenderer` interface: `renderPriority: number` + `render(ctx, viewport, timestamp)` + optional `dispose()`.
 - `Viewport` class: wraps `Matter.Bounds` + canvas, provides `worldToScreen(wx, wy)` and `scale` getter.
-- Renderer priorities: GridRenderer(10) → BlockBodyRenderer(20) → BlockFrillsRenderer(30) → ShieldRenderer(40) → ShipHighlightRenderer(50) → AimingDebugRenderer(60) → BlockPickupRenderer(70).
+- Renderer priorities: GridRenderer(10) → BlockBodyRenderer(20) → BlockFrillsRenderer(30) → ShieldRenderer(40) → BeamRenderer(45) → ShipHighlightRenderer(50) → AimingDebugRenderer(60) → BlockPickupRenderer(70).
 - Each renderer receives data via getter functions injected in its constructor — no direct GameEngine coupling.
 - `RenderSystem.setDebugPhysics(enabled, engine, container)` creates/destroys a second wireframe `Matter.Render` canvas positioned absolutely over the game canvas (pointer-events: none).
 - `GameEngine.setDebugPhysics(enabled)` is the public API; `SettingsPanel.tsx` calls it via the ⚙ gear button.

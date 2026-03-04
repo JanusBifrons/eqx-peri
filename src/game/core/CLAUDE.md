@@ -64,6 +64,7 @@ Matter.js compound bodies are created via `Matter.Body.create({ parts: [...] })`
 | 20 | `BlockBodyRenderer` | Ship/block bodies (fills + strokes using vertex data) |
 | 30 | `BlockFrillsRenderer` | Decorative frills on block edges |
 | 40 | `ShieldRenderer` | Shield gradient + collapse ring |
+| 45 | `BeamRenderer` | Continuous beam weapon visuals (glow + core line + impact flash) |
 | 50 | `ShipHighlightRenderer` | Hover/selected bounding boxes, locked-target brackets |
 | 60 | `AimingDebugRenderer` | Weapon arc, distance rings, aim line |
 | 70 | `BlockPickupRenderer` | Block pickup ghost/snap overlay |

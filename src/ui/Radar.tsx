@@ -410,7 +410,8 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
                                 <TableCell align="right">Dist</TableCell>
                                 <TableCell align="center">Type</TableCell>
                             </TableRow>
-                        </TableHead>                        <TableBody>
+                        </TableHead>
+                        <TableBody>
                             {radarData.slice(0, 20).map((item) => (
                                 <TableRow
                                     key={item.id}
@@ -474,7 +475,8 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
                                         />
                                     </TableCell>
                                 </TableRow>
-                            ))}                        </TableBody>
+                            ))}
+                        </TableBody>
                     </Table>
                 </TableContainer>
 

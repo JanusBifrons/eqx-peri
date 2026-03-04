@@ -8,7 +8,7 @@ All game logic, physics, AI, and entity management. No React imports here — th
 |-----------|----------|
 | `core/`       | `GameEngine`, `Assembly`, `Entity`, `RenderSystem` — fundamental physics objects and render loop |
 | `ai/`         | `AIController`, `FlightController`, `ControllerManager`, `Controller` |
-| `weapons/`    | `Missile`, `MissileSystem` |
+| `weapons/`    | `Missile`, `MissileSystem`, `BeamSystem` |
 | `ship/`       | `BlockSystem`, `ShipDesigner`, `ShipDesignManager` |
 | `systems/`    | `PowerSystem`, `ToastSystem`, `SoundSystem` — singletons and support services |
 | `rendering/`  | `IRenderer` interface, `Viewport`, and one renderer class per visual concern (grid, blocks, frills, shields, highlights, aiming, block-pickup) |
@@ -38,8 +38,15 @@ All game logic, physics, AI, and entity management. No React imports here — th
 **Shield damage interception:**
 - Damage from lasers, missiles, and collisions is routed through `Assembly.damageShield(damage, now)` before reaching entity HP.
 - `damageShield` returns `true` if the shield absorbed the hit — the caller must early-return and skip `entity.takeDamage()`.
-- Interception points: `GameEngine.handleBulletHit` (lasers), `GameEngine.handleEntityCollision` (collisions), `MissileSystem.handleMissileHit` (missiles).
+- Interception points: `GameEngine.handleBulletHit` (lasers), `GameEngine.handleEntityCollision` (collisions), `MissileSystem.handleMissileHit` (missiles), `BeamSystem.processBeamFire` (beams).
 - Rendering: `ShieldRenderer` (priority 40, in `src/game/rendering/`) handles the shield visual each frame.
+
+**Beam weapons (`BeamSystem`):**
+- `Beam` and `LargeBeam` blocks fire instant-hit continuous raycast beams — no physics body is spawned.
+- `Assembly.getBeamFires()` returns `BeamFireSpec[]` each tick the trigger is held; `ControllerManager.applyInput()` routes these to `BeamSystem.processBeamFire(spec, assemblies, deltaTime)`.
+- `BeamSystem.processBeamFire` uses `Matter.Query.ray()` (native SAT detection) against a candidate list of entity block bodies **and** shield circle parts (`isShieldPart = true`). It finds the closest hit by projecting SAT support points onto the ray direction, applies `DPS × deltaTime` damage, handles shield interception, and invokes an `onEntityDestroyed` callback for destruction cascade. No bespoke polygon geometry code.
+- Entity destruction from beams routes through `GameEngine.processEntityDestruction()` — the same cascade helper used by bullet hits.
+- `BeamRenderer` (priority 45) renders active beams as glowing canvas lines; each beam record is keyed by weapon entity ID and fades after `BEAM_DISPLAY_DURATION_MS`.
 
 **AI:**
 - AI teams: `PLAYER`, `ENEMY_RED`, `ENEMY_BLUE` (defined in `GameTypes.ts`)

@@ -13,6 +13,17 @@ export interface MissileLaunchRequest {
   targetAssembly?: Assembly;
 }
 
+// Interface for beam fire requests (continuous raycast weapons)
+export interface BeamFireSpec {
+  weaponId: string;
+  origin: Vector2;
+  angle: number;
+  maxRange: number;
+  damagePerSecond: number;
+  sourceAssemblyId: string;
+  weaponType: EntityType;
+}
+
 export class Assembly {
   public id: string;
   public rootBody: Matter.Body;
@@ -239,7 +250,7 @@ export class Assembly {
     // Enforce firing rate limit
     if (currentTime - this.lastFireTime < effectiveFireRate) {
       return []; // Can't fire yet, return empty array
-    } const weapons = this.entities.filter(e => e.canFire() && !e.isMissileLauncher());
+    } const weapons = this.entities.filter(e => e.canFire() && !e.isMissileLauncher() && !e.isBeamWeapon());
     const lasers: Matter.Body[] = [];
 
     weapons.forEach(weapon => {
@@ -329,6 +340,42 @@ export class Assembly {
     return missileRequests;
   }
 
+  /**
+   * Returns beam fire specs for all live beam weapons this tick.
+   * Unlike projectile weapons, beams have no fire-rate limit — they fire every tick
+   * the trigger is held; damage is already scaled by deltaTime in BeamSystem.
+   */
+  public getBeamFires(): BeamFireSpec[] {
+    if (this.destroyed) return [];
+
+    if (this.isPlayerControlled) {
+      const powerSystem = PowerSystem.getInstance();
+      if (!powerSystem.canFireWeapons()) return [];
+    }
+
+    const beamWeapons = this.entities.filter(e => e.isBeamWeapon() && !e.destroyed);
+    const specs: BeamFireSpec[] = [];
+
+    beamWeapons.forEach(weapon => {
+      weapon.triggerWeaponFire();
+      const firingAngle = weapon.getCurrentFiringAngle(this.rootBody.angle);
+      const muzzlePos = weapon.getMuzzlePosition(this.rootBody.angle);
+      const def = ENTITY_DEFINITIONS[weapon.type];
+
+      specs.push({
+        weaponId: weapon.id,
+        origin: muzzlePos,
+        angle: firingAngle,
+        maxRange: def.beamRange ?? 400,
+        damagePerSecond: def.beamDps ?? 30,
+        sourceAssemblyId: this.id,
+        weaponType: weapon.type,
+      });
+    });
+
+    return specs;
+  }
+
   public canWeaponAimAtTarget(weapon: Entity, targetPosition: Vector2): boolean {
     const weaponAngle = this.calculateWeaponAimAngle(weapon, targetPosition);
     const weaponNaturalAngle = this.rootBody.angle + (weapon.rotation * Math.PI / 180);
@@ -355,9 +402,11 @@ export class Assembly {
     switch (weaponType) {
       case 'Gun':
       case 'Cockpit':
+      case 'Beam':
         return Math.PI; // 180 degrees total arc (90 degrees each side)
       case 'LargeGun':
       case 'LargeCockpit':
+      case 'LargeBeam':
         return Math.PI * 1.2; // 216 degrees total arc
       case 'CapitalWeapon':
       case 'CapitalCore':
