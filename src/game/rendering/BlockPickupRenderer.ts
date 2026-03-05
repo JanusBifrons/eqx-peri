@@ -1,7 +1,6 @@
 import * as PIXI from 'pixi.js';
 import { IRenderer } from './IRenderer';
 import { Viewport } from './Viewport';
-import { Assembly } from '../core/Assembly';
 import { BlockPickupSystem } from '../systems/BlockPickupSystem';
 
 export class BlockPickupRenderer implements IRenderer {
@@ -11,7 +10,6 @@ export class BlockPickupRenderer implements IRenderer {
 
   constructor(
     private readonly pickupSystem: BlockPickupSystem,
-    private readonly getPlayerAssembly: () => Assembly | null,
   ) {}
 
   init(stage: PIXI.Container): void {
@@ -22,6 +20,6 @@ export class BlockPickupRenderer implements IRenderer {
   render(viewport: Viewport, _timestamp: number): void {
     this.graphics.clear();
     if (!this.pickupSystem.isHolding()) return;
-    this.pickupSystem.renderOverlay(this.graphics, viewport, this.getPlayerAssembly());
+    this.pickupSystem.renderOverlay(this.graphics, viewport);
   }
 }

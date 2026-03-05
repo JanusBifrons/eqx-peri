@@ -61,7 +61,7 @@ src/
 - Lives in `src/game/systems/BlockPickupSystem.ts`; instantiated by `GameEngine` (not a singleton).
 - `GameEngine.removeBodyWithParts` is **public** — required so BlockPickupSystem can remove compound bodies and all their part bodies from the physics world in one call.
 - `Assembly.attachExternalAssembly(source, newLocalOffsets)` merges a source assembly's entities into the receiver at the caller-supplied grid offsets, then calls `buildConnectionGraph()` + `createFreshBody()`.  The source assembly is discarded after this call.
-- `ScenarioConfig.sandboxMode: boolean` — when true, `GameEngine.initializeBattle` calls `spawnSandboxScenario` instead of the normal team-spawn path (player gets a bare Cockpit; loose blocks are scattered nearby).
+- `ScenarioConfig.sandboxMode: boolean` — when true, `GameEngine.initializeBattle` calls `spawnSandboxScenario` instead of the normal team-spawn path. No player ship is assigned; two Cockpit blocks scatter among the loose parts as team-0 AI ships the player can pilot.
 - Snap detection uses player-local `localOffset` arithmetic, not world positions, so it is rotation-independent.
 - **Physics-based drag**: blocks stay in the Matter.js world when held. A `Matter.Constraint` spring pulls the held assembly's body toward an invisible static `cursorBody` (radius 4px). Collisions on the held body are disabled (`mask: 0`) while dragged and restored on drop.
 - **Pending pickup state** (`PendingPickupState`): clicking a floating block (no control center) enters this state rather than immediately dragging. The drag only starts after `DRAG_HOLD_MS` (400 ms) hold time OR `DRAG_MIN_SCREEN_PX` (6 px) screen movement, preventing accidental drag on clicks. Quick release cancels with no side effects.
@@ -82,6 +82,20 @@ src/
 - All three constants (`SHIELD_REGEN_DELAY_MS`, `SHIELD_REGEN_DURATION_MS`, `SHIELD_COLLAPSE_COOLDOWN_MS`) live in `GameTypes.ts`.
 - Interception is wired in three places: `GameEngine.handleBulletHit` (lasers), `GameEngine.handleEntityCollision` (collisions), `MissileSystem.handleMissileHit` (missiles).
 - Rendering: `ShieldRenderer` (priority 40) in `src/game/rendering/` draws translucent blue gradient circles each frame via `RenderSystem`.
+
+**Observer mode + Pilot system (`GameEngine`):**
+- All ships start under AI control — no player-assigned ship at spawn (team-line and sandbox).
+- `GameEngine.pilotAssembly(assembly)`: removes AI controller, sets `isPlayerControlled`, creates player controller, updates PowerSystem.
+- `GameEngine.exitPilot()`: restores AI, clears `playerAssembly` and `flightController`, sets PowerSystem to null.
+- `GameEngine.isObserverMode()`: `return !this.playerAssembly`
+- `GameEngine.isAIEnabled(assembly)`: checks `ControllerManager.hasController(id) && !isPlayerControlled`
+- `GameEngine.disableAI(assembly)` / `enableAI(assembly)`: remove / create AI controller.
+- `ControllerManager.hasController(id: string): boolean` — added for AI-state queries.
+- Camera: `updateCamera(deltaTime)` dispatches to `updatePilotCamera()` (follows ship + mouse offset) or `updateObserverCamera(deltaTime)` (WASD + edge-scroll pan at `OBSERVER_PAN_SPEED / zoomLevel`).
+- Ship destroyed while piloting → `observerPos` set to wreck position, AI respawned on surviving cockpit fragment, `playerAssembly = null`.
+- `onPlayerDestroyed` callback removed — no auto-return-to-menu on ship death.
+- **UI**: `ShipActionPanel.tsx` (bottom-center) shows Pilot / Disable AI / Enable AI for team-0 selected ships. `ConfirmDialog.tsx` is a generic OK/Cancel MUI dialog. App.tsx has a ☰ Menu button (top-left) + Escape key → confirm dialog → return to menu.
+- Touch controls: `setupTouchControls()` — 1-finger drag pans observer camera or updates aim cursor while piloting; 2-finger pinch zooms; tap selects assembly.
 
 **Beam weapon system (`BeamSystem` + `BeamRenderer`):**
 - `Beam` (1×1) and `LargeBeam` (2×2) are block types that fire instant-hit continuous beams — no physics body is spawned.

@@ -41,6 +41,11 @@ export class ControllerManager {    private controllers: Map<string, IController
     removeController(assemblyId: string): void {
         this.controllers.delete(assemblyId);
     }
+
+    // Check if an assembly currently has any controller registered
+    hasController(assemblyId: string): boolean {
+        return this.controllers.has(assemblyId);
+    }
     // Update all controllers and apply their inputs
     update(deltaTime: number, assemblies: Assembly[]): Matter.Body[] {
         // Update AI controllers with available targets

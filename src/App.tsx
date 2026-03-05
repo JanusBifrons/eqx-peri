@@ -7,12 +7,12 @@ import PartsInfo from './ui/PartsInfo';
 import FlightControls from './ui/FlightControls';
 import MainMenu from './ui/MainMenu';
 import SettingsPanel from './ui/SettingsPanel';
+import ShipActionPanel from './ui/ShipActionPanel';
+import ConfirmDialog from './ui/ConfirmDialog';
 import {
   Paper,
-  Typography,
   Box,
-  Chip,
-  Divider,
+  Button,
   ThemeProvider,
   createTheme
 } from '@mui/material';
@@ -60,6 +60,17 @@ const App: React.FC = () => {
   const gameEngineRef = useRef<GameEngine | null>(null);
   const [gameEngine, setGameEngine] = useState<GameEngine | null>(null);
   const [screen, setScreen] = useState<AppScreen>('main-menu');
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const returnToMenu = (): void => {
+    if (gameEngineRef.current) {
+      gameEngineRef.current.stop();
+      gameEngineRef.current = null;
+    }
+    setGameEngine(null);
+    setConfirmOpen(false);
+    setScreen('main-menu');
+  };
 
   const handleScenarioStart = (scenario: ScenarioConfig): void => {
     if (!canvasRef.current) return;
@@ -68,14 +79,18 @@ const App: React.FC = () => {
     setGameEngine(engine);
     engine.setScenario(scenario);
     engine.start();
-    engine.onPlayerDestroyed = () => {
-      engine.stop();
-      gameEngineRef.current = null;
-      setGameEngine(null);
-      setScreen('main-menu');
-    };
     setScreen('playing');
   };
+
+  // Escape key opens the exit confirm dialog during gameplay
+  useEffect(() => {
+    if (screen !== 'playing') return;
+    const handler = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setConfirmOpen(prev => !prev);
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [screen]);
 
   useEffect(() => {
     return () => {
@@ -104,101 +119,30 @@ const App: React.FC = () => {
         {/* Main Menu overlay */}
         {screen === 'main-menu' && <MainMenu onStart={handleScenarioStart} />}
 
-        {/* Compact Controls Panel */}
-        <Paper
-          elevation={3}
-          sx={{
-            position: 'absolute',
-            top: 10,
-            left: 10,
-            maxWidth: 300,
-            p: 1.5,
-            borderRadius: 2,
-            pointerEvents: 'auto'
-          }}
-        >
-          <Box sx={{ mb: 1 }}>
-            <Typography
-              variant="h6"
-              sx={{
-                color: 'secondary.main',
-                fontSize: '0.9rem',
-                fontWeight: 'bold',
-                mb: 0.5
-              }}
-            >
-              🚀 AI BATTLE SPACE
-            </Typography>
-            <Chip
-              label="TEAM COMBAT"
-              size="small"
-              color="primary"
-              variant="outlined"
-              sx={{ fontSize: '0.65rem', height: 18 }}
-            />
-          </Box>
-
-          <Divider sx={{ my: 1 }} />
-
-          <Box sx={{ display: 'flex', gap: 2 }}>
-            <Box sx={{ flex: 1 }}>
-              <Typography variant="subtitle2" sx={{ color: 'primary.main', fontSize: '0.75rem', mb: 0.5 }}>
-                Keyboard
-              </Typography>
-              <Box sx={{ fontSize: '0.7rem', lineHeight: 1.2 }}>
-                <div>W/S - Thrust</div>
-                <div>A/D - Rotate</div>
-                <div>Space - Fire</div>
-                <div style={{ color: '#ff4444', fontWeight: 'bold' }}>E - Eject</div>
-                <div>R - Restart</div>
-                <div>G - Grid</div>
-                <div>1 - Add Ship</div>
-              </Box>
-            </Box>
-
-            <Box sx={{ flex: 1 }}>
-              <Typography variant="subtitle2" sx={{ color: 'primary.main', fontSize: '0.75rem', mb: 0.5 }}>
-                Mouse
-              </Typography>
-              <Box sx={{ fontSize: '0.7rem', lineHeight: 1.2, color: 'text.secondary' }}>
-                <div>Move - Aim</div>
-                <div>L.Click - Fire</div>
-                <div>Hold - Auto-fire</div>
-                <div>R.Click - Snap turn</div>
-                <div>Wheel - Zoom</div>
-              </Box>
-            </Box>
-          </Box>
-
-          <Divider sx={{ my: 1 }} />
-
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-            <Typography variant="subtitle2" sx={{ color: 'primary.main', fontSize: '0.75rem' }}>
-              Information
-            </Typography>
-            <PartsInfo />
-          </Box>
-
-          <Box sx={{ fontSize: '0.7rem', color: '#ffff00', lineHeight: 1.3 }}>
-            <div>• <Chip label="Blue" size="small" sx={{
-              backgroundColor: '#0088ff',
-              color: 'white',
-              fontSize: '0.6rem',
-              height: 16,
-              mr: 0.5
-            }} /> Your team (left side)</div>
-            <div>• <Chip label="Red" size="small" sx={{
-              backgroundColor: '#ff4444',
-              color: 'white',
-              fontSize: '0.6rem',
-              height: 16,
-              mr: 0.5
-            }} /> AI team (right side)</div>
-            <div style={{ marginTop: 4 }}>• AI ships hunt and attack enemies</div>
-            <div>• Ships break apart when damaged</div>
-            <div style={{ marginTop: 4 }}>• <strong style={{ color: '#00ff00' }}>Cockpit: Bright Green</strong> - 10x health for survival</div>
-          </Box>
-        </Paper>
+        {/* Menu button — top-left, always visible during gameplay */}
+        {screen === 'playing' && (
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={() => setConfirmOpen(true)}
+            sx={{
+              position: 'absolute',
+              top: 10,
+              left: 10,
+              zIndex: 1100,
+              fontSize: '0.7rem',
+              color: '#888',
+              borderColor: '#555',
+              pointerEvents: 'auto',
+              minWidth: 'unset',
+              px: 1.5,
+              py: 0.5,
+              '&:hover': { borderColor: '#00ccff', color: '#00ccff' },
+            }}
+          >
+            ☰ Menu
+          </Button>
+        )}
 
         {/* Right-side UI Container */}
         <Box
@@ -221,11 +165,32 @@ const App: React.FC = () => {
         {/* Power Management - Always visible at bottom */}
         <PowerManagement gameEngine={gameEngine} />
 
-        {/* Flight Controls - bottom right (inertial dampening + eject) */}
+        {/* Ship action panel - bottom center, shown when a ship is selected */}
+        <ShipActionPanel gameEngine={gameEngine} />
+
+        {/* Flight Controls - bottom right (exit pilot + inertial dampening + eject) */}
         <FlightControls gameEngine={gameEngine} />
 
         {/* Settings panel - bottom left */}
         <SettingsPanel gameEngine={gameEngine} />
+
+        {/* Parts Info - only relevant during dev/debug */}
+        {screen === 'playing' && (
+          <Box sx={{ position: 'absolute', bottom: 10, left: 10, zIndex: 1000, pointerEvents: 'none' }}>
+            <Paper elevation={1} sx={{ p: 0.5, display: 'inline-block' }}>
+              <PartsInfo />
+            </Paper>
+          </Box>
+        )}
+
+        {/* Return-to-menu confirm dialog */}
+        <ConfirmDialog
+          open={confirmOpen}
+          title="Return to Main Menu?"
+          message="Your current battle will end. Return to the main menu?"
+          onConfirm={returnToMenu}
+          onCancel={() => setConfirmOpen(false)}
+        />
       </div>
     </ThemeProvider>
   );

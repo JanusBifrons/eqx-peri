@@ -7,8 +7,9 @@ import { Viewport } from '../rendering/Viewport';
 
 interface SnapCandidate {
   anchorEntity: Entity;       // entity in heldAssembly closest to the attachment slot
-  targetEntity: Entity;       // entity in playerAssembly beside the attachment slot
-  snapDirection: Vector2;     // unit grid direction in player-LOCAL space (+x/-x/+y/-y)
+  targetEntity: Entity;       // entity in the snap-target assembly beside the attachment slot
+  targetAssembly: Assembly;   // the assembly we are snapping onto
+  snapDirection: Vector2;     // unit grid direction in target-LOCAL space (+x/-x/+y/-y)
   relativeAngle: number;      // angle to rotate held assembly, in radians, rounded to nearest π/2
   previewLocalOffsets: Map<string, { localOffset: Vector2; rotation: number }>;
   dist: number;
@@ -55,6 +56,8 @@ export class BlockPickupSystem {
   private lastCursorWorldPos: Vector2 = { x: 0, y: 0 };
   /** Number of 90° CCW rotation steps applied on top of the default player-aligned orientation. */
   private pendingRotationSteps: number = 0;
+  /** The assembly currently serving as the snap/attach target (updated each frame by update()). */
+  private snapTargetAssembly: Assembly | null = null;
 
   private readonly doRemoveBodyWithParts: (body: Matter.Body) => void;
   private readonly doAddBodyToWorld: (body: Matter.Body) => void;
@@ -89,6 +92,11 @@ export class BlockPickupSystem {
   /** True during the hold/distance waiting period before drag actually begins. */
   public isPendingPickup(): boolean {
     return this.pendingPickupState !== null;
+  }
+
+  /** True when a block is actively being dragged (physics spring active). */
+  public isDragging(): boolean {
+    return this.activeDrag !== null;
   }
 
   public getHeldAssembly(): Assembly | null {
@@ -202,18 +210,21 @@ export class BlockPickupSystem {
       return;
     }
 
+    // Track the current snap target (player's ship when piloting, nearest friendly when observing)
+    this.snapTargetAssembly = playerAssembly;
+
     if (this.activeDrag) {
       if (this.activeDrag.heldAssembly.destroyed) {
         this.cancelDrag();
         return;
       }
       Matter.Body.setPosition(this.activeDrag.cursorBody, mouseWorldPos);
-      if (playerAssembly && !playerAssembly.destroyed) {
-        // Lock held body to player orientation + R key offset so the player can see how it will attach
-        const targetAngle = playerAssembly.rootBody.angle + this.pendingRotationSteps * (Math.PI / 2);
+      if (this.snapTargetAssembly && !this.snapTargetAssembly.destroyed) {
+        // Lock held body to snap-target orientation + R key offset so the player can see how it will attach
+        const targetAngle = this.snapTargetAssembly.rootBody.angle + this.pendingRotationSteps * (Math.PI / 2);
         Matter.Body.setAngle(this.activeDrag.heldAssembly.rootBody, targetAngle);
         Matter.Body.setAngularVelocity(this.activeDrag.heldAssembly.rootBody, 0);
-        this.activeSnap = this.findBestSnap(this.activeDrag.heldAssembly, playerAssembly);
+        this.activeSnap = this.findBestSnap(this.activeDrag.heldAssembly, this.snapTargetAssembly);
       } else {
         this.activeSnap = null;
       }
@@ -225,7 +236,7 @@ export class BlockPickupSystem {
    * If in pre-detach state, cancel it (released before pulling far enough).
    * If dragging with a valid snap, attach. Otherwise drop freely.
    */
-  public tryRelease(playerAssembly: Assembly | null): void {
+  public tryRelease(): void {
     if (this.pendingPickupState) {
       // Released before reaching drag threshold — no-op, just cancel
       this.pendingPickupState = null;
@@ -241,12 +252,13 @@ export class BlockPickupSystem {
     if (!this.activeDrag) return;
 
     const drag = this.activeDrag;
+    const snapTarget = this.activeSnap?.targetAssembly ?? null;
 
-    if (this.activeSnap && playerAssembly && !playerAssembly.destroyed) {
-      // Attach: remove held body from world first, then merge into player assembly
+    if (this.activeSnap && snapTarget && !snapTarget.destroyed) {
+      // Attach: remove held body from world first, then merge into snap-target assembly
       this.cleanupDragPhysics(drag);
       this.doRemoveBodyWithParts(drag.heldAssembly.rootBody);
-      playerAssembly.attachExternalAssembly(drag.heldAssembly, this.activeSnap.previewLocalOffsets);
+      snapTarget.attachExternalAssembly(drag.heldAssembly, this.activeSnap.previewLocalOffsets);
     } else {
       // Drop: restore collision and re-add to tracked list (body stays in world)
       this.cleanupDragPhysics(drag);
@@ -445,6 +457,7 @@ export class BlockPickupSystem {
       return {
         anchorEntity: pair.heldEntity,
         targetEntity: pair.targetEntity,
+        targetAssembly: playerAssembly,
         snapDirection: pair.localDir,
         relativeAngle,
         previewLocalOffsets: preview,
@@ -532,7 +545,6 @@ export class BlockPickupSystem {
   public renderOverlay(
     gfx: PIXI.Graphics,
     viewport: Viewport,
-    playerAssembly: Assembly | null
   ): void {
     if (this.preDetachState) {
       this.renderPreDetachTension(gfx, viewport);
@@ -541,12 +553,13 @@ export class BlockPickupSystem {
 
     if (!this.activeDrag) return;
 
-    if (playerAssembly && !playerAssembly.destroyed) {
-      this.renderAvailableSlots(gfx, viewport, playerAssembly);
+    const snapTarget = this.snapTargetAssembly;
+    if (snapTarget && !snapTarget.destroyed) {
+      this.renderAvailableSlots(gfx, viewport, snapTarget);
     }
 
-    if (this.activeSnap && playerAssembly && !playerAssembly.destroyed) {
-      this.renderSnapPreview(gfx, viewport, playerAssembly, this.activeDrag.heldAssembly);
+    if (this.activeSnap && this.activeSnap.targetAssembly && !this.activeSnap.targetAssembly.destroyed) {
+      this.renderSnapPreview(gfx, viewport, this.activeSnap.targetAssembly, this.activeDrag.heldAssembly);
     }
   }
 

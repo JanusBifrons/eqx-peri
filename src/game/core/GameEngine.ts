@@ -66,8 +66,6 @@ export class GameEngine {
 
   // Stats.js for FPS monitoring
   private stats: Stats;
-  // Ship selection and player destruction callback
-  public onPlayerDestroyed?: () => void;
   private scenarioConfig: ScenarioConfig = SCENARIOS['debug'];
 
   // Toast system for game events
@@ -78,6 +76,16 @@ export class GameEngine {
 
   // Current mouse position in world coordinates (updated every frame)
   private mouseWorldPos: Vector2 = { x: 0, y: 0 };
+
+  // Set to true when a drag-and-drop just completed so the subsequent click event is suppressed
+  private dragJustCompleted: boolean = false;
+
+  // Observer-mode camera state
+  private observerPos: { x: number; y: number } = { x: 0, y: 0 };
+  private readonly OBSERVER_PAN_SPEED = 600;  // world units/s at zoom 1
+  private readonly EDGE_SCROLL_MARGIN = 80;   // px from canvas edge
+  private lastTouchDistance: number = 0;
+  private touchStartPos: { x: number; y: number } | null = null;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -287,8 +295,13 @@ export class GameEngine {
           this.toggleGrid();
           break;
         case 'e':
-          if (this.canPlayerEject()) {
+          if (this.playerAssembly && this.canPlayerEject()) {
             this.ejectPlayer();
+          }
+          break;
+        case 'p':
+          if (this.selectedAssembly && !this.selectedAssembly.isPlayerControlled) {
+            this.pilotAssembly(this.selectedAssembly);
           }
           break;
         case 't':
@@ -711,7 +724,7 @@ export class GameEngine {
     });
 
     // Update BlockPickupSystem: reposition ghost and refresh snap candidate
-    this.blockPickupSystem.update(this.mouseWorldPos, this.mousePosition, this.playerAssembly);
+    this.blockPickupSystem.update(this.mouseWorldPos, this.mousePosition, this.getBlockSnapTarget());
 
     // Update entity flash effects
     this.updateEntityFlashes(deltaTime);
@@ -726,28 +739,32 @@ export class GameEngine {
     this.beamSystem.update(deltaTime);
 
     // Clean up destroyed assemblies
-    this.cleanupDestroyedAssemblies();    // Check if player is destroyed and call callback
-    if (!this.playerAssembly || this.playerAssembly.destroyed || !this.playerAssembly.hasControlCenter()) {
-      const wasPlayerDestroyed = this.playerAssembly?.destroyed || (this.playerAssembly && !this.playerAssembly.hasControlCenter());
-
-      if (wasPlayerDestroyed && this.onPlayerDestroyed) {
-        console.log('💀 Player destroyed - calling destruction callback');
-        // Drop any held block before clearing player reference
-        if (this.blockPickupSystem.isHolding()) {
-          this.blockPickupSystem.forceDropAtCurrentPosition();
-        }
-        this.playerAssembly = null;
-        this.onPlayerDestroyed();
-      } else {
-        this.findPlayerAssembly();
+    this.cleanupDestroyedAssemblies();    // Transition to observer mode when the piloted ship is destroyed or loses its cockpit
+    if (this.playerAssembly &&
+        (this.playerAssembly.destroyed || !this.playerAssembly.hasControlCenter())) {
+      this.observerPos = { ...this.playerAssembly.rootBody.position };
+      if (this.blockPickupSystem.isHolding()) this.blockPickupSystem.forceDropAtCurrentPosition();
+      this.controllerManager.removeController(this.playerAssembly.id);
+      // If the cockpit survived as a fragment, hand it back to AI
+      const cockpitFrag = this.assemblies.find(
+        a => a.hasControlCenter() && a.isPlayerControlled && !a.destroyed
+      );
+      if (cockpitFrag) {
+        cockpitFrag.isPlayerControlled = false;
+        const ai = this.controllerManager.createAIController(cockpitFrag);
+        ai.setAggressionLevel(0.8);
       }
+      this.playerAssembly = null;
+      this.flightController = null;
+      PowerSystem.getInstance().setPlayerAssembly(null);
+      this.toastSystem.showWarning('Ship destroyed — observer mode');
     }
 
     // Execute player commands (follow, orbit, lockOn, etc.)
     this.executePlayerCommands();
 
-    // Update camera with mouse influence
-    this.updateCameraWithMouse();
+    // Update camera — pilot mode or observer mode
+    this.updateCamera(deltaTime);
 
     // Update zoom based on speed
     this.updateSpeedBasedZoom();
@@ -897,20 +914,6 @@ export class GameEngine {
     });
 
     this.assemblies = this.assemblies.filter(a => !a.destroyed && a.entities.length > 0);
-  }
-
-  private findPlayerAssembly(): void {
-    // Find an assembly with a control center
-    const controllableAssembly = this.assemblies.find(a =>
-      a.hasControlCenter() && !a.destroyed
-    ); if (controllableAssembly) {
-      this.playerAssembly = controllableAssembly;
-      this.playerAssembly.isPlayerControlled = true;
-
-      // Initialize power system with new player assembly
-      const powerSystem = PowerSystem.getInstance();
-      powerSystem.setPlayerAssembly(this.playerAssembly);
-    }
   }
 
   private toggleGrid(): void {
@@ -1150,8 +1153,16 @@ export class GameEngine {
         const screenY = event.clientY - rect.top;
         const worldPos = this.screenToWorld(screenX, screenY);
 
-        // BlockPickupSystem intercepts clicks on non-cockpit assemblies
-        if (this.blockPickupSystem.tryPickUp(worldPos, { x: screenX, y: screenY }, this.assemblies, this.playerAssembly)) {
+        // In observer mode, allow pre-detach from any friendly (team-0) cockpit ship under the cursor
+        let pickupSource = this.playerAssembly;
+        if (!pickupSource) {
+          const hovered = this.getAssemblyAtPosition(screenX, screenY);
+          if (hovered && hovered.team === 0 && hovered.hasControlCenter()) {
+            pickupSource = hovered;
+          }
+        }
+        // BlockPickupSystem intercepts clicks on non-cockpit assemblies (or pre-detach from source)
+        if (this.blockPickupSystem.tryPickUp(worldPos, { x: screenX, y: screenY }, this.assemblies, pickupSource)) {
           this.mouseDown = false; // suppress weapon fire while holding
         } else {
           this.mouseDown = true;
@@ -1161,12 +1172,13 @@ export class GameEngine {
       }
     }); this.render.canvas.addEventListener('mouseup', (event) => {
       if (event.button === 0) {
-        if (this.blockPickupSystem.isHolding()) {
-          this.blockPickupSystem.tryRelease(this.playerAssembly);
-          this.mouseDown = false;
-        } else {
-          this.mouseDown = false;
-        }
+        // Check before release — isDragging() is false after tryRelease() returns
+        const wasDragging = this.blockPickupSystem.isDragging();
+        // Always call tryRelease so pendingPickupState is cleared even on quick clicks
+        this.blockPickupSystem.tryRelease();
+        this.mouseDown = false;
+        // Suppress the click event that the browser fires after mouseup when a drag occurred
+        this.dragJustCompleted = wasDragging;
       }
     });    // Add click event for target selection
     this.render.canvas.addEventListener('click', (event) => {
@@ -1197,6 +1209,99 @@ export class GameEngine {
     });
 
     // Keep mouse constraint in sync with render bounds    this.render.mouse = this.mouse;
+
+    this.setupTouchControls();
+  }
+
+  private setupTouchControls(): void {
+    const canvas = this.render.canvas;
+
+    canvas.addEventListener('touchstart', (event: TouchEvent) => {
+      event.preventDefault();
+      SoundSystem.getInstance().resume();
+
+      if (event.touches.length === 1) {
+        const touch = event.touches[0];
+        const rect = canvas.getBoundingClientRect();
+        const screenX = touch.clientX - rect.left;
+        const screenY = touch.clientY - rect.top;
+        this.touchStartPos = { x: screenX, y: screenY };
+        const worldPos = this.screenToWorld(screenX, screenY);
+        let touchPickupSource = this.playerAssembly;
+        if (!touchPickupSource) {
+          const hovered = this.getAssemblyAtPosition(screenX, screenY);
+          if (hovered && hovered.team === 0 && hovered.hasControlCenter()) touchPickupSource = hovered;
+        }
+        this.blockPickupSystem.tryPickUp(worldPos, { x: screenX, y: screenY }, this.assemblies, touchPickupSource);
+      } else if (event.touches.length === 2) {
+        const dx = event.touches[0].clientX - event.touches[1].clientX;
+        const dy = event.touches[0].clientY - event.touches[1].clientY;
+        this.lastTouchDistance = Math.sqrt(dx * dx + dy * dy);
+      }
+    }, { passive: false });
+
+    canvas.addEventListener('touchmove', (event: TouchEvent) => {
+      event.preventDefault();
+
+      if (event.touches.length === 1) {
+        const touch = event.touches[0];
+        const rect = canvas.getBoundingClientRect();
+        const screenX = touch.clientX - rect.left;
+        const screenY = touch.clientY - rect.top;
+        const worldPos = this.screenToWorld(screenX, screenY);
+
+        if (this.blockPickupSystem.isHolding()) {
+          this.mousePosition = { x: screenX, y: screenY };
+          this.mouseWorldPos = worldPos;
+        } else if (!this.playerAssembly && this.touchStartPos) {
+          // Observer pan: drag moves the camera
+          const prevWorld = this.screenToWorld(this.touchStartPos.x, this.touchStartPos.y);
+          this.observerPos.x -= worldPos.x - prevWorld.x;
+          this.observerPos.y -= worldPos.y - prevWorld.y;
+          this.touchStartPos = { x: screenX, y: screenY };
+        } else {
+          // Pilot mode: touch moves aim cursor
+          this.mousePosition = { x: screenX, y: screenY };
+          this.mouseWorldPos = worldPos;
+          if (this.playerAssembly && !this.playerAssembly.destroyed) {
+            this.playerAssembly.cursorPosition = worldPos;
+          }
+        }
+      } else if (event.touches.length === 2) {
+        const dx = event.touches[0].clientX - event.touches[1].clientX;
+        const dy = event.touches[0].clientY - event.touches[1].clientY;
+        const newDist = Math.sqrt(dx * dx + dy * dy);
+        if (this.lastTouchDistance > 0) {
+          const ratio = newDist / this.lastTouchDistance;
+          this.baseZoomLevel = Math.max(this.minZoom, Math.min(this.maxZoom, this.baseZoomLevel * ratio));
+          this.lastManualZoomTime = Date.now();
+        }
+        this.lastTouchDistance = newDist;
+      }
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', (event: TouchEvent) => {
+      event.preventDefault();
+      const wasTouchDragging = this.blockPickupSystem.isDragging();
+      this.blockPickupSystem.tryRelease();
+
+      // Short tap (< 10 px movement) AND no drag completed → treat as click / selection
+      if (!wasTouchDragging && this.touchStartPos && event.changedTouches.length === 1) {
+        const touch = event.changedTouches[0];
+        const rect = canvas.getBoundingClientRect();
+        const screenX = touch.clientX - rect.left;
+        const screenY = touch.clientY - rect.top;
+        const dx = screenX - this.touchStartPos.x;
+        const dy = screenY - this.touchStartPos.y;
+        if (Math.sqrt(dx * dx + dy * dy) < 10) {
+          const tapped = this.getAssemblyAtPosition(screenX, screenY);
+          if (tapped) this.selectAssembly(tapped);
+          else this.selectAssembly(null);
+        }
+      }
+      this.touchStartPos = null;
+      this.lastTouchDistance = 0;
+    }, { passive: false });
   }  /*
   private handleWorldClick(_worldX: number, _worldY: number): void {
     console.log('🖱️ World click at:', _worldX, _worldY);
@@ -1242,7 +1347,16 @@ export class GameEngine {
     // The actual zoom application will happen in updateCameraWithMouse() which uses this.zoomLevel
     // this.zoomLevel is calculated in updateSpeedBasedZoom() based on baseZoomLevel
   }
-  private updateCameraWithMouse(): void {
+  /** Camera update dispatcher — pilot mode follows the player ship; observer mode pans freely. */
+  private updateCamera(deltaTime: number): void {
+    if (this.playerAssembly && !this.playerAssembly.destroyed) {
+      this.updatePilotCamera();
+    } else {
+      this.updateObserverCamera(deltaTime);
+    }
+  }
+
+  private updatePilotCamera(): void {
     if (!this.playerAssembly || this.playerAssembly.destroyed) return;
 
     const playerPos = this.playerAssembly.rootBody.position;
@@ -1281,6 +1395,36 @@ export class GameEngine {
     });
   }
 
+  private updateObserverCamera(deltaTime: number): void {
+    const canvas = this.render.canvas;
+    // Pan speed scales with zoom so it feels consistent at all zoom levels
+    const panSpeed = this.OBSERVER_PAN_SPEED / this.zoomLevel;
+
+    // WASD / Arrow key panning
+    if (this.keys.has('w') || this.keys.has('arrowup'))    this.observerPos.y -= panSpeed * deltaTime;
+    if (this.keys.has('s') || this.keys.has('arrowdown'))  this.observerPos.y += panSpeed * deltaTime;
+    if (this.keys.has('a') || this.keys.has('arrowleft'))  this.observerPos.x -= panSpeed * deltaTime;
+    if (this.keys.has('d') || this.keys.has('arrowright')) this.observerPos.x += panSpeed * deltaTime;
+
+    // Edge-scroll: mouse within EDGE_SCROLL_MARGIN px of any canvas edge accelerates pan
+    const mx = this.mousePosition.x;
+    const my = this.mousePosition.y;
+    const w  = canvas.width;
+    const h  = canvas.height;
+    const edgeSpeed = panSpeed * 0.8;
+    if (mx < this.EDGE_SCROLL_MARGIN)     this.observerPos.x -= edgeSpeed * deltaTime;
+    if (mx > w - this.EDGE_SCROLL_MARGIN) this.observerPos.x += edgeSpeed * deltaTime;
+    if (my < this.EDGE_SCROLL_MARGIN)     this.observerPos.y -= edgeSpeed * deltaTime;
+    if (my > h - this.EDGE_SCROLL_MARGIN) this.observerPos.y += edgeSpeed * deltaTime;
+
+    const viewW = canvas.width / this.zoomLevel;
+    const viewH = canvas.height / this.zoomLevel;
+    Matter.Render.lookAt(this.render, {
+      min: { x: this.observerPos.x - viewW / 2, y: this.observerPos.y - viewH / 2 },
+      max: { x: this.observerPos.x + viewW / 2, y: this.observerPos.y + viewH / 2 },
+    });
+  }
+
   private setupRenderSystem(): void {
     console.log('🎨 Setting up RenderSystem');
 
@@ -1311,7 +1455,6 @@ export class GameEngine {
     this.renderSystem.register(new AimingDebugRenderer(() => this.playerAssembly));
     this.renderSystem.register(new BlockPickupRenderer(
       this.blockPickupSystem,
-      () => this.playerAssembly,
     ));
   }
 
@@ -1362,6 +1505,7 @@ export class GameEngine {
     }
 
     this.toastSystem.showGameEvent(`${cfg.label} — Battle Start!`);
+    this.observerPos = { x: 0, y: 0 };
 
     if (cfg.sandboxMode) {
       this.spawnSandboxScenario();
@@ -1374,15 +1518,12 @@ export class GameEngine {
       }
     }
 
-    // Set initial zoom based on actual player ship bounds.
-    if (this.playerAssembly) {
-      this.calculateZoomForAssembly(this.playerAssembly);
-      this.setInitialCameraView();
-    }
+    this.setInitialCameraView();
   }
 
   private spawnSandboxScenario(): void {
     const SANDBOX_BLOCK_TYPES: EntityType[] = [
+      'Cockpit', 'Cockpit',
       'Beam', 'Beam', 'LargeBeam',
       'Gun', 'Gun', 'Gun',
       'Engine', 'Engine', 'Engine', 'Engine',
@@ -1393,20 +1534,7 @@ export class GameEngine {
       'MissileLauncher',
     ];
 
-    // Spawn player as a single bare cockpit
-    const cockpitConfig: EntityConfig = { type: 'Cockpit', x: 0, y: 0, rotation: 0 };
-    const playerAssembly = new Assembly([cockpitConfig], { x: 0, y: 0 });
-    playerAssembly.isPlayerControlled = true;
-    playerAssembly.setShipName('Cockpit');
-    playerAssembly.setTeam(0);
-    this.assemblies.push(playerAssembly);
-    Matter.World.add(this.world, playerAssembly.rootBody);
-    this.playerAssembly = playerAssembly;
-    this.flightController = new FlightController(playerAssembly);
-    this.controllerManager.createPlayerController(playerAssembly);
-    PowerSystem.getInstance().setPlayerAssembly(playerAssembly);
-
-    // Scatter loose blocks around the origin
+    // Scatter loose blocks around the origin (including cockpits which become team-0 AI ships)
     const count = 12 + Math.floor(Math.random() * 5); // 12–16 blocks
     for (let i = 0; i < count && i < SANDBOX_BLOCK_TYPES.length; i++) {
       const angle = Math.random() * Math.PI * 2;
@@ -1421,8 +1549,16 @@ export class GameEngine {
         rotation: Math.floor(Math.random() * 4) * 90,
       };
       const blockAssembly = new Assembly([config], { x, y });
-      blockAssembly.setTeam(-1);
-      blockAssembly.setShipName(`${SANDBOX_BLOCK_TYPES[i]} Block`);
+      if (SANDBOX_BLOCK_TYPES[i] === 'Cockpit') {
+        // Cockpit blocks are friendly AI-controlled ships the player can pilot
+        blockAssembly.setTeam(0);
+        blockAssembly.setShipName('Cockpit');
+        const ai = this.controllerManager.createAIController(blockAssembly);
+        ai.setAggressionLevel(0.5);
+      } else {
+        blockAssembly.setTeam(-1);
+        blockAssembly.setShipName(`${SANDBOX_BLOCK_TYPES[i]} Block`);
+      }
       // Gentle random spin
       Matter.Body.setAngularVelocity(blockAssembly.rootBody, (Math.random() - 0.5) * 0.16);
       this.assemblies.push(blockAssembly);
@@ -1493,7 +1629,7 @@ export class GameEngine {
       Matter.World.add(this.world, scrapAssembly.rootBody);
     }
 
-    this.toastSystem.showGameEvent('Sandbox — Build your ship!');
+    this.toastSystem.showGameEvent('Sandbox — Select a friendly ship and click Pilot!');
   }
 
   private spawnTeamLine(team: number, cfg: ScenarioConfig): void {
@@ -1521,12 +1657,7 @@ export class GameEngine {
       this.assemblies.push(assembly);
       Matter.World.add(this.world, assembly.rootBody);
 
-      if (isBlue && i === 0 && assembly.hasControlCenter()) {
-        this.playerAssembly = assembly;
-        assembly.isPlayerControlled = true;
-        this.flightController = new FlightController(assembly);
-        this.controllerManager.createPlayerController(assembly);
-      } else {
+      if (assembly.hasControlCenter()) {
         const ai = this.controllerManager.createAIController(assembly);
         ai.setAggressionLevel(0.8 + Math.random() * 0.4);
       }
@@ -1958,7 +2089,7 @@ export class GameEngine {
   }  // Update zoom based on speed - call this in the update loop
   private updateSpeedBasedZoom(): void {
     if (!this.speedBasedZoomEnabled || !this.playerAssembly) {
-      // When speed-based zoom is disabled, use the player's chosen base zoom level
+      // In observer mode or when speed-based zoom is off, use the base zoom directly
       this.zoomLevel = this.baseZoomLevel;
       return;
     }
@@ -2162,6 +2293,11 @@ export class GameEngine {
       }
     }
   } private handleCanvasClick(event: MouseEvent): void {
+    // If mouseup just completed a drag-and-drop, skip selection for this click event
+    if (this.dragJustCompleted) {
+      this.dragJustCompleted = false;
+      return;
+    }
     const rect = this.render.canvas.getBoundingClientRect();
     const screenX = event.clientX - rect.left;
     const screenY = event.clientY - rect.top;
@@ -2173,21 +2309,20 @@ export class GameEngine {
     // Find assembly at click position
     const clickedAssembly = this.getAssemblyAtPosition(screenX, screenY);
 
-    if (clickedAssembly && clickedAssembly !== this.playerAssembly) {
-      // Right-click or Ctrl+click for targeting
-      if (event.button === 2 || event.ctrlKey) {
+    if (clickedAssembly) {
+      if (clickedAssembly === this.playerAssembly) {
+        // Clicking the currently piloted ship deselects
+        this.selectAssembly(null);
+      } else if (this.playerAssembly && (event.button === 2 || event.ctrlKey)) {
+        // Right-click / Ctrl+click targets (only when piloting a ship)
         this.handleTargetClick(clickedAssembly);
       } else {
-        // Left-click for selection
+        // Left-click selects any ship
         this.selectAssembly(clickedAssembly);
       }
-    } else if (clickedAssembly === this.playerAssembly) {
-      // Clicked on player ship - clear selection
-      this.selectAssembly(null);
     } else {
       // Clicked empty space
       if (this.playerAssembly) {
-        // Set cursor position for weapon aiming
         this.mousePosition = { x: screenX, y: screenY };
         this.playerAssembly.cursorPosition = { x: worldX, y: worldY };
       }
@@ -2279,5 +2414,82 @@ export class GameEngine {
 
     this.playerAssembly.setPrimaryTarget(nextTarget);
     console.log(`🎯 Cycled to target: ${nextTarget.shipName}`);
+  }
+
+  /**
+   * Returns the assembly that block-drag snap/attach should target.
+   * When piloting: the player's own ship.
+   * When observing: the nearest team-0 (friendly) cockpit-having assembly to the held block.
+   */
+  private getBlockSnapTarget(): Assembly | null {
+    if (this.playerAssembly && !this.playerAssembly.destroyed) return this.playerAssembly;
+
+    const held = this.blockPickupSystem.getHeldAssembly();
+    if (!held) return null;
+
+    const heldPos = held.rootBody.position;
+    let best: Assembly | null = null;
+    let bestDist = Infinity;
+    for (const a of this.assemblies) {
+      if (a.destroyed || a.team !== 0 || !a.hasControlCenter() || a === held) continue;
+      const dx = a.rootBody.position.x - heldPos.x;
+      const dy = a.rootBody.position.y - heldPos.y;
+      const dist = dx * dx + dy * dy; // squared distance — only comparing, no need for sqrt
+      if (dist < bestDist) { bestDist = dist; best = a; }
+    }
+    return best;
+  }
+
+  // ── Observer / Pilot public API ────────────────────────────────────────────
+
+  public isObserverMode(): boolean {
+    return !this.playerAssembly;
+  }
+
+  /** Take control of a friendly assembly. */
+  public pilotAssembly(assembly: Assembly): void {
+    if (!assembly.hasControlCenter() || assembly.destroyed || assembly.isPlayerControlled) return;
+
+    this.controllerManager.removeController(assembly.id);
+    this.playerAssembly = assembly;
+    assembly.isPlayerControlled = true;
+    this.flightController = new FlightController(assembly);
+    this.controllerManager.createPlayerController(assembly);
+    PowerSystem.getInstance().setPlayerAssembly(assembly);
+    this.toastSystem.showSuccess(`Piloting ${assembly.shipName}`);
+  }
+
+  /** Return the current ship to AI and go back to observer mode. */
+  public exitPilot(): void {
+    if (!this.playerAssembly) return;
+
+    this.observerPos = { ...this.playerAssembly.rootBody.position };
+    this.playerAssembly.isPlayerControlled = false;
+    this.controllerManager.removeController(this.playerAssembly.id);
+    const ai = this.controllerManager.createAIController(this.playerAssembly);
+    ai.setAggressionLevel(0.8);
+    this.playerAssembly = null;
+    this.flightController = null;
+    PowerSystem.getInstance().setPlayerAssembly(null);
+    this.toastSystem.showGameEvent('Returned to observer mode');
+  }
+
+  /** Returns true when the assembly has an active controller (AI or player). */
+  public isAIEnabled(assembly: Assembly): boolean {
+    return this.controllerManager.hasController(assembly.id) && !assembly.isPlayerControlled;
+  }
+
+  /** Remove the AI controller from an assembly, leaving it drifting. */
+  public disableAI(assembly: Assembly): void {
+    this.controllerManager.removeController(assembly.id);
+    this.toastSystem.showGameEvent(`AI disabled on ${assembly.shipName}`);
+  }
+
+  /** Restore an AI controller on an assembly. */
+  public enableAI(assembly: Assembly): void {
+    if (assembly.destroyed || assembly.isPlayerControlled) return;
+    const ai = this.controllerManager.createAIController(assembly);
+    ai.setAggressionLevel(0.8);
+    this.toastSystem.showGameEvent(`AI enabled on ${assembly.shipName}`);
   }
 }

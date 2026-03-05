@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Tooltip } from '@mui/material';
-import { Air, Eject } from '@mui/icons-material';
+import { Air, Eject, ExitToApp } from '@mui/icons-material';
 import { styled, keyframes } from '@mui/material/styles';
 import { GameEngine } from '../game/core/GameEngine';
 
@@ -111,6 +111,19 @@ const FlightControls: React.FC<FlightControlsProps> = ({ gameEngine }) => {
 
     return (
         <FlightControlsContainer>
+            <Tooltip
+                title="Exit pilot — return ship to AI and enter observer mode"
+                placement="left"
+                enterDelay={300}
+                arrow
+            >
+                <ToggleIconButton
+                    color="#aaaaaa"
+                    onClick={() => gameEngine?.exitPilot()}
+                >
+                    <ExitToApp />
+                </ToggleIconButton>
+            </Tooltip>
             {canEject && (
                 <Tooltip
                     title={isCritical
