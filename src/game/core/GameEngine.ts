@@ -83,7 +83,7 @@ export class GameEngine {
   // Observer-mode camera state
   private observerPos: { x: number; y: number } = { x: 0, y: 0 };
   private readonly OBSERVER_PAN_SPEED = 600;  // world units/s at zoom 1
-  private readonly EDGE_SCROLL_MARGIN = 80;   // px from canvas edge
+  private readonly EDGE_SCROLL_MARGIN = 8;    // CSS px from canvas edge that triggers scroll
   private lastTouchDistance: number = 0;
   private touchStartPos: { x: number; y: number } | null = null;
 
@@ -1406,11 +1406,13 @@ export class GameEngine {
     if (this.keys.has('a') || this.keys.has('arrowleft'))  this.observerPos.x -= panSpeed * deltaTime;
     if (this.keys.has('d') || this.keys.has('arrowright')) this.observerPos.x += panSpeed * deltaTime;
 
-    // Edge-scroll: mouse within EDGE_SCROLL_MARGIN px of any canvas edge accelerates pan
-    const mx = this.mousePosition.x;
-    const my = this.mousePosition.y;
-    const w  = canvas.width;
-    const h  = canvas.height;
+    // Edge-scroll: compare mouse position (CSS px) against CSS canvas dimensions,
+    // NOT canvas.width/height which are physical pixels and DPR-scaled.
+    const mx   = this.mousePosition.x;
+    const my   = this.mousePosition.y;
+    const rect = canvas.getBoundingClientRect();
+    const w    = rect.width;
+    const h    = rect.height;
     const edgeSpeed = panSpeed * 0.8;
     if (mx < this.EDGE_SCROLL_MARGIN)     this.observerPos.x -= edgeSpeed * deltaTime;
     if (mx > w - this.EDGE_SCROLL_MARGIN) this.observerPos.x += edgeSpeed * deltaTime;
@@ -1451,6 +1453,7 @@ export class GameEngine {
       () => this.hoveredAssembly,
       () => this.getSelectedAssembly(),
       (assembly) => this.getLockedTargets(assembly),
+      (assembly) => this.controllerManager.getAIStateLabelForAssembly(assembly.id),
     ));
     this.renderSystem.register(new AimingDebugRenderer(() => this.playerAssembly));
     this.renderSystem.register(new BlockPickupRenderer(
@@ -1521,6 +1524,48 @@ export class GameEngine {
     this.setInitialCameraView();
   }
 
+  // ── Debug spawn API (called from the UI debug panel) ──────────────────────
+
+  /** Spawn `count` random scrap pieces near the current camera centre. */
+  public debugSpawnScrap(count: number): void {
+    const c = this.getCameraCenter();
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist  = 100 + Math.random() * 300;
+      this.spawnDebris(c.x + Math.cos(angle) * dist, c.y + Math.sin(angle) * dist);
+    }
+  }
+
+  /** Spawn `count` enemy ships (team 1) near the current camera centre. */
+  public debugSpawnEnemy(count: number): void {
+    const c     = this.getCameraCenter();
+    const ships = shipsData.ships.filter(
+      s => !s.parts.some(p => p.type.toLowerCase().includes('missile')),
+    );
+    for (let i = 0; i < count; i++) {
+      const angle    = (i / count) * Math.PI * 2 + Math.random() * 0.5;
+      const dist     = 300 + Math.random() * 300;
+      const x        = c.x + Math.cos(angle) * dist;
+      const y        = c.y + Math.sin(angle) * dist;
+      const shipDef  = ships[Math.floor(Math.random() * ships.length)];
+      const assembly = new Assembly(shipDef.parts as EntityConfig[], { x, y });
+      assembly.setShipName(shipDef.name);
+      assembly.setTeam(1);
+      this.assemblies.push(assembly);
+      Matter.World.add(this.world, assembly.rootBody);
+      if (assembly.hasControlCenter()) {
+        const ai = this.controllerManager.createAIController(assembly);
+        ai.setAggressionLevel(0.8 + Math.random() * 0.4);
+      }
+    }
+  }
+
+  /** Returns the world-space centre of the current camera viewport. */
+  private getCameraCenter(): { x: number; y: number } {
+    const b = this.render.bounds;
+    return { x: (b.min.x + b.max.x) / 2, y: (b.min.y + b.max.y) / 2 };
+  }
+
   private spawnSandboxScenario(): void {
     const SANDBOX_BLOCK_TYPES: EntityType[] = [
       'Cockpit', 'Cockpit',
@@ -1542,14 +1587,20 @@ export class GameEngine {
       const x = Math.cos(angle) * distance;
       const y = Math.sin(angle) * distance;
 
+      const blockType = SANDBOX_BLOCK_TYPES[i];
+      // Cockpits must always spawn at rotation 0 so the AI's nose-direction
+      // (rootBody.angle) aligns with the laser firing angle
+      // (rootBody.angle + entity.rotation). Any random rotation bakes a
+      // permanent offset between the two, causing the ship to fly sideways.
+      const rotation = blockType === 'Cockpit' ? 0 : Math.floor(Math.random() * 4) * 90;
       const config: EntityConfig = {
-        type: SANDBOX_BLOCK_TYPES[i],
+        type: blockType,
         x: 0,
         y: 0,
-        rotation: Math.floor(Math.random() * 4) * 90,
+        rotation,
       };
       const blockAssembly = new Assembly([config], { x, y });
-      if (SANDBOX_BLOCK_TYPES[i] === 'Cockpit') {
+      if (blockType === 'Cockpit') {
         // Cockpit blocks are friendly AI-controlled ships the player can pilot
         blockAssembly.setTeam(0);
         blockAssembly.setShipName('Cockpit');
@@ -1557,7 +1608,7 @@ export class GameEngine {
         ai.setAggressionLevel(0.5);
       } else {
         blockAssembly.setTeam(-1);
-        blockAssembly.setShipName(`${SANDBOX_BLOCK_TYPES[i]} Block`);
+        blockAssembly.setShipName(`${blockType} Block`);
       }
       // Gentle random spin
       Matter.Body.setAngularVelocity(blockAssembly.rootBody, (Math.random() - 0.5) * 0.16);

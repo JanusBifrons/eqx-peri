@@ -7,6 +7,17 @@ export interface ControlInput {
     torque: number;
     fire: boolean;
     targetAngle?: number;
+    /** When true, inertial dampening is applied this frame. */
+    dampen?: boolean;
+    /** Override the dampening multiplier (default 0.985). Lower = more aggressive braking. */
+    dampenFactor?: number;
+    /**
+     * When set, dampening is applied axis-decomposed: lateral (sideways) velocity is
+     * multiplied by this factor each frame, while forward velocity is multiplied by
+     * dampenFactor (default 1.0 = untouched).  Allows forward momentum to be preserved
+     * while aggressively killing orbit/drift.  Player inputs leave this unset (uniform).
+     */
+    lateralDampenFactor?: number;
 }
 
 // Interface for any controller (AI or player)

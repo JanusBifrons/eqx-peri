@@ -26,7 +26,9 @@ export class Entity {
   // Weapon aiming state for smooth turret rotation
   public currentAimAngle: number = 0; // Current turret angle relative to weapon's natural direction
   public targetAimAngle: number = 0; // Desired turret angle
-  public aimRotationSpeed: number = 0.005; // Radians per second rotation speed - extremely slow for testing
+  // Radians per second; set per weapon type in constructor. Small fast guns track quickly,
+  // large/capital weapons track slowly for a weighty feel.
+  public aimRotationSpeed: number = 0;
 
   // Connection tracking system
   public attachmentConnections: AttachmentConnection[] = [];
@@ -56,6 +58,7 @@ export class Entity {
 
     this.maxHealth = config.maxHealth || definition.defaultHealth;
     this.health = config.health || this.maxHealth;
+    this.aimRotationSpeed = this.defaultAimRotationSpeed();
 
     // Debug logging for cockpits
     if (this.type === 'Cockpit' || this.type === 'LargeCockpit' || this.type === 'CapitalCore') {
@@ -87,7 +90,27 @@ export class Entity {
     if (this.rotation !== 0) {
       Matter.Body.rotate(this.body, (this.rotation * Math.PI) / 180);
     }
-  } public takeDamage(damage: number): boolean {
+  }
+
+  /** Turret rotation speed in radians per second, scaled per weapon class. */
+  private defaultAimRotationSpeed(): number {
+    switch (this.type) {
+      case 'Gun': return 2.5;
+      case 'LargeGun': return 1.8;
+      case 'CapitalWeapon': return 1.2;
+      case 'MissileLauncher': return 2.2;
+      case 'LargeMissileLauncher': return 1.6;
+      case 'CapitalMissileLauncher': return 1.0;
+      case 'Beam': return 3.0;
+      case 'LargeBeam': return 2.2;
+      case 'Cockpit':
+      case 'LargeCockpit':
+      case 'CapitalCore': return 1.5;
+      default: return 0;
+    }
+  }
+
+  public takeDamage(damage: number): boolean {
     if (this.destroyed) return false;
 
     // Check invulnerability

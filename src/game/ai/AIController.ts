@@ -2,21 +2,82 @@ import { Assembly } from '../core/Assembly';
 import { Controller, ControlInput } from './Controller';
 import { Vector2 } from '../../types/GameTypes';
 
-// Maximum cruising speed used by the arrive steering behaviour (world units / frame).
-// Ships will accelerate up to this speed when far from the desired position and
-// decelerate back toward zero as they arrive, giving natural braking in zero-friction space.
-const MAX_SPEED = 3.0;
+// ─── Steering constants ────────────────────────────────────────────────────
+const MAX_SPEED    = 3.0;  // world units / physics frame (base)
+const ARRIVAL_RADIUS = 250; // distance at which arrive-steering begins braking
+const FIRING_RANGE   = 500; // max range at which weapons can fire
+const AIM_READY_THRESHOLD = 0.25; // rad (~14°) — weapon considered on-target below this
 
-// Distance from the desired position at which the ship starts throttling down.
-// At this range the desired speed equals MAX_SPEED; at 0 distance desired speed is 0.
-const ARRIVAL_RADIUS = 250;
+// How long (ms) the AI keeps a recent attacker as priority target.
+const ATTACKER_PRIORITY_MS = 8000;
+
+// ─── Combat state machine ──────────────────────────────────────────────────
+
+/**
+ * Duration of the initial SIZING_UP phase.  Ships approach, assess the power
+ * balance, and commit to a behaviour after this window.
+ */
+const SIZING_UP_DURATION_MS = 2500;
+
+/**
+ * HP ratio (own total current HP / total max HP) below which the ship
+ * immediately switches to RETREAT regardless of power balance.
+ */
+const RETREAT_HEALTH_THRESHOLD = 0.30;
+
+/**
+ * If ownPower / enemyPower ≥ this, the ship PURSUEs — it has a clear advantage
+ * and should close aggressively to press it.
+ */
+const POWER_RATIO_PURSUE = 1.40;
+
+/**
+ * If ownPower / enemyPower ≤ this, the ship REATREATs after sizing up — the
+ * enemy is significantly stronger and a slugging match would be suicidal.
+ */
+const POWER_RATIO_RETREAT = 0.65;
+
+/** Preferred standoff range for each state (world units). */
+const RANGE_SIZING_UP = 600; // Hang back just outside firing range while assessing
+const RANGE_ENGAGE    = 400; // Standard engagement: slug it out at medium range
+const RANGE_PURSUE    = 250; // Aggressive close-in when we have the advantage
+const RANGE_RETREAT   = 800; // Back off and create distance when outmatched
+
+/** Speed multipliers applied on top of MAX_SPEED × aggressionLevel. */
+const SPEED_SIZING_UP = 0.65; // Measured approach — don't rush in blind
+const SPEED_ENGAGE    = 1.00; // Standard combat pace
+const SPEED_PURSUE    = 1.45; // Press the advantage at speed
+const SPEED_RETREAT   = 1.40; // Flee fast
+
+enum CombatState {
+    /** Brief assessment: approach to hold range, evaluate the power balance, then commit. */
+    SIZING_UP = 'SIZING_UP',
+    /** Roughly matched: hold preferred range, aim weapons, and fight. */
+    ENGAGE    = 'ENGAGE',
+    /** We have the advantage: close aggressively and press the attack. */
+    PURSUE    = 'PURSUE',
+    /** Outmatched or badly damaged: flee to safety. */
+    RETREAT   = 'RETREAT',
+}
 
 export class AIController extends Controller {
+    // ── Target tracking ──────────────────────────────────────────────────
     private target?: Assembly;
-    private lastTargetScanTime: number = 0;
-    private readonly targetScanInterval: number = 500;
-    private aggressionLevel: number = 1.0;
-    private readonly preferredRange: number = 400; // Standoff distance from target
+    private lastTargetScanTime   = 0;
+    private readonly targetScanInterval = 500;
+    private aggressionLevel = 1.0;
+
+    private lastKnownAttackerId: string | null = null;
+    private lastAttackerNoticeTime = 0;
+
+    // ID currently set as assembly.primaryTarget — only updated on change.
+    private currentTargetId: string | null = null;
+
+    // ── State machine ─────────────────────────────────────────────────────
+    private combatState: CombatState = CombatState.SIZING_UP;
+    private sizingUpStartTime = Date.now();
+    private lastStateUpdateTime = 0;
+    private readonly stateUpdateInterval = 350; // ms between state evaluations
 
     constructor(assembly: Assembly) {
         super(assembly);
@@ -30,141 +91,433 @@ export class AIController extends Controller {
         this.aggressionLevel = Math.max(0.1, Math.min(2.0, level));
     }
 
-    update(_deltaTime: number): ControlInput {
-        const currentTime = Date.now();
+    /** Human-readable label for the current combat state, used by the renderer. */
+    getCombatStateLabel(): string {
+        switch (this.combatState) {
+            case CombatState.SIZING_UP: return 'SIZING UP';
+            case CombatState.ENGAGE:    return 'ENGAGE';
+            case CombatState.PURSUE:    return 'PURSUE';
+            case CombatState.RETREAT:   return 'RETREAT';
+        }
+    }
 
-        if (currentTime - this.lastTargetScanTime > this.targetScanInterval) {
-            this.scanForTargets();
-            this.lastTargetScanTime = currentTime;
+    update(_deltaTime: number): ControlInput {
+        const now = Date.now();
+
+        // Sync attacker priority from the damage record written by GameEngine.
+        const attackerId = this.assembly.lastHitByAssemblyId;
+        if (attackerId && attackerId !== this.lastKnownAttackerId) {
+            this.lastKnownAttackerId = attackerId;
+            this.lastAttackerNoticeTime = now;
         }
 
-        if (!this.target || this.target.destroyed) {
+        if (now - this.lastTargetScanTime > this.targetScanInterval) {
+            this.validateCurrentTarget();
+            this.lastTargetScanTime = now;
+        }
+
+        if (!this.target || !this.isValidTarget(this.target)) {
+            this.syncTargetLock();
             return this.getIdleInput();
+        }
+
+        this.syncTargetLock();
+
+        if (now - this.lastStateUpdateTime > this.stateUpdateInterval) {
+            this.updateCombatState();
+            this.lastStateUpdateTime = now;
         }
 
         return this.getCombatInput();
     }
 
-    private scanForTargets(): void {
-        // Targets are supplied via setAvailableTargets; nothing to do here
-    }
-
     setAvailableTargets(targets: Assembly[]): void {
-        if (!this.target || this.target.destroyed) {
-            const enemies = targets.filter(t => t.team !== this.assembly.team && !t.destroyed);
+        if (this.target && !this.isValidTarget(this.target)) {
+            this.target = undefined;
+        }
+
+        if (!this.target) {
+            const enemies = targets.filter(t => this.isValidTarget(t));
             if (enemies.length > 0) {
-                this.target = this.findClosestTarget(enemies);
+                this.target = this.selectBestTarget(enemies);
             }
         }
     }
 
-    private findClosestTarget(targets: Assembly[]): Assembly {
-        let closest = targets[0];
-        let closestDist = this.distanceTo(closest);
-        for (let i = 1; i < targets.length; i++) {
-            const d = this.distanceTo(targets[i]);
-            if (d < closestDist) { closest = targets[i]; closestDist = d; }
-        }
-        return closest;
+    // ── Validity & selection ─────────────────────────────────────────────
+
+    private isValidTarget(a: Assembly): boolean {
+        return !a.destroyed && a.team !== this.assembly.team && a.hasControlCenter();
     }
 
-    private distanceTo(target: Assembly): number {
-        const dx = target.rootBody.position.x - this.assembly.rootBody.position.x;
-        const dy = target.rootBody.position.y - this.assembly.rootBody.position.y;
+    private validateCurrentTarget(): void {
+        if (this.target && !this.isValidTarget(this.target)) this.target = undefined;
+    }
+
+    private selectBestTarget(enemies: Assembly[]): Assembly {
+        const now = Date.now();
+        if (
+            this.lastKnownAttackerId !== null &&
+            now - this.lastAttackerNoticeTime < ATTACKER_PRIORITY_MS
+        ) {
+            const attacker = enemies.find(e => e.id === this.lastKnownAttackerId);
+            if (attacker) return attacker;
+        }
+        return this.findClosestTarget(enemies);
+    }
+
+    private findClosestTarget(targets: Assembly[]): Assembly {
+        let best = targets[0];
+        let bestDist = this.distanceTo(best);
+        for (let i = 1; i < targets.length; i++) {
+            const d = this.distanceTo(targets[i]);
+            if (d < bestDist) { best = targets[i]; bestDist = d; }
+        }
+        return best;
+    }
+
+    private distanceTo(a: Assembly): number {
+        const dx = a.rootBody.position.x - this.assembly.rootBody.position.x;
+        const dy = a.rootBody.position.y - this.assembly.rootBody.position.y;
         return Math.sqrt(dx * dx + dy * dy);
     }
 
-    private getIdleInput(): ControlInput {
-        return { thrust: { x: 0, y: 0 }, torque: 0, fire: false };
+    // ── Target lock sync ─────────────────────────────────────────────────
+
+    /**
+     * Keeps assembly.primaryTarget in sync with the AI's combat target so that
+     * Assembly.updateWeaponAiming() auto-tracks turrets each frame.
+     * Also resets the state machine whenever the target changes — every new
+     * opponent starts with a fresh SIZING_UP phase.
+     */
+    private syncTargetLock(): void {
+        const newId = this.target?.id ?? null;
+        if (newId === this.currentTargetId) return;
+
+        // Target changed — restart assessment
+        if (newId !== null) this.setCombatState(CombatState.SIZING_UP);
+
+        this.currentTargetId = newId;
+        this.assembly.primaryTarget = this.target ?? null;
     }
+
+    // ── State machine ─────────────────────────────────────────────────────
+
+    private setCombatState(state: CombatState): void {
+        if (state === this.combatState) return;
+        this.combatState = state;
+        if (state === CombatState.SIZING_UP) this.sizingUpStartTime = Date.now();
+    }
+
+    /**
+     * Evaluates the tactical situation and transitions between combat states.
+     *
+     * Decision axes:
+     *   ownHealth  — own total HP / total max HP across all blocks
+     *   powerRatio — own combat power / enemy combat power (weapons × health)
+     *
+     * Resulting behaviour:
+     *   SIZING_UP  → wait 2.5 s, then commit based on power balance
+     *   ENGAGE     → slug it out; retreat if health critical or badly outmatched
+     *   PURSUE     → press a clear advantage; back off if balance shifts
+     *   RETREAT    → flee; only re-engage if enemy is crippled and we're healthy
+     */
+    private updateCombatState(): void {
+        if (!this.target) { this.setCombatState(CombatState.SIZING_UP); return; }
+
+        const ownHealth  = this.getOwnHealthRatio();
+        const powerRatio = this.computePowerRatio();
+
+        // Always retreat immediately if critically damaged.
+        if (ownHealth < RETREAT_HEALTH_THRESHOLD && this.combatState !== CombatState.RETREAT) {
+            this.setCombatState(CombatState.RETREAT);
+            return;
+        }
+
+        switch (this.combatState) {
+            case CombatState.SIZING_UP: {
+                if (Date.now() - this.sizingUpStartTime >= SIZING_UP_DURATION_MS) {
+                    if      (powerRatio >= POWER_RATIO_PURSUE)  this.setCombatState(CombatState.PURSUE);
+                    else if (powerRatio <= POWER_RATIO_RETREAT) this.setCombatState(CombatState.RETREAT);
+                    else                                         this.setCombatState(CombatState.ENGAGE);
+                }
+                break;
+            }
+            case CombatState.ENGAGE: {
+                if      (powerRatio >= POWER_RATIO_PURSUE)  this.setCombatState(CombatState.PURSUE);
+                else if (powerRatio <= POWER_RATIO_RETREAT) this.setCombatState(CombatState.RETREAT);
+                break;
+            }
+            case CombatState.PURSUE: {
+                if      (powerRatio <= POWER_RATIO_RETREAT)  this.setCombatState(CombatState.RETREAT);
+                else if (powerRatio <  POWER_RATIO_PURSUE)   this.setCombatState(CombatState.ENGAGE);
+                break;
+            }
+            case CombatState.RETREAT: {
+                // Only re-engage once the balance has tipped strongly in our favour
+                // (enemy crippled by our fire while we fled).
+                if (powerRatio >= POWER_RATIO_PURSUE && ownHealth > RETREAT_HEALTH_THRESHOLD) {
+                    this.setCombatState(CombatState.SIZING_UP);
+                }
+                break;
+            }
+        }
+    }
+
+    // ── Power / health assessment ─────────────────────────────────────────
+
+    private getOwnHealthRatio(): number {
+        const es = this.assembly.entities;
+        if (es.length === 0) return 0;
+        const cur = es.reduce((s, e) => s + e.health, 0);
+        const max = es.reduce((s, e) => s + e.maxHealth, 0);
+        return max > 0 ? cur / max : 0;
+    }
+
+    /**
+     * Estimates an assembly's combat effectiveness from its live weapon blocks,
+     * scaled by its overall health ratio.  Heavier weapons count for more so a
+     * capital-weapon ship is correctly rated far above a cockpit-only ship.
+     */
+    private computeCombatPower(a: Assembly): number {
+        let power = 0;
+        for (const e of a.entities) {
+            if (e.destroyed) continue;
+            switch (e.type) {
+                case 'Gun':                    power += 1.0; break;
+                case 'LargeGun':               power += 2.5; break;
+                case 'CapitalWeapon':          power += 5.0; break;
+                case 'MissileLauncher':        power += 1.5; break;
+                case 'LargeMissileLauncher':   power += 3.5; break;
+                case 'CapitalMissileLauncher': power += 7.0; break;
+                case 'Beam':                   power += 1.5; break;
+                case 'LargeBeam':              power += 4.0; break;
+                case 'Cockpit':                power += 0.5; break;
+                case 'LargeCockpit':           power += 1.0; break;
+                case 'CapitalCore':            power += 2.0; break;
+                default: break;
+            }
+        }
+        // Scale by health so a badly-damaged ship is rated weaker.
+        const cur = a.entities.reduce((s, e) => s + e.health, 0);
+        const max = a.entities.reduce((s, e) => s + e.maxHealth, 0);
+        const healthRatio = max > 0 ? cur / max : 0;
+        return power * healthRatio;
+    }
+
+    /** ownPower / enemyPower.  >1 means we are stronger; <1 means enemy is stronger. */
+    private computePowerRatio(): number {
+        if (!this.target) return 1;
+        const own   = this.computeCombatPower(this.assembly);
+        const enemy = this.computeCombatPower(this.target);
+        if (enemy <= 0) return 99; // unarmed target — pursue freely
+        if (own   <= 0) return 0;  // we are unarmed — flee
+        return own / enemy;
+    }
+
+    // ── Combat input ──────────────────────────────────────────────────────
 
     private getCombatInput(): ControlInput {
         if (!this.target) return this.getIdleInput();
 
-        const myPos = this.assembly.rootBody.position;
         const targetPos = this.target.rootBody.position;
-        const distance = this.distanceTo(this.target);
+        const distance  = this.distanceTo(this.target);
+        const preferred = this.statePreferredRange();
+        const speedMult = this.stateSpeedMultiplier();
+
+        // RETREAT: face away so forward thrust propels us along the escape vector.
+        // All other states: orient weapons toward the target.
+        const heading = this.combatState === CombatState.RETREAT
+            ? this.computeRetreatHeading()
+            : this.computeOptimalHeading(targetPos);
+
+        // Engagement mode (dead-band + small radial corrections) only when holding
+        // position in ENGAGE or SIZING_UP within firing range.
+        const holdingPosition =
+            (this.combatState === CombatState.ENGAGE || this.combatState === CombatState.SIZING_UP)
+            && distance < FIRING_RANGE;
+
+        const thrust = holdingPosition
+            ? this.engagementThrust(distance, preferred)
+            : this.approachThrust(preferred, speedMult);
+
+        // Inertial dampening — applied every frame in all states except RETREAT.
+        //
+        // Root cause of orbiting: the ship rotates while thrusting every frame.
+        // Even with forward-only thrust the "forward" direction sweeps a curve,
+        // accumulating lateral (sideways) velocity that never decays in zero-friction
+        // space — classic orbital mechanics.
+        //
+        // Fix: axis-decomposed dampening.  Lateral velocity (perpendicular to the
+        // ship's current nose) is killed aggressively each frame while forward speed
+        // is left untouched so closing/retreat speed is not penalised.
+        //
+        //   lateralDampenFactor 0.80 when holding — kills 20%/frame; at 60 Hz lateral
+        //       speed is <0.001× original in under 0.5 s.  Ship stops drifting fast.
+        //   lateralDampenFactor 0.88 when approaching — softer so the ship can still
+        //       steer, but aggressive enough to prevent orbit build-up over seconds.
+        //   dampenFactor = 1.0  — forward speed untouched in both tiers.
+        //   No dampening during RETREAT — every m/s of escape speed matters.
+        const dampen = this.combatState !== CombatState.RETREAT;
+        const dampenFactor       = 1.0;
+        const lateralDampenFactor = holdingPosition ? 0.80 : 0.88;
+
+        // Suppress fire during the sizing-up window — let the ships approach and
+        // let weapon tracking settle before the fight begins.
+        const fire = this.combatState !== CombatState.SIZING_UP
+            && this.hasWeaponsReadyToFire(targetPos, distance);
+
+        return { thrust, torque: this.calculateRotation(heading), fire, dampen, dampenFactor, lateralDampenFactor, targetAngle: heading };
+    }
+
+    private statePreferredRange(): number {
+        switch (this.combatState) {
+            case CombatState.SIZING_UP: return RANGE_SIZING_UP;
+            case CombatState.ENGAGE:    return RANGE_ENGAGE;
+            case CombatState.PURSUE:    return RANGE_PURSUE;
+            case CombatState.RETREAT:   return RANGE_RETREAT;
+        }
+    }
+
+    private stateSpeedMultiplier(): number {
+        switch (this.combatState) {
+            case CombatState.SIZING_UP: return SPEED_SIZING_UP;
+            case CombatState.ENGAGE:    return SPEED_ENGAGE;
+            case CombatState.PURSUE:    return SPEED_PURSUE;
+            case CombatState.RETREAT:   return SPEED_RETREAT;
+        }
+    }
+
+    // ── Heading helpers ───────────────────────────────────────────────────
+
+    /**
+     * Ship heading that aligns the weapon battery toward the target.
+     * Circular mean of all weapon natural directions gives the heading that
+     * minimises total arc usage across the battery.
+     * Reduces to angleToTarget for standard all-forward loadouts.
+     */
+    private computeOptimalHeading(targetPos: Vector2): number {
+        const myPos = this.assembly.rootBody.position;
         const angleToTarget = Math.atan2(targetPos.y - myPos.y, targetPos.x - myPos.x);
 
-        return {
-            thrust: this.arriveThrust(),
-            torque: this.calculateRotation(angleToTarget),
-            fire: this.shouldFire(distance, angleToTarget),
-            targetAngle: angleToTarget,
-        };
+        const weapons = this.assembly.entities.filter(e => e.canFire() && !e.destroyed);
+        if (weapons.length === 0) return angleToTarget;
+
+        let sinSum = 0, cosSum = 0;
+        for (const w of weapons) {
+            const a = w.rotation * Math.PI / 180;
+            sinSum += Math.sin(a);
+            cosSum += Math.cos(a);
+        }
+        return angleToTarget - Math.atan2(sinSum, cosSum);
     }
 
     /**
-     * Arrive steering with dead reckoning for zero-friction space.
-     *
-     * Algorithm:
-     *   1. Compute a desired position at preferredRange from the target along the
-     *      current separation axis (so the ship holds its attack angle).
-     *   2. Compute a desired velocity pointing at that position, scaled down as
-     *      the ship gets within ARRIVAL_RADIUS (natural braking).
-     *   3. Steering = desiredVelocity − currentVelocity. This accounts for
-     *      current momentum so the ship actively decelerates instead of looping.
-     *   4. Convert the world-space steering vector to ship-local coordinates
-     *      (applyThrust expects local space, where +X = forward along ship nose).
+     * Heading pointing the nose directly away from the target so that forward
+     * thrust moves the ship along the retreat vector.
      */
-    private arriveThrust(): Vector2 {
+    private computeRetreatHeading(): number {
+        const my = this.assembly.rootBody.position;
+        const tg = this.target!.rootBody.position;
+        return Math.atan2(my.y - tg.y, my.x - tg.x);
+    }
+
+    // ── Thrust helpers ─────────────────────────────────────────────────────
+
+    /**
+     * Long-range arrive steering.  Approaches the preferred standoff distance at
+     * up to MAX_SPEED × aggressionLevel × speedMult, braking within ARRIVAL_RADIUS.
+     * Also used for retreat (large preferredRange pushes the desired position behind
+     * the ship, so steering naturally thrusts away once the nose faces rearward).
+     */
+    private approachThrust(preferredRange: number, speedMult = 1.0): Vector2 {
         const myPos = this.assembly.rootBody.position;
-        const targetPos = this.target!.rootBody.position;
+        const tgPos = this.target!.rootBody.position;
         const myVel = this.assembly.rootBody.velocity;
 
-        // --- Desired world position: stand off at preferredRange ---
-        const sep = { x: myPos.x - targetPos.x, y: myPos.y - targetPos.y };
+        const sep    = { x: myPos.x - tgPos.x, y: myPos.y - tgPos.y };
         const sepMag = Math.sqrt(sep.x * sep.x + sep.y * sep.y) || 1;
-        const desiredPos = {
-            x: targetPos.x + (sep.x / sepMag) * this.preferredRange,
-            y: targetPos.y + (sep.y / sepMag) * this.preferredRange,
+        const desired = {
+            x: tgPos.x + (sep.x / sepMag) * preferredRange,
+            y: tgPos.y + (sep.y / sepMag) * preferredRange,
         };
 
-        // --- Desired velocity: taper speed toward zero as we arrive ---
-        const toDesired = { x: desiredPos.x - myPos.x, y: desiredPos.y - myPos.y };
-        const dist = Math.sqrt(toDesired.x * toDesired.x + toDesired.y * toDesired.y);
+        const toDes = { x: desired.x - myPos.x, y: desired.y - myPos.y };
+        const dist  = Math.sqrt(toDes.x * toDes.x + toDes.y * toDes.y);
 
-        const speedTarget = MAX_SPEED * this.aggressionLevel * Math.min(1, dist / ARRIVAL_RADIUS);
-        const toDesiredNorm = dist > 0.1
-            ? { x: toDesired.x / dist, y: toDesired.y / dist }
-            : { x: 0, y: 0 };
-        const desiredVel = { x: toDesiredNorm.x * speedTarget, y: toDesiredNorm.y * speedTarget };
+        const topSpeed  = MAX_SPEED * this.aggressionLevel * speedMult;
+        const spTarget  = topSpeed * Math.min(1, dist / ARRIVAL_RADIUS);
+        const norm      = dist > 0.1 ? { x: toDes.x / dist, y: toDes.y / dist } : { x: 0, y: 0 };
+        const desVel    = { x: norm.x * spTarget, y: norm.y * spTarget };
 
-        // --- Steering = velocity error (dead reckoning) ---
-        const steering = { x: desiredVel.x - myVel.x, y: desiredVel.y - myVel.y };
-        const steeringMag = Math.sqrt(steering.x * steering.x + steering.y * steering.y);
-        if (steeringMag < 0.001) return { x: 0, y: 0 };
+        const steering = { x: desVel.x - myVel.x, y: desVel.y - myVel.y };
+        const stMag    = Math.sqrt(steering.x * steering.x + steering.y * steering.y);
+        if (stMag < 0.001) return { x: 0, y: 0 };
 
-        // Scale thrust magnitude 0-1 relative to MAX_SPEED
-        const thrustMag = Math.min(1.0, steeringMag / MAX_SPEED);
-        const worldThrust = {
-            x: (steering.x / steeringMag) * thrustMag,
-            y: (steering.y / steeringMag) * thrustMag,
-        };
-
-        // --- Convert world thrust → ship-local coordinates ---
-        // applyThrust rotates its input by shipAngle to get world force,
-        // so we must supply the inverse-rotated vector here.
-        const a = -this.assembly.rootBody.angle;
-        return {
-            x: worldThrust.x * Math.cos(a) - worldThrust.y * Math.sin(a),
-            y: worldThrust.x * Math.sin(a) + worldThrust.y * Math.cos(a),
-        };
+        const tMag  = Math.min(1.0, stMag / topSpeed);
+        const wt    = { x: (steering.x / stMag) * tMag, y: (steering.y / stMag) * tMag };
+        const nose  = this.assembly.rootBody.angle;
+        const fwd   = Math.max(0, wt.x * Math.cos(nose) + wt.y * Math.sin(nose));
+        return { x: fwd, y: 0 };
     }
 
-    private calculateRotation(angleToTarget: number): number {
-        const currentAngle = this.assembly.rootBody.angle;
-        let angleDiff = angleToTarget - currentAngle;
-        while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-        while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-        return angleDiff * 2.0; // Proportional — clamped by Assembly.applyTorque
+    /**
+     * In-combat radial-only distance correction with a dead-band.
+     * Zero thrust within ±60 units of preferredRange; only small radial pushes
+     * outside that band.  Lateral drift is left to inertial dampening (dampen flag)
+     * so the ship doesn't accumulate new orbital velocity while holding position.
+     */
+    private engagementThrust(distance: number, preferredRange: number): Vector2 {
+        const DEAD_BAND = 60;
+        const distError = distance - preferredRange;
+        if (Math.abs(distError) < DEAD_BAND) return { x: 0, y: 0 };
+
+        const myPos = this.assembly.rootBody.position;
+        const tgPos = this.target!.rootBody.position;
+        const myVel = this.assembly.rootBody.velocity;
+
+        const sep    = { x: myPos.x - tgPos.x, y: myPos.y - tgPos.y };
+        const sepMag = Math.sqrt(sep.x * sep.x + sep.y * sep.y) || 1;
+        const radial = { x: sep.x / sepMag, y: sep.y / sepMag };
+
+        const radialVel    = myVel.x * radial.x + myVel.y * radial.y;
+        const CORR_SPEED   = MAX_SPEED * 0.35;
+        const desRadialVel = distError > 0 ? -CORR_SPEED : +CORR_SPEED;
+        const correction   = desRadialVel - radialVel;
+        if (Math.abs(correction) < 0.05) return { x: 0, y: 0 };
+
+        const sign  = correction > 0 ? 1 : -1;
+        const tMag  = Math.min(0.35, Math.abs(correction) / MAX_SPEED);
+        const wDir  = { x: radial.x * sign, y: radial.y * sign };
+        const nose  = this.assembly.rootBody.angle;
+        const fwd   = Math.max(0, wDir.x * Math.cos(nose) + wDir.y * Math.sin(nose));
+        return { x: fwd * tMag, y: 0 };
     }
 
-    private shouldFire(distance: number, angleToTarget: number): boolean {
-        if (distance > 500) return false;
-        const currentAngle = this.assembly.rootBody.angle;
-        let angleDiff = Math.abs(angleToTarget - currentAngle);
-        while (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
-        return angleDiff < Math.PI / 6; // 30-degree firing cone
+    // ── Fire readiness ─────────────────────────────────────────────────────
+
+    private hasWeaponsReadyToFire(targetPos: Vector2, distance: number): boolean {
+        if (distance > FIRING_RANGE) return false;
+        const weapons = this.assembly.entities.filter(e => e.canFire() && !e.destroyed);
+        return weapons.some(w => {
+            if (!this.assembly.canWeaponAimAtTarget(w, targetPos)) return false;
+            let err = w.targetAimAngle - w.currentAimAngle;
+            while (err >  Math.PI) err -= 2 * Math.PI;
+            while (err < -Math.PI) err += 2 * Math.PI;
+            return Math.abs(err) < AIM_READY_THRESHOLD;
+        });
+    }
+
+    // ── Rotation ──────────────────────────────────────────────────────────
+
+    private calculateRotation(targetAngle: number): number {
+        let diff = targetAngle - this.assembly.rootBody.angle;
+        while (diff >  Math.PI) diff -= 2 * Math.PI;
+        while (diff < -Math.PI) diff += 2 * Math.PI;
+        return diff * 2.0; // proportional — clamped by Assembly.applyTorque
+    }
+
+    private getIdleInput(): ControlInput {
+        return { thrust: { x: 0, y: 0 }, torque: 0, fire: false };
     }
 }

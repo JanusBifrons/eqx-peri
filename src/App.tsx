@@ -3,14 +3,12 @@ import { GameEngine } from './game/core/GameEngine';
 import Radar from './ui/Radar';
 import LockedTargets from './ui/LockedTargets';
 import PowerManagement from './ui/PowerManagement';
-import PartsInfo from './ui/PartsInfo';
 import FlightControls from './ui/FlightControls';
 import MainMenu from './ui/MainMenu';
 import SettingsPanel from './ui/SettingsPanel';
 import ShipActionPanel from './ui/ShipActionPanel';
 import ConfirmDialog from './ui/ConfirmDialog';
 import {
-  Paper,
   Box,
   Button,
   ThemeProvider,
@@ -174,14 +172,6 @@ const App: React.FC = () => {
         {/* Settings panel - bottom left */}
         <SettingsPanel gameEngine={gameEngine} />
 
-        {/* Parts Info - only relevant during dev/debug */}
-        {screen === 'playing' && (
-          <Box sx={{ position: 'absolute', bottom: 10, left: 10, zIndex: 1000, pointerEvents: 'none' }}>
-            <Paper elevation={1} sx={{ p: 0.5, display: 'inline-block' }}>
-              <PartsInfo />
-            </Paper>
-          </Box>
-        )}
 
         {/* Return-to-menu confirm dialog */}
         <ConfirmDialog

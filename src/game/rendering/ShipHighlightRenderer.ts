@@ -18,6 +18,13 @@ const STATUS_COLORS: Record<AssemblyStatus, number> = {
   neutral:  0xaaaaaa,
 };
 
+const AI_STATE_COLORS: Record<string, number> = {
+  'SIZING UP': 0x888888,
+  'ENGAGE':    0xffcc00,
+  'PURSUE':    0xff8800,
+  'RETREAT':   0xff3333,
+};
+
 const STATUS_LABELS: Record<AssemblyStatus, string> = {
   player:   'PLAYER',
   friendly: 'FRIENDLY',
@@ -44,6 +51,7 @@ export class ShipHighlightRenderer implements IRenderer {
     private readonly getHoveredAssembly:  () => Assembly | null,
     private readonly getSelectedAssembly: () => Assembly | null,
     private readonly getLockedTargets:    (assembly: Assembly) => Assembly[],
+    private readonly getAIStateLabel:     (assembly: Assembly) => string | null,
   ) {}
 
   init(stage: PIXI.Container): void {
@@ -73,12 +81,17 @@ export class ShipHighlightRenderer implements IRenderer {
       this.renderTooltip(hovered, bounds, canvas, player);
     }
 
-    // Selected brackets
+    // Selected brackets + AI state label
     const selected = this.getSelectedAssembly();
     if (selected && !selected.destroyed) {
       this.renderBrackets(selected, bounds, canvas, { color: 0x00ffff, alpha: 0.9, lineWidth: 2 });
       const pulse = Math.sin(timestamp / 300) * 0.3 + 0.7;
       this.renderBrackets(selected, bounds, canvas, { color: 0xffffff, alpha: pulse * 0.35, lineWidth: 1 });
+
+      const stateLabel = this.getAIStateLabel(selected);
+      if (stateLabel) {
+        this.renderAIStateLabel(selected, bounds, canvas, stateLabel);
+      }
     }
 
     // Locked targets
@@ -194,6 +207,31 @@ export class ShipHighlightRenderer implements IRenderer {
       tooltipX + PADDING + statusMeasure.width + 4, tooltipY + LINE_H);
     this.getPooledText(infoText, { ...TOOLTIP_STYLE, fill: '#888888' } as PIXI.TextStyle,
       tooltipX + PADDING, tooltipY + LINE_H * 2 + 2);
+  }
+
+  private renderAIStateLabel(
+    assembly: Assembly,
+    bounds: { min: { x: number; y: number }; max: { x: number; y: number } },
+    canvas: HTMLCanvasElement,
+    stateLabel: string,
+  ): void {
+    const { cx, cy } = this.centerOnScreen(assembly, bounds, canvas);
+    const screenScale = canvas.width / (bounds.max.x - bounds.min.x);
+    const hs = this.halfSize(assembly, screenScale);
+    const color = AI_STATE_COLORS[stateLabel] ?? 0xffffff;
+    const colorHex = `#${color.toString(16).padStart(6, '0')}`;
+
+    const style = new PIXI.TextStyle({ fontFamily: 'monospace', fontSize: 10, fill: colorHex, fontWeight: 'bold' });
+    const text = this.getPooledText(stateLabel, style, cx, cy + hs + 10);
+    text.anchor.set(0.5, 0);
+
+    // Small pill background
+    const tw = PIXI.TextMetrics.measureText(stateLabel, style).width;
+    const ph = 12, pw = tw + 8;
+    this.graphics.lineStyle(1, color, 0.6);
+    this.graphics.beginFill(0x000814, 0.75);
+    this.graphics.drawRoundedRect(cx - pw / 2, cy + hs + 3, pw, ph, 3);
+    this.graphics.endFill();
   }
 
   private renderTargetSquare(

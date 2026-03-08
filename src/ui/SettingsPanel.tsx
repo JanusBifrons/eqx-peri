@@ -15,6 +15,7 @@ import {
   Tabs,
   Typography,
 } from '@mui/material';
+import BugReportIcon from '@mui/icons-material/BugReport';
 import CloseIcon from '@mui/icons-material/Close';
 import SettingsIcon from '@mui/icons-material/Settings';
 import { GameEngine } from '../game/core/GameEngine';
@@ -234,6 +235,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ gameEngine }) => {
           >
             <Tab label="General" id="settings-tab-0" aria-controls="settings-panel-0" />
             <Tab label="Audio"   id="settings-tab-1" aria-controls="settings-panel-1" />
+            <Tab label="Debug"   id="settings-tab-2" aria-controls="settings-panel-2" icon={<BugReportIcon fontSize="small" />} iconPosition="start" />
           </Tabs>
         </Box>
 
@@ -304,6 +306,62 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ gameEngine }) => {
               value={pct(sfxVolume)}
               onChange={handleSfxVolume}
             />
+          </Box>
+
+          {/* ── Debug ───────────────────────────────────────────────────── */}
+          <Box
+            role="tabpanel"
+            hidden={activeTab !== 2}
+            id="settings-panel-2"
+            aria-labelledby="settings-tab-2"
+          >
+            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1.5 }}>
+              Spawn near camera centre
+            </Typography>
+            <Stack direction="column" spacing={1}>
+              <Stack direction="row" spacing={1}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => gameEngine?.debugSpawnScrap(1)}
+                  disabled={!gameEngine}
+                  sx={{ flex: 1 }}
+                >
+                  Spawn 1 Scrap
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => gameEngine?.debugSpawnScrap(5)}
+                  disabled={!gameEngine}
+                  sx={{ flex: 1 }}
+                >
+                  Spawn 5 Scrap
+                </Button>
+              </Stack>
+              <Stack direction="row" spacing={1}>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  size="small"
+                  onClick={() => gameEngine?.debugSpawnEnemy(1)}
+                  disabled={!gameEngine}
+                  sx={{ flex: 1 }}
+                >
+                  Spawn 1 Enemy
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  size="small"
+                  onClick={() => gameEngine?.debugSpawnEnemy(5)}
+                  disabled={!gameEngine}
+                  sx={{ flex: 1 }}
+                >
+                  Spawn 5 Enemies
+                </Button>
+              </Stack>
+            </Stack>
           </Box>
 
         </DialogContent>

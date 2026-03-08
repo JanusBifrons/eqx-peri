@@ -72,6 +72,12 @@ src/
 - **`BlockFrillsRenderer`** takes a second `getHeldAssembly` getter so the dragged block's frills render even though it's removed from the main assemblies list.
 - **`BlockPickupSystem` constructor**: takes 6 callbacks — `removeBodyWithParts`, `addBodyToWorld`, `onPickUp`, `onDrop`, `addConstraintToWorld`, `removeConstraintFromWorld`. `update()` now takes `(mouseWorldPos, mouseScreenPos, playerAssembly)` and must be called every frame (not just when holding). `tryPickUp()` now takes `(worldPos, screenPos, assemblies, playerAssembly)`.
 
+**AI targeting & power (`AIController` + `Assembly`):**
+- AI only targets assemblies that pass `isValidTarget()`: enemy team + not destroyed + `hasControlCenter()`. Loose scrap/debris is never engaged.
+- Current target is re-validated every frame (in `setAvailableTargets`) and every 500 ms (in `validateCurrentTarget`). A ship that loses its cockpit mid-fight is immediately dropped as a target.
+- **Attacker priority**: `AIController` tracks `assembly.lastHitByAssemblyId` (written by `GameEngine` on hits). The last attacker is preferred as the next target for `ATTACKER_PRIORITY_MS` (8 s); falls back to closest enemy after timeout.
+- **AI weapon power**: `Assembly.computeAIWeaponPowerEfficiency()` (private) sums live power cells + cockpit backup power and divides by weapon count. For non-player assemblies, `fireWeapons()`, `getMissileLaunchRequests()`, and `getBeamFires()` all apply this efficiency to scale the fire rate (same `3 − 2×efficiency` formula as the player power system). Destroying AI power cells degrades their firing rate; zero power blocks firing entirely.
+
 **Shield system (`Assembly.shieldState`):**
 - `Shield` and `LargeShield` are physical block types (in `ENTITY_DEFINITIONS`) that grant an assembly a damage-absorbing shield field.
 - Shield state is tracked in `Assembly.shieldState: ShieldState | null` (initialized/refreshed by `initializeShieldState()`).

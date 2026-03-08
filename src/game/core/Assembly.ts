@@ -224,28 +224,59 @@ export class Assembly {
       (desiredAngularVelocity - currentAngularVelocity) * dampening;
 
     Matter.Body.setAngularVelocity(this.rootBody, newAngularVelocity);
-  }public fireWeapons(): Matter.Body[] {
+  }
+
+  /**
+   * Compute weapon power efficiency (0–1) for AI-controlled assemblies.
+   *
+   * Power budget = power cells + cockpit backup power (same values as PowerSystem).
+   * Efficiency = min(1, budget / weaponCount). If the ship has more weapons than
+   * power, efficiency drops below 1 and the fire rate slows accordingly. If the
+   * budget reaches 0 the ship cannot fire at all, matching the player experience.
+   */
+  private computeAIWeaponPowerEfficiency(): number {
+    const live = this.entities.filter(e => !e.destroyed);
+
+    let budget = 0;
+    live.forEach(e => {
+      if (e.type === 'PowerCell' || e.type === 'LargePowerCell' || e.type === 'PowerReactor') {
+        budget += 1;
+      } else if (e.type === 'Cockpit') {
+        budget += 2; // Matches PowerSystem cockpit backup power values
+      } else if (e.type === 'LargeCockpit') {
+        budget += 4;
+      } else if (e.type === 'CapitalCore') {
+        budget += 8;
+      }
+    });
+
+    const weaponCount = live.filter(e => e.canFire()).length;
+    if (weaponCount === 0) return 1.0; // No weapons — efficiency irrelevant
+    if (budget === 0) return 0;
+    return Math.min(1.0, budget / weaponCount);
+  }
+
+  public fireWeapons(): Matter.Body[] {
     if (this.destroyed) return [];
 
-    // Check if this is the player assembly and if weapons have power
+    let weaponEfficiency: number;
     if (this.isPlayerControlled) {
+      // Player ships use the managed power system.
       const powerSystem = PowerSystem.getInstance();
-      if (!powerSystem.canFireWeapons()) {
-        // No weapon power - cannot fire
-        return [];
-      }
-    } const currentTime = Date.now();
-
-    // Calculate effective firing rate based on weapon power for player ships
-    let effectiveFireRate = this.fireRate;
-    if (this.isPlayerControlled) {
-      const powerSystem = PowerSystem.getInstance();
-      const weaponEfficiency = powerSystem.getWeaponEfficiency();
-      // More power = faster firing (lower fire rate delay)
-      // At 0% efficiency: fireRate * 3 (much slower)
-      // At 100% efficiency: fireRate * 1 (normal speed)
-      effectiveFireRate = this.fireRate * (3 - 2 * weaponEfficiency);
+      if (!powerSystem.canFireWeapons()) return [];
+      weaponEfficiency = powerSystem.getWeaponEfficiency();
+    } else {
+      // AI ships compute their own weapon power from on-board power cells.
+      // Destroying an AI ship's power cells will degrade their firing rate.
+      weaponEfficiency = this.computeAIWeaponPowerEfficiency();
+      if (weaponEfficiency === 0) return [];
     }
+
+    const currentTime = Date.now();
+
+    // More power = faster firing (lower fire rate delay).
+    // At 0% efficiency: fireRate × 3 (much slower); at 100%: fireRate × 1 (normal).
+    const effectiveFireRate = this.fireRate * (3 - 2 * weaponEfficiency);
 
     // Enforce firing rate limit
     if (currentTime - this.lastFireTime < effectiveFireRate) {
@@ -270,23 +301,20 @@ export class Assembly {
 
     return lasers;
   }  public getMissileLaunchRequests(): MissileLaunchRequest[] {
-    if (this.destroyed) return [];    // Check if this is the player assembly and if weapons/missiles have power
+    if (this.destroyed) return [];
+
+    let weaponEfficiency: number;
     if (this.isPlayerControlled) {
       const powerSystem = PowerSystem.getInstance();
-      if (!powerSystem.canFireMissiles()) {
-        return [];
-      }
+      if (!powerSystem.canFireMissiles()) return [];
+      weaponEfficiency = powerSystem.getWeaponEfficiency();
+    } else {
+      weaponEfficiency = this.computeAIWeaponPowerEfficiency();
+      if (weaponEfficiency === 0) return [];
     }
 
     const currentTime = Date.now();
-
-    // Calculate effective firing rate
-    let effectiveFireRate = this.fireRate;
-    if (this.isPlayerControlled) {
-      const powerSystem = PowerSystem.getInstance();
-      const weaponEfficiency = powerSystem.getWeaponEfficiency();
-      effectiveFireRate = this.fireRate * (3 - 2 * weaponEfficiency);
-    }
+    const effectiveFireRate = this.fireRate * (3 - 2 * weaponEfficiency);
 
     // Enforce firing rate limit - Use separate lastMissileFireTime to avoid conflicts with regular weapons
     if (!this.lastMissileFireTime) {
@@ -351,6 +379,8 @@ export class Assembly {
     if (this.isPlayerControlled) {
       const powerSystem = PowerSystem.getInstance();
       if (!powerSystem.canFireWeapons()) return [];
+    } else {
+      if (this.computeAIWeaponPowerEfficiency() === 0) return [];
     }
 
     const beamWeapons = this.entities.filter(e => e.isBeamWeapon() && !e.destroyed);

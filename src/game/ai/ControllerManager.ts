@@ -79,6 +79,38 @@ export class ControllerManager {    private controllers: Map<string, IController
         //         `torque=${input.torque.toFixed(3)}`);
         // }
 
+        // Apply inertial dampening before thrust so corrections are additive on top.
+        // When lateralDampenFactor is provided the velocity is decomposed into forward
+        // and lateral axes: lateral (orbit-generating) velocity is damped aggressively
+        // while forward velocity uses dampenFactor (default 1.0 = untouched).
+        if (input.dampen) {
+            const vel   = assembly.rootBody.velocity;
+            const angle = assembly.rootBody.angle;
+
+            if (input.lateralDampenFactor !== undefined) {
+                const fwdX = Math.cos(angle);
+                const fwdY = Math.sin(angle);
+                const fwdSpeed = vel.x * fwdX + vel.y * fwdY;
+                const latSpeed = vel.x * -fwdY + vel.y * fwdX;
+
+                const fwdFactor = input.dampenFactor ?? 1.0;
+                const latFactor = input.lateralDampenFactor;
+
+                const newFwd = fwdSpeed * fwdFactor;
+                const newLat = latSpeed * latFactor;
+                Matter.Body.setVelocity(assembly.rootBody, {
+                    x: newFwd * fwdX + newLat * -fwdY,
+                    y: newFwd * fwdY + newLat *  fwdX,
+                });
+            } else {
+                const factor = input.dampenFactor ?? 0.985;
+                Matter.Body.setVelocity(assembly.rootBody, {
+                    x: vel.x * factor,
+                    y: vel.y * factor,
+                });
+            }
+        }
+
         // Apply thrust (always call to ensure thrust levels are updated, even when 0)
         assembly.applyThrust(input.thrust);
 
@@ -135,6 +167,13 @@ export class ControllerManager {    private controllers: Map<string, IController
     // Get the player controller (for input handling)
     getPlayerController(): PlayerController | undefined {
         return this.playerController;
+    }
+
+    // Returns the human-readable combat state label for an AI-controlled assembly, or null.
+    getAIStateLabelForAssembly(assemblyId: string): string | null {
+        const controller = this.controllers.get(assemblyId);
+        if (controller instanceof AIController) return controller.getCombatStateLabel();
+        return null;
     }
 
     // Get all AI controllers
