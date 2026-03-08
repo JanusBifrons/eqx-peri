@@ -36,8 +36,81 @@ const SCREEN_PAD = 12;
 const CORNER_FRAC = 0.30;
 const MIN_HALF_SIZE = 20;
 
-const TOOLTIP_STYLE = new PIXI.TextStyle({ fontFamily: 'monospace', fontSize: 10, fill: '#ffffff' });
-const LABEL_STYLE   = new PIXI.TextStyle({ fontFamily: 'Arial', fontSize: 12, fill: '#ffffff' });
+const TOOLTIP_STYLE      = new PIXI.TextStyle({ fontFamily: 'monospace', fontSize: 10, fill: '#ffffff' });
+const TOOLTIP_BOLD_STYLE = new PIXI.TextStyle({ fontFamily: 'monospace', fontSize: 10, fill: '#ffffff', fontWeight: 'bold' });
+const LABEL_STYLE        = new PIXI.TextStyle({ fontFamily: 'Arial', fontSize: 12, fill: '#ffffff' });
+
+// ---------------------------------------------------------------------------
+// Color gradient helpers
+// ---------------------------------------------------------------------------
+
+function lerpColor(a: number, b: number, t: number): number {
+  const ar = (a >> 16) & 0xff, ag = (a >> 8) & 0xff, ab = a & 0xff;
+  const br = (b >> 16) & 0xff, bg = (b >> 8) & 0xff, bb = b & 0xff;
+  return (Math.round(ar + (br - ar) * t) << 16) |
+         (Math.round(ag + (bg - ag) * t) << 8) |
+          Math.round(ab + (bb - ab) * t);
+}
+
+function gradientColor(stops: Array<{ at: number; color: number }>, t: number): number {
+  const clamped = Math.max(0, Math.min(1, t));
+  for (let i = 1; i < stops.length; i++) {
+    if (clamped <= stops[i].at) {
+      const prev = stops[i - 1];
+      const curr = stops[i];
+      const local = (clamped - prev.at) / (curr.at - prev.at);
+      return lerpColor(prev.color, curr.color, local);
+    }
+  }
+  return stops[stops.length - 1].color;
+}
+
+function toHex(color: number): string {
+  return `#${color.toString(16).padStart(6, '0')}`;
+}
+
+/** Grey when still, cyan when moving, orange when fast, red at extreme velocity. */
+function speedColor(speed: number): number {
+  return gradientColor([
+    { at: 0,    color: 0x556677 },
+    { at: 0.25, color: 0x44ccff },
+    { at: 0.6,  color: 0xff9900 },
+    { at: 1.0,  color: 0xff3333 },
+  ], speed / 5);
+}
+
+/** Red when no engines, yellow at modest thrust, bright green at high thrust. */
+function thrustColor(thrust: number): number {
+  return gradientColor([
+    { at: 0,    color: 0xff3333 },
+    { at: 0.15, color: 0xff9900 },
+    { at: 0.4,  color: 0xffee44 },
+    { at: 1.0,  color: 0x44ff88 },
+  ], thrust / 32);
+}
+
+/** Red at 0%, yellow around 50%, green at full power. */
+function powerColor(efficiency: number): number {
+  return gradientColor([
+    { at: 0,    color: 0xff3333 },
+    { at: 0.35, color: 0xff9900 },
+    { at: 0.65, color: 0xffee44 },
+    { at: 1.0,  color: 0x44ff88 },
+  ], efficiency);
+}
+
+/** Light cyan-white for nimble ships, muted blue for capital-scale mass. */
+function massColor(mass: number): number {
+  return gradientColor([
+    { at: 0,   color: 0xaaddff },
+    { at: 0.4, color: 0x6699cc },
+    { at: 1.0, color: 0x3d6080 },
+  ], mass / 20000);
+}
+
+function formatMass(mass: number): string {
+  return mass >= 1000 ? `${(mass / 1000).toFixed(1)}k` : String(Math.round(mass));
+}
 
 export class ShipHighlightRenderer implements IRenderer {
   readonly renderPriority = 50;
@@ -78,7 +151,8 @@ export class ShipHighlightRenderer implements IRenderer {
     const hovered = this.getHoveredAssembly();
     if (hovered && !hovered.destroyed && hovered !== player) {
       this.renderBrackets(hovered, bounds, canvas, { color: 0xffff00, alpha: 0.9, lineWidth: 1.5 });
-      this.renderTooltip(hovered, bounds, canvas, player);
+      const hoveredStateLabel = this.getAIStateLabel(hovered);
+      this.renderTooltip(hovered, bounds, canvas, player, hoveredStateLabel);
     }
 
     // Selected brackets + AI state label
@@ -167,6 +241,7 @@ export class ShipHighlightRenderer implements IRenderer {
     bounds: { min: { x: number; y: number }; max: { x: number; y: number } },
     canvas: HTMLCanvasElement,
     player: Assembly | null,
+    aiStateLabel: string | null,
   ): void {
     const { cx, cy } = this.centerOnScreen(assembly, bounds, canvas);
     const screenScale = canvas.width / (bounds.max.x - bounds.min.x);
@@ -174,39 +249,81 @@ export class ShipHighlightRenderer implements IRenderer {
     const topSY = cy - hs;
     const botSY = cy + hs;
 
-    const status = this.getStatus(assembly, player);
+    const status      = this.getStatus(assembly, player);
     const statusColor = STATUS_COLORS[status];
     const statusText  = `[${STATUS_LABELS[status]}]`;
     const nameText    = assembly.shipName;
-    const blockCount  = assembly.entities.filter(e => !e.destroyed).length;
-    const infoText    = `${blockCount} block${blockCount !== 1 ? 's' : ''}`;
 
-    const PADDING = 8;
-    const LINE_H  = 14;
+    // Gather stats
+    const blockCount = assembly.entities.filter(e => !e.destroyed).length;
+    const mass       = assembly.rootBody.mass;
+    const speed      = assembly.getCurrentSpeed();
+    const thrust     = assembly.getTotalThrust();
+    const power      = assembly.getPowerEfficiency();
 
-    const statusMeasure = PIXI.TextMetrics.measureText(statusText, TOOLTIP_STYLE);
+    interface StatRow { label: string; value: string; color: number; bold?: boolean }
+    const rows: StatRow[] = [
+      ...(aiStateLabel ? [{ label: 'AI',   value: aiStateLabel,                    color: AI_STATE_COLORS[aiStateLabel] ?? 0xffffff, bold: true }] : []),
+      { label: 'BLK',  value: String(blockCount),                                  color: 0x778899 },
+      { label: 'MASS', value: formatMass(mass),                                    color: massColor(mass) },
+      { label: 'SPD',  value: speed.toFixed(1),                                    color: speedColor(speed) },
+      { label: 'THR',  value: thrust > 0 ? thrust.toFixed(1) : '—',               color: thrustColor(thrust) },
+      { label: 'PWR',  value: `${Math.round(power * 100)}%`,                      color: powerColor(power) },
+    ];
+
+    const PADDING    = 8;
+    const LINE_H     = 14;
+    const VALUE_GAP  = 8;
+    const DIVIDER_H  = 8; // vertical space around the separator line
+
+    // Use proper TextStyle instances for measurement (measureText needs toFontString()).
+    // Color doesn't affect glyph metrics — only font-family/size/weight matter here.
+    const dimLabelStyle = { ...TOOLTIP_STYLE, fill: '#445566' } as PIXI.TextStyle;
+    const statusStyle   = { ...TOOLTIP_STYLE, fill: toHex(statusColor), fontWeight: 'bold' } as PIXI.TextStyle;
+
+    // Measure label and value columns
+    const labelW    = Math.max(...rows.map(r =>
+      PIXI.TextMetrics.measureText(r.label, r.bold ? TOOLTIP_BOLD_STYLE : TOOLTIP_STYLE).width));
+    const maxValueW = Math.max(...rows.map(r =>
+      PIXI.TextMetrics.measureText(r.value, r.bold ? TOOLTIP_BOLD_STYLE : TOOLTIP_STYLE).width));
+
+    const statusMeasure = PIXI.TextMetrics.measureText(statusText, TOOLTIP_BOLD_STYLE);
     const nameMeasure   = PIXI.TextMetrics.measureText(nameText,   TOOLTIP_STYLE);
-    const infoMeasure   = PIXI.TextMetrics.measureText(infoText,   TOOLTIP_STYLE);
+    const headerW       = statusMeasure.width + 4 + nameMeasure.width;
 
-    const contentW  = Math.max(statusMeasure.width + 4 + nameMeasure.width, infoMeasure.width);
+    const contentW  = Math.max(headerW, labelW + VALUE_GAP + maxValueW);
     const tooltipW  = contentW + PADDING * 2;
-    const tooltipH  = LINE_H * 2 + PADDING;
+    const tooltipH  = LINE_H + DIVIDER_H + rows.length * LINE_H + PADDING;
     const tooltipY  = topSY - tooltipH - 4 > 4 ? topSY - tooltipH - 4 : botSY + 4;
     const tooltipX  = Math.max(4, Math.min(canvas.width - tooltipW - 4, cx - tooltipW / 2));
 
     // Background
-    this.graphics.lineStyle(1, statusColor, 0.7);
-    this.graphics.beginFill(0x000814, 0.88);
+    this.graphics.lineStyle(1, statusColor, 0.6);
+    this.graphics.beginFill(0x000814, 0.90);
     this.graphics.drawRect(tooltipX, tooltipY, tooltipW, tooltipH);
     this.graphics.endFill();
 
-    // Text items
-    this.getPooledText(statusText, { ...TOOLTIP_STYLE, fill: `#${statusColor.toString(16).padStart(6, '0')}`, fontWeight: 'bold' } as PIXI.TextStyle,
-      tooltipX + PADDING, tooltipY + LINE_H);
-    this.getPooledText(nameText, TOOLTIP_STYLE,
-      tooltipX + PADDING + statusMeasure.width + 4, tooltipY + LINE_H);
-    this.getPooledText(infoText, { ...TOOLTIP_STYLE, fill: '#888888' } as PIXI.TextStyle,
-      tooltipX + PADDING, tooltipY + LINE_H * 2 + 2);
+    // Divider between header and stats
+    const divY = tooltipY + LINE_H + DIVIDER_H / 2;
+    this.graphics.lineStyle(0.5, 0x223344, 1.0);
+    this.graphics.moveTo(tooltipX + PADDING, divY);
+    this.graphics.lineTo(tooltipX + tooltipW - PADDING, divY);
+
+    // Header: [STATUS] Ship Name
+    const headerY = tooltipY + LINE_H / 2 + PADDING / 2;
+    this.getPooledText(statusText, statusStyle, tooltipX + PADDING, headerY);
+    this.getPooledText(nameText,   TOOLTIP_STYLE, tooltipX + PADDING + statusMeasure.width + 4, headerY);
+
+    // Stat rows — label left-aligned, value right-aligned to a fixed column
+    const valueX    = tooltipX + PADDING + labelW + VALUE_GAP;
+    const rowStartY = tooltipY + LINE_H + DIVIDER_H + LINE_H / 2;
+
+    rows.forEach((row, i) => {
+      const rowY      = rowStartY + i * LINE_H;
+      const valueStyle = { ...TOOLTIP_STYLE, fill: toHex(row.color), fontWeight: row.bold ? 'bold' : 'normal' } as PIXI.TextStyle;
+      this.getPooledText(row.label, dimLabelStyle, tooltipX + PADDING, rowY);
+      this.getPooledText(row.value, valueStyle,    valueX,              rowY);
+    });
   }
 
   private renderAIStateLabel(

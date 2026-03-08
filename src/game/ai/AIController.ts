@@ -337,9 +337,11 @@ export class AIController extends Controller {
             (this.combatState === CombatState.ENGAGE || this.combatState === CombatState.SIZING_UP)
             && distance < FIRING_RANGE;
 
-        const thrust = holdingPosition
-            ? this.engagementThrust(distance, preferred)
-            : this.approachThrust(preferred, speedMult);
+        const thrust = this.combatState === CombatState.RETREAT
+            ? this.retreatThrust()
+            : holdingPosition
+                ? this.engagementThrust(distance, preferred)
+                : this.approachThrust(preferred, speedMult);
 
         // Inertial dampening — applied every frame in all states except RETREAT.
         //
@@ -459,6 +461,17 @@ export class AIController extends Controller {
         const nose  = this.assembly.rootBody.angle;
         const fwd   = Math.max(0, wt.x * Math.cos(nose) + wt.y * Math.sin(nose));
         return { x: fwd, y: 0 };
+    }
+
+    /**
+     * Full-throttle forward thrust used during RETREAT.
+     * No arrive-steering braking — the ship should flee at maximum speed
+     * indefinitely.  The nose is already pointed away from the target via
+     * computeRetreatHeading(), so {x:1, y:0} drives directly along the
+     * escape vector.
+     */
+    private retreatThrust(): Vector2 {
+        return { x: 1.0, y: 0 };
     }
 
     /**

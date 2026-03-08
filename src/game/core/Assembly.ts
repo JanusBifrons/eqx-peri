@@ -210,15 +210,22 @@ export class Assembly {
   }  public applyTorque(torqueInput: number): void {
     if (this.destroyed) return;
 
-    // More consistent rotation using Matter.js angular velocity
+    // More consistent rotation using Matter.js angular velocity.
+    // Turn rate scales inversely with ship mass so heavy ships are sluggish and
+    // light scouts are nimble.  BASE_ANGULAR_VELOCITY applies at REFERENCE_MASS;
+    // the exponent 0.45 gives a gentle power-law curve (not linear, not square-root).
+    const BASE_ANGULAR_VELOCITY = 0.020; // rad/frame at reference mass (≈68 deg/s at 60 Hz)
+    const REFERENCE_MASS = 500;          // Single cockpit — lightest flyable ship
+    const massScale = Math.min(1.0, Math.pow(REFERENCE_MASS / this.rootBody.mass, 0.45));
+    const maxAngularVelocity = BASE_ANGULAR_VELOCITY * massScale;
+
     const currentAngularVelocity = this.rootBody.angularVelocity;
-    const maxAngularVelocity = 0.025; // Halved for more deliberate, tactical steering
-    
+
     // Clamp torque input to prevent over-steering
     const clampedTorque = Math.max(-1.0, Math.min(1.0, torqueInput));
-    
+
     const desiredAngularVelocity = clampedTorque * maxAngularVelocity;
-    const dampening = 0.2; // Increased from 0.15 for more responsive but controlled steering
+    const dampening = 0.2;
 
     const newAngularVelocity = currentAngularVelocity +
       (desiredAngularVelocity - currentAngularVelocity) * dampening;
@@ -234,6 +241,27 @@ export class Assembly {
    * power, efficiency drops below 1 and the fire rate slows accordingly. If the
    * budget reaches 0 the ship cannot fire at all, matching the player experience.
    */
+  /** Total thrust output from all live engine entities. */
+  public getTotalThrust(): number {
+    return this.entities
+      .filter(e => !e.destroyed)
+      .reduce((sum, e) => {
+        const def = ENTITY_DEFINITIONS[e.type];
+        return sum + (def.thrust ?? 0);
+      }, 0);
+  }
+
+  /** Power efficiency (0–1) based on on-board power budget vs weapon count. */
+  public getPowerEfficiency(): number {
+    return this.computeAIWeaponPowerEfficiency();
+  }
+
+  /** Current speed in world units per physics tick. */
+  public getCurrentSpeed(): number {
+    const v = this.rootBody.velocity;
+    return Math.sqrt(v.x * v.x + v.y * v.y);
+  }
+
   private computeAIWeaponPowerEfficiency(): number {
     const live = this.entities.filter(e => !e.destroyed);
 

@@ -73,10 +73,10 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     type: 'Cockpit',
     width: GRID_SIZE,
     height: GRID_SIZE,
-    mass: 500, // Significantly increased for realistic physics
-    defaultHealth: 1000, // 10x health for survival capability
+    mass: 500,
+    defaultHealth: 1000,
     color: '#00ff00',
-    thrust: 4.0, // Significantly increased thrust for high thrust-to-weight ratio
+    thrust: 0.5, // Emergency RCS only — engines are the primary propulsion source
     canAttachTo: ['Engine', 'Gun', 'Hull', 'PowerCell', 'Shield', 'LargeShield', 'Beam'],
     attachmentPoints: [
       { x: 0, y: -1 }, // top
@@ -89,10 +89,10 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     type: 'Engine',
     width: GRID_SIZE,
     height: GRID_SIZE,
-    mass: 750, // Significantly increased for realistic physics
+    mass: 750,
     defaultHealth: 80,
     color: '#ff6600',
-    thrust: 1.5, // Increased proportionally with mass (750/500 * 1.0)
+    thrust: 2.0, // Primary propulsion block; ~4× better efficiency per mass than Cockpit
     canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 0, y: -1 }, // top (exhaust is bottom)
@@ -150,10 +150,10 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     type: 'LargeCockpit',
     width: GRID_SIZE * 2,
     height: GRID_SIZE * 2,
-    mass: 2000, // 4x mass for 4x size (2x2)
-    defaultHealth: 2500, // 10x health for survival capability
+    mass: 2000,
+    defaultHealth: 2500,
     color: '#00aa00',
-    thrust: 16.0, // Very high thrust for excellent thrust-to-weight ratio
+    thrust: 2.0, // Emergency RCS (same efficiency as Cockpit — 0.001 thrust/mass)
     canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield', 'Beam', 'LargeBeam'],
     attachmentPoints: [
       { x: 0, y: -2 }, // top center
@@ -170,10 +170,10 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     type: 'LargeEngine',
     width: GRID_SIZE * 2,
     height: GRID_SIZE * 2,
-    mass: 3000, // 4x mass for 4x size (2x2)
+    mass: 3000,
     defaultHealth: 200,
     color: '#cc4400',
-    thrust: 6.0, // Proportional to mass (3000/500 * 1.0)
+    thrust: 8.0, // Primary propulsion (0.00267 thrust/mass — consistent with Engine)
     canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 0, y: -2 }, // top center
@@ -245,10 +245,10 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     type: 'CapitalCore',
     width: GRID_SIZE * 4,
     height: GRID_SIZE * 4,
-    mass: 8000, // 16x mass for 16x size (4x4)
-    defaultHealth: 10000, // 10x health for survival capability
+    mass: 8000,
+    defaultHealth: 10000,
     color: '#0066ff',
-    thrust: 64.0, // Massive thrust for incredible thrust-to-weight ratio
+    thrust: 8.0, // Emergency RCS (0.001 thrust/mass — consistent with Cockpit tier)
     canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 0, y: -4 }, // top center
@@ -265,10 +265,10 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     type: 'CapitalEngine',
     width: GRID_SIZE * 4,
     height: GRID_SIZE * 4,
-    mass: 12000, // 16x mass for 16x size (4x4)
+    mass: 12000,
     defaultHealth: 800,
     color: '#ff3300',
-    thrust: 24.0, // Proportional to mass (12000/500 * 1.0)
+    thrust: 32.0, // Primary propulsion (0.00267 thrust/mass — consistent with Engine tier)
     canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 0, y: -4 }, // top center
