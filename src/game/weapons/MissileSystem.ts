@@ -45,17 +45,17 @@ export class MissileSystem {
             // Update missile logic
             missile.update(deltaTime, availableTargets);
         }
-    }    public handleMissileHit(missile: Missile, targetEntity: any): void {
+    }    public handleMissileHit(missile: Missile, targetEntity: any): boolean {
         // Check collision delay - missiles shouldn't collide immediately after launch
         if (missile.age < missile.launchCollisionDelay) {
             console.log(`🚀 Missile collision ignored - still in launch phase (${missile.age.toFixed(2)}s)`);
-            return;
+            return false;
         }
 
         // Prevent self-hits - check if the target entity belongs to the source assembly
         if (targetEntity.body?.assembly?.id === missile.sourceAssemblyId) {
             console.log(`🚀 Missile collision ignored - hitting source assembly`);
-            return;
+            return false;
         }
 
         // Play missile explosion sound
@@ -66,7 +66,7 @@ export class MissileSystem {
         if (targetAssembly && typeof targetAssembly.damageShield === 'function') {
             if (targetAssembly.damageShield(missile.getDamage(), Date.now())) {
                 missile.destroy();
-                return;
+                return true; // shield absorbed — still counts as a hit
             }
         }
 
@@ -77,6 +77,7 @@ export class MissileSystem {
 
         // Mark missile as destroyed
         missile.destroy();
+        return true;
     }
 
     public removeMissile(missile: Missile): void {

@@ -16,8 +16,6 @@ export class Entity {
   public thrustLevel: number = 0; // 0-1, how much thrust is being applied
   public isFiring: boolean = false;
   public fireFlashTimer: number = 0;
-  public thrustParticles: Array<{ x: number, y: number, age: number, maxAge: number }> = [];
-  private readonly MAX_PARTICLES = 4; // Reduced from 8
 
   // Invulnerability system
   public invulnerableUntil: number = 0; // Timestamp when invulnerability ends
@@ -497,31 +495,7 @@ export class Entity {
   }
 
   public setThrustLevel(level: number): void {
-    this.thrustLevel = Math.max(0, Math.min(1, level)); // Clamp 0-1
-
-    // Generate thrust particles if this is an engine
-    if (this.canProvideThrust() && level > 0.1) {
-      this.generateThrustParticles();
-    }
-  }
-  private generateThrustParticles(): void {
-    // Add new particles if we have room (reduced number)
-    if (this.thrustParticles.length < Math.floor(this.MAX_PARTICLES * 0.5)) { // 50% fewer particles
-      // Generate particles behind the engine
-      const engineAngle = this.body.angle + (this.rotation * Math.PI / 180);
-      const exhaustDistance = 15 + Math.random() * 10; // Reduced distance
-
-      // Particles spawn behind the engine
-      const particleX = this.body.position.x - Math.cos(engineAngle) * exhaustDistance;
-      const particleY = this.body.position.y - Math.sin(engineAngle) * exhaustDistance;
-
-      this.thrustParticles.push({
-        x: particleX + (Math.random() - 0.5) * 6, // Reduced spread
-        y: particleY + (Math.random() - 0.5) * 6,
-        age: 0,
-        maxAge: 200 + Math.random() * 100 // Shorter lifetime (0.2-0.3 seconds)
-      });
-    }
+    this.thrustLevel = Math.max(0, Math.min(1, level));
   }
   public triggerWeaponFire(): void {
     this.isFiring = true;
@@ -539,87 +513,9 @@ export class Entity {
     // Update weapon aiming rotation smoothly
     this.updateWeaponAiming(deltaTime);
 
-    // Update thrust particles
-    this.updateThrustParticles(deltaTime);
-
     // Update thrust and visual state
     this.updateFlash(deltaTime);
     this.updateVisualState();
-  }
-  private updateThrustParticles(deltaTime: number): void {
-    if (this.destroyed || this.thrustLevel <= 0) {
-      // Clear particles if destroyed or no thrust
-      this.thrustParticles = [];
-      return;
-    }
-
-    // Add new particle less frequently
-    if (this.thrustParticles.length < Math.floor(this.MAX_PARTICLES * 0.5) && Math.random() < 0.7) { // 70% chance instead of 100%
-      this.thrustParticles.push({
-        x: this.body.position.x,
-        y: this.body.position.y,
-        age: 0,
-        maxAge: 80 + Math.random() * 60 // Shorter lifetime (80-140ms)
-      });
-    }
-
-    // Update existing particles
-    for (let i = 0; i < this.thrustParticles.length; i++) {
-      const particle = this.thrustParticles[i];
-      particle.age += deltaTime;
-
-      // Remove old particles
-      if (particle.age > particle.maxAge) {
-        this.thrustParticles.splice(i, 1);
-        i--;
-      }
-    }
-  }
-  // Draw custom thrust effects
-  public drawThrustEffects(ctx: CanvasRenderingContext2D): void {
-    if (!this.canProvideThrust() || this.thrustLevel <= 0) return;
-
-    const thrustIntensity = this.thrustLevel * 0.6; // Reduced intensity
-    const pos = this.body.position;
-    const engineAngle = this.body.angle + (this.rotation * Math.PI / 180);
-
-    // Calculate exhaust position (behind the engine) - smaller effect
-    const exhaustDistance = 15 + thrustIntensity * 8; // Reduced from 20 + 15
-    const exhaustX = pos.x - Math.cos(engineAngle) * exhaustDistance;
-    const exhaustY = pos.y - Math.sin(engineAngle) * exhaustDistance;
-
-    // Draw thrust plume
-    ctx.save();
-    ctx.globalAlpha = thrustIntensity * 0.5; // Reduced opacity
-
-    // Create gradient for thrust plume - more subtle
-    const gradient = ctx.createRadialGradient(
-      pos.x, pos.y, 1,
-      exhaustX, exhaustY, exhaustDistance * 0.8
-    );
-    gradient.addColorStop(0, '#ffaa00'); // Less bright yellow
-    gradient.addColorStop(0.5, '#ff4400'); // Less bright orange 
-    gradient.addColorStop(1, 'rgba(255, 100, 0, 0)'); // Transparent orange at end
-
-    ctx.fillStyle = gradient;
-    ctx.beginPath();
-
-    // Draw smaller triangular plume
-    const plumeWidth = 4 + thrustIntensity * 2; // Reduced from 8 + 4
-    ctx.moveTo(pos.x, pos.y);
-    ctx.lineTo(
-      exhaustX - Math.sin(engineAngle) * plumeWidth,
-      exhaustY + Math.cos(engineAngle) * plumeWidth
-    );
-    ctx.lineTo(
-      exhaustX + Math.sin(engineAngle) * plumeWidth,
-      exhaustY - Math.cos(engineAngle) * plumeWidth
-    );
-    ctx.closePath();
-    ctx.fill();
-
-    // Remove the directional arrow - it was too prominent
-    ctx.restore();
   }
 
   public isControlCenter(): boolean {

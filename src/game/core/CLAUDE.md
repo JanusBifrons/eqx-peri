@@ -64,7 +64,9 @@ Matter.js compound bodies are created via `Matter.Body.create({ parts: [...] })`
 | 20 | `BlockBodyRenderer` | Ship/block bodies with `shadowBlur` glow; bullets/missiles without glow |
 | 30 | `BlockFrillsRenderer` | Decorative frills on block edges |
 | 40 | `ShieldRenderer` | Shield gradient + collapse ring |
+| 22 | `ParticleRenderer` | Drives `ParticleSystem` — thrust puffs per engine, delegates impact/explosion to GameEngine |
 | 45 | `BeamRenderer` | Continuous beam weapon visuals (glow + core line + impact flash) |
+| 46 | `ShockwaveRenderer` | Expanding shockwave ring when an assembly is fully destroyed |
 | 50 | `ShipHighlightRenderer` | Hover/selected bounding boxes, locked-target brackets |
 | 60 | `AimingDebugRenderer` | Weapon arc, distance rings, aim line |
 | 70 | `BlockPickupRenderer` | Block pickup ghost/snap overlay |

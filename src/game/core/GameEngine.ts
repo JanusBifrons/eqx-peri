@@ -22,6 +22,9 @@ import { ShipHighlightRenderer } from '../rendering/ShipHighlightRenderer';
 import { AimingDebugRenderer } from '../rendering/AimingDebugRenderer';
 import { BlockPickupRenderer } from '../rendering/BlockPickupRenderer';
 import { BeamRenderer } from '../rendering/BeamRenderer';
+import { ShockwaveRenderer } from '../rendering/ShockwaveRenderer';
+import { ParticleRenderer } from '../rendering/ParticleRenderer';
+import { ParticleSystem } from '../systems/ParticleSystem';
 
 export class GameEngine {
   private engine: Matter.Engine;
@@ -32,6 +35,8 @@ export class GameEngine {
   private bullets: Matter.Body[] = [];
   private missileSystem: MissileSystem;
   private beamSystem!: BeamSystem;
+  private shockwaveRenderer!: ShockwaveRenderer;
+  private particleSystem!: ParticleSystem;
   private playerAssembly: Assembly | null = null;
   private keys: Set<string> = new Set();
   private running: boolean = false;
@@ -437,6 +442,9 @@ export class GameEngine {
 
     if (!entity.destroyed) entity.triggerCollisionFlash();
 
+    // Laser impact sparks at the hit location
+    this.particleSystem.emitImpact(entity.body.position.x, entity.body.position.y, 'laser');
+
     const entityDestroyed = entity.takeDamage(LASER_DAMAGE);
     if (!entityDestroyed) return;
 
@@ -455,6 +463,8 @@ export class GameEngine {
     // via createFreshBody().  We need it to properly swap the physics world entry.
     const oldRootBody = assembly.rootBody;
     const wasPlayerControlled = assembly.isPlayerControlled;
+    // Capture entity count before removal so we can size the shockwave if this is the last block.
+    const entityCountBeforeRemoval = assembly.entities.length;
 
     const newAssemblies = assembly.removeEntity(entity);
 
@@ -517,6 +527,18 @@ export class GameEngine {
       // All entities gone — assembly.destroyed is already true; cleanupDestroyedAssemblies
       // will remove it from this.assemblies.  Remove the old body from the world now so
       // collision detection against its orphaned parts stops immediately.
+      this.shockwaveRenderer.addShockwave(
+        oldRootBody.position.x,
+        oldRootBody.position.y,
+        entityCountBeforeRemoval,
+      );
+      this.particleSystem.emitExplosion(
+        oldRootBody.position.x,
+        oldRootBody.position.y,
+        entityCountBeforeRemoval,
+        oldRootBody.velocity.x * 0.001,
+        oldRootBody.velocity.y * 0.001,
+      );
       this.removeBodyWithParts(oldRootBody);
       assembly.pendingBodySwap = null;
     }
@@ -528,12 +550,17 @@ export class GameEngine {
     hitAssembly.lastHitByAssemblyId = sourceAssemblyId;
     hitAssembly.lastHitByPlayer = sourceAssembly?.isPlayerControlled ?? false;
     SoundSystem.getInstance().playLaserImpact();
+    this.particleSystem.emitImpact(entity.body.position.x, entity.body.position.y, 'beam');
     this.processEntityDestruction(entity, hitAssembly);
   }
 
   private handleMissileHit(missile: any, entity: Entity): void {
-    // Use the missile system to handle the hit
-    this.missileSystem.handleMissileHit(missile, entity);
+    const hitX: number = missile.body.position.x;
+    const hitY: number = missile.body.position.y;
+    const hit = this.missileSystem.handleMissileHit(missile, entity);
+    if (hit) {
+      this.particleSystem.emitImpact(hitX, hitY, 'missile');
+    }
   }
 
   private handleBulletHitShield(bullet: Matter.Body, shieldAssembly: Assembly): void {
@@ -1448,6 +1475,10 @@ export class GameEngine {
     ));
     this.renderSystem.register(new ShieldRenderer(() => this.assemblies));
     this.renderSystem.register(new BeamRenderer(this.beamSystem));
+    this.particleSystem = new ParticleSystem();
+    this.renderSystem.register(new ParticleRenderer(this.particleSystem, () => this.assemblies));
+    this.shockwaveRenderer = new ShockwaveRenderer();
+    this.renderSystem.register(this.shockwaveRenderer);
     this.renderSystem.register(new ShipHighlightRenderer(
       () => this.playerAssembly,
       () => this.hoveredAssembly,
