@@ -5,8 +5,8 @@ import { GRID_SIZE } from '../../types/GameTypes';
 
 const ZOOM_THRESHOLDS = [0.1, 0.25, 0.5, 1, 2, 4, 8, 16];
 
-const MINOR_COLOR = 0x444477;
-const MAJOR_COLOR = 0x7788aa;
+const MINOR_COLOR = 0x1a1f33;
+const MAJOR_COLOR = 0x253048;
 
 export class GridRenderer implements IRenderer {
   readonly renderPriority = 10;
@@ -57,7 +57,7 @@ export class GridRenderer implements IRenderer {
     const baseOpacity = Math.min(1, Math.max(0.1, 2 / clampedZoomLevel));
 
     // Minor grid lines
-    this.graphics.lineStyle(1, MINOR_COLOR, baseOpacity * 0.4);
+    this.graphics.lineStyle(1, MINOR_COLOR, baseOpacity * 0.28);
     for (let x = startXMinor; x <= endXMinor; x += baseMinorGridSize) {
       if (x % baseMajorGridSize !== 0) {
         this.graphics.moveTo(sx(x), 0);
@@ -72,7 +72,7 @@ export class GridRenderer implements IRenderer {
     }
 
     // Major grid lines
-    this.graphics.lineStyle(2, MAJOR_COLOR, baseOpacity * 0.8);
+    this.graphics.lineStyle(1, MAJOR_COLOR, baseOpacity * 0.50);
     for (let x = startXMajor; x <= endXMajor; x += baseMajorGridSize) {
       this.graphics.moveTo(sx(x), 0);
       this.graphics.lineTo(sx(x), canvas.height);

@@ -24,6 +24,7 @@ import { BlockPickupRenderer } from '../rendering/BlockPickupRenderer';
 import { BeamRenderer } from '../rendering/BeamRenderer';
 import { ShockwaveRenderer } from '../rendering/ShockwaveRenderer';
 import { ParticleRenderer } from '../rendering/ParticleRenderer';
+import { StarfieldRenderer } from '../rendering/StarfieldRenderer';
 import { ParticleSystem } from '../systems/ParticleSystem';
 
 export class GameEngine {
@@ -1464,6 +1465,7 @@ export class GameEngine {
       this.stats,
     );
 
+    this.renderSystem.register(new StarfieldRenderer());
     this.renderSystem.register(new GridRenderer(() => this.showGrid));
     this.renderSystem.register(new BlockBodyRenderer(
       () => this.assemblies,
