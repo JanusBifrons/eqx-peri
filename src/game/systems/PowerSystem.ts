@@ -91,7 +91,8 @@ export class PowerSystem {
 
         const totalEngines = traditionalEngines + cockpitEngines;        // Count weapons (including cockpit built-in weapons and missile launchers)
         const traditionalWeapons = entities.filter(e =>
-            e.type === 'Gun' || e.type === 'LargeGun' || e.type === 'CapitalWeapon'
+            e.type === 'Gun' || e.type === 'LargeGun' || e.type === 'CapitalWeapon' ||
+            e.type === 'Beam' || e.type === 'LargeBeam'
         ).length;
 
         // Count missile launchers as weapons

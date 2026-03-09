@@ -30,6 +30,43 @@ export interface ActiveBeam {
 
 type EntityDestroyedCallback = (entity: Entity, hitAssembly: Assembly, sourceAssemblyId: string) => void;
 
+/**
+ * Exact ray-convex-polygon entry distance.
+ *
+ * Iterates all edges of the polygon and finds each ray–edge intersection via
+ * Cramer's rule.  Returns the minimum non-negative t (distance along the
+ * unit-direction ray) where the ray crosses an edge, or Infinity when the ray
+ * misses every edge (can happen if the origin is inside the polygon — treated
+ * as t=0 in the caller).
+ */
+function rayPolygonEntry(
+  ox: number, oy: number,
+  dx: number, dy: number,
+  vertices: { x: number; y: number }[],
+): number {
+  const n = vertices.length;
+  let minT = Infinity;
+  for (let i = 0; i < n; i++) {
+    const vA = vertices[i];
+    const vB = vertices[(i + 1) % n];
+    // Edge direction
+    const ex = vB.x - vA.x;
+    const ey = vB.y - vA.y;
+    // det = D × E  (2-D cross product)
+    const det = dx * ey - dy * ex;
+    if (Math.abs(det) < 1e-10) continue; // ray parallel to this edge
+    // Solve for t (along ray) and s (along edge, must be in [0,1])
+    const relX = vA.x - ox;
+    const relY = vA.y - oy;
+    const t = (relX * ey - relY * ex) / det;
+    const s = (relX * dy - relY * dx) / det;
+    if (t >= -1e-6 && s >= -1e-6 && s <= 1 + 1e-6) {
+      minT = Math.min(minT, Math.max(0, t));
+    }
+  }
+  return minT;
+}
+
 export class BeamSystem {
   // Keyed by weapon entity ID so each weapon has exactly one active beam record
   private readonly activeBeams: Map<string, ActiveBeam> = new Map();
@@ -79,9 +116,9 @@ export class BeamSystem {
     // Returns all bodies that overlap the ray segment; we then pick the closest one.
     const collisions = Matter.Query.ray(testBodies, spec.origin, endPoint, 1);
 
-    // Find the closest hit by projecting each collision's support points onto the
-    // ray direction.  We only track the scalar distance (closestT); the visual
-    // endpoint is computed after the loop so it always lies exactly on the ray line.
+    // Find the closest hit using exact ray-polygon intersection.  We track
+    // closestT (distance along the ray); the visual endpoint is computed after
+    // the loop so it always lies exactly on the ray line.
     let closestT = spec.maxRange;
     let closestBody: Matter.Body | null = null;
     let hitEndX = endPoint.x;
@@ -107,16 +144,13 @@ export class BeamSystem {
         const entry = tc - Math.sqrt(Math.max(0, radius * radius - perpX * perpX - perpY * perpY));
         minT = isFinite(entry) ? entry : Infinity;
       } else {
-        const supports: { x: number; y: number }[] = (collision as any).supports ?? [];
-        if (supports.length > 0) {
-          minT = Infinity;
-          for (const s of supports) {
-            const t = (s.x - spec.origin.x) * dirX + (s.y - spec.origin.y) * dirY;
-            if (t < minT) minT = t;
-          }
-        } else {
-          // Fallback when supports array is empty: use body centroid projection
-          minT = (body.position.x - spec.origin.x) * dirX + (body.position.y - spec.origin.y) * dirY;
+        // Exact ray-polygon entry distance using the body's actual vertex data.
+        // This replaces the SAT support-point heuristic which drifted for rotated blocks.
+        minT = rayPolygonEntry(spec.origin.x, spec.origin.y, dirX, dirY, body.vertices);
+        if (!isFinite(minT)) {
+          // Origin is inside the polygon (or a degenerate body) — treat as t=0 so we
+          // still record a hit rather than silently skipping it.
+          minT = 0;
         }
       }
 
@@ -127,8 +161,8 @@ export class BeamSystem {
     }
 
     // Project the endpoint onto the ray line (origin + dir * closestT).
-    // For shields, closestT is already the exact ray-circle entry distance from the loop above.
-    // For entity blocks, this eliminates lateral drift from rotating SAT support points.
+    // Both shield and block paths now use exact geometry, so closestT is the
+    // precise entry distance into the hit surface.
     if (closestBody !== null) {
       hitEndX = spec.origin.x + dirX * closestT;
       hitEndY = spec.origin.y + dirY * closestT;
