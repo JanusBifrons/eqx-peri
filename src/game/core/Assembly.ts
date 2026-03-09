@@ -650,10 +650,25 @@ export class Assembly {
     const oldRootBody = this.rootBody;
 
     // Capture current physics state before recreating
-    const currentPosition = oldRootBody ? oldRootBody.position : { x: 0, y: 0 };
     const currentVelocity = oldRootBody ? oldRootBody.velocity : { x: 0, y: 0 };
     const currentAngularVelocity = oldRootBody ? oldRootBody.angularVelocity : 0;
     const currentAngle = oldRootBody ? oldRootBody.angle : 0;
+
+    // Capture a reference entity's world position from the OLD compound so we can
+    // compensate for the center-of-mass shift after removing a block.  When Matter.js
+    // rebuilds the compound with fewer parts it recomputes the COM; naively restoring
+    // the old COM world position causes the whole assembly to visually jump.
+    let refLocalOffset: { x: number; y: number } | null = null;
+    let refWorldPos: { x: number; y: number } | null = null;
+    if (oldRootBody) {
+      for (const entity of this.entities) {
+        if (!entity.destroyed) {
+          refLocalOffset = { x: entity.localOffset.x, y: entity.localOffset.y };
+          refWorldPos = { x: entity.body.position.x, y: entity.body.position.y };
+          break;
+        }
+      }
+    }
 
     // Build new entity list — only surviving (non-destroyed) entities.
     const newEntities: Entity[] = [];
@@ -706,8 +721,27 @@ export class Assembly {
       restitution: 0.2
     });
 
-    // Restore physics state.
-    Matter.Body.setPosition(this.rootBody, currentPosition);
+    // Restore physics state, correcting for the COM shift caused by removing a block.
+    // After Matter.Body.create the compound root sits at the new COM in local-offset space.
+    // setPosition(T) + setAngle(angle) places the reference entity at:
+    //   T + rotate(refLocalOffset - newCOM, angle)
+    // Solving for T so the entity lands at its original world position gives the formula below.
+    let targetPosition: { x: number; y: number };
+    if (refLocalOffset && refWorldPos) {
+      const newCOM = this.rootBody.position; // COM in local-offset space right after create
+      const cos = Math.cos(currentAngle);
+      const sin = Math.sin(currentAngle);
+      const dx = refLocalOffset.x - newCOM.x;
+      const dy = refLocalOffset.y - newCOM.y;
+      targetPosition = {
+        x: refWorldPos.x - (dx * cos - dy * sin),
+        y: refWorldPos.y - (dx * sin + dy * cos),
+      };
+    } else {
+      targetPosition = oldRootBody ? oldRootBody.position : { x: 0, y: 0 };
+    }
+
+    Matter.Body.setPosition(this.rootBody, targetPosition);
     Matter.Body.setVelocity(this.rootBody, currentVelocity);
     Matter.Body.setAngularVelocity(this.rootBody, currentAngularVelocity);
     Matter.Body.setAngle(this.rootBody, currentAngle);
