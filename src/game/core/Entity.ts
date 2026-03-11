@@ -1,6 +1,6 @@
 import * as Matter from 'matter-js';
 import * as PIXI from 'pixi.js';
-import { EntityConfig, EntityType, ENTITY_DEFINITIONS, Vector2, GRID_SIZE, AttachmentConnection } from '../../types/GameTypes';
+import { EntityConfig, EntityType, ENTITY_DEFINITIONS, Vector2, GRID_SIZE, AttachmentConnection, getEntityBodyOffset } from '../../types/GameTypes';
 import { Viewport } from '../rendering/Viewport';
 
 export class Entity {
@@ -61,10 +61,16 @@ export class Entity {
     // Debug logging for cockpits
     if (this.type === 'Cockpit' || this.type === 'LargeCockpit' || this.type === 'CapitalCore') {
       console.log(`🛡️ Created ${this.type} with health: ${this.health}/${this.maxHealth} (default: ${definition.defaultHealth})`);
-    }    // Create Matter.js body at exact position with enhanced physics and visual styling
+    }    // For multi-cell blocks the physics body must be centred on the footprint,
+    // not at the anchor cell.  getEntityBodyOffset returns {0,0} for 1×1 blocks.
+    const bodyOff = getEntityBodyOffset(config.type, this.rotation);
+    const bodyX = config.x + bodyOff.x;
+    const bodyY = config.y + bodyOff.y;
+
+    // Create Matter.js body at exact position with enhanced physics and visual styling
     this.body = Matter.Bodies.rectangle(
-      config.x,
-      config.y,
+      bodyX,
+      bodyY,
       definition.width,
       definition.height,
       {
@@ -741,6 +747,18 @@ export class Entity {
     this.invulnerableUntil = Date.now() + durationMs;
     console.log(`🛡️ ${this.type} is now invulnerable for ${durationMs}ms`);
   }
+  /**
+   * Returns the index of the first null (free) slot in attachmentConnections.
+   * If all slots are occupied (shouldn't happen normally), appends a new slot.
+   */
+  public findFreeAttachmentSlot(): number {
+    const idx = this.attachmentConnections.findIndex(c => c.connectedEntity === null);
+    if (idx !== -1) return idx;
+    // Fallback: extend the array (multi-cell blocks with more neighbours than defined points)
+    this.attachmentConnections.push({ connectedEntity: null, attachmentPointIndex: -1 });
+    return this.attachmentConnections.length - 1;
+  }
+
   /**
    * Connect this entity to another entity at specific attachment points
    */

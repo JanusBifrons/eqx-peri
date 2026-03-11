@@ -57,6 +57,15 @@ src/
 - "Width" of a ship = its Y extent in grid units, not its part count.
 - `applyThrust` takes **ship-local** input. World-space vectors must be rotated by `−shipAngle` first.
 
+**Multi-cell (rectangular) blocks (`RectHull`, future rect variants):**
+- `EntityTypeDefinition` has optional `gridCols?: number` and `gridRows?: number` (default 1 each).
+- `localOffset` = **anchor** = top-left cell of the block's footprint in current orientation. Always at an integer multiple of `GRID_SIZE`. The physics body centre is offset from the anchor by `getEntityBodyOffset(type, rotation)`.
+- For rotation 0/180: `effectiveCols = gridCols, effectiveRows = gridRows`. For 90/270: cols and rows swap.
+- Helpers exported from `GameTypes.ts`: `getEntityBodyOffset(type, rotation)` → pixel offset from anchor to body centre; `getEntityOccupiedGridCells(localOffset, type, rotation)` → all grid-unit positions the block occupies.
+- `buildConnectionGraph`, `canDetachEntity`, `findBestSnap`, `computePreviewOffsets`, and `renderAvailableSlots` all use `getEntityOccupiedGridCells` so multi-cell blocks connect correctly on all perimeter edges.
+- `Entity.findFreeAttachmentSlot()` finds the first null slot in `attachmentConnections`, preventing multi-connection overwrites when a multi-cell block has several neighbours on the same logical side.
+- `createFreshBody` uses `entity.localOffset + getEntityBodyOffset(type, rotation)` as the reference body position (not just `entity.localOffset`) for correct COM-compensation when the compound is rebuilt.
+
 **Block pickup / assembly building (`BlockPickupSystem`):**
 - Lives in `src/game/systems/BlockPickupSystem.ts`; instantiated by `GameEngine` (not a singleton).
 - `GameEngine.removeBodyWithParts` is **public** — required so BlockPickupSystem can remove compound bodies and all their part bodies from the physics world in one call.

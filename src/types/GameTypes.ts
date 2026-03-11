@@ -3,7 +3,8 @@ export type EntityType = 'Cockpit' | 'Engine' | 'Gun' | 'Hull' | 'PowerCell' |
   'CapitalCore' | 'CapitalEngine' | 'CapitalWeapon' | 'MegaHull' | 'PowerReactor' |
   'MissileLauncher' | 'LargeMissileLauncher' | 'CapitalMissileLauncher' |
   'Shield' | 'LargeShield' |
-  'Beam' | 'LargeBeam';
+  'Beam' | 'LargeBeam' |
+  'RectHull';
 
 export interface EntityConfig {
   type: EntityType;
@@ -28,6 +29,10 @@ export interface EntityTypeDefinition {
   type: EntityType;
   width: number;
   height: number;
+  /** Grid columns occupied at rotation 0. Default 1. */
+  gridCols?: number;
+  /** Grid rows occupied at rotation 0. Default 1. */
+  gridRows?: number;
   mass: number;
   defaultHealth: number;
   color: string;
@@ -36,7 +41,7 @@ export interface EntityTypeDefinition {
   beamRange?: number; // Max beam length in world units (beam weapons only)
   beamDps?: number;   // Damage per second (beam weapons only)
   canAttachTo: EntityType[];
-  attachmentPoints: Vector2[]; // relative to center, in grid units
+  attachmentPoints: Vector2[]; // relative to anchor cell, in grid units
 }
 
 // Shield field state — stored on Assembly, not Entity.
@@ -77,7 +82,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     defaultHealth: 1000,
     color: '#00ff00',
     thrust: 0.5, // Emergency RCS only — engines are the primary propulsion source
-    canAttachTo: ['Engine', 'Gun', 'Hull', 'PowerCell', 'Shield', 'LargeShield', 'Beam'],
+    canAttachTo: ['Engine', 'Gun', 'Hull', 'RectHull', 'PowerCell', 'Shield', 'LargeShield', 'Beam'],
     attachmentPoints: [
       { x: 0, y: -1 }, // top
       { x: 1, y: 0 },  // right
@@ -93,7 +98,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     defaultHealth: 80,
     color: '#ff6600',
     thrust: 2.0, // Primary propulsion block; ~4× better efficiency per mass than Cockpit
-    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'Shield', 'LargeShield'],
+    canAttachTo: ['Cockpit', 'Hull', 'RectHull', 'PowerCell', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 0, y: -1 }, // top (exhaust is bottom)
       { x: 1, y: 0 },  // right
@@ -107,7 +112,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 400, // Significantly increased for realistic physics
     defaultHealth: 60,
     color: '#ff0000',
-    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'Shield', 'LargeShield', 'Beam'],
+    canAttachTo: ['Cockpit', 'Hull', 'RectHull', 'PowerCell', 'Shield', 'LargeShield', 'Beam'],
     attachmentPoints: [
       { x: 1, y: 0 },  // right
       { x: 0, y: 1 },  // bottom
@@ -121,7 +126,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 600, // Significantly increased for realistic physics
     defaultHealth: 120,
     color: '#888888',
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'PowerCell', 'Shield', 'LargeShield', 'Beam'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'RectHull', 'PowerCell', 'Shield', 'LargeShield', 'Beam'],
     attachmentPoints: [
       { x: 0, y: -1 }, // top
       { x: 1, y: 0 },  // right
@@ -136,7 +141,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 300, // Significantly increased for realistic physics
     defaultHealth: 40,
     color: '#ffff00',
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'Shield', 'LargeShield', 'Beam'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'RectHull', 'Shield', 'LargeShield', 'Beam'],
     attachmentPoints: [
       { x: 0, y: -1 }, // top
       { x: 1, y: 0 },  // right
@@ -343,7 +348,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 450, // Similar to guns but slightly heavier
     defaultHealth: 70,
     color: '#ff9900', // Orange color for missiles
-    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'Shield', 'LargeShield'],
+    canAttachTo: ['Cockpit', 'Hull', 'RectHull', 'PowerCell', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 1, y: 0 },  // right
       { x: 0, y: 1 },  // bottom
@@ -395,7 +400,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     color: '#4488ff',
     shieldHp: 300,
     canAttachTo: [
-      'Cockpit', 'Engine', 'Gun', 'Hull', 'PowerCell',
+      'Cockpit', 'Engine', 'Gun', 'Hull', 'RectHull', 'PowerCell',
       'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell',
       'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor',
       'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher',
@@ -417,7 +422,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     color: '#2255cc',
     shieldHp: 700,
     canAttachTo: [
-      'Cockpit', 'Engine', 'Gun', 'Hull', 'PowerCell',
+      'Cockpit', 'Engine', 'Gun', 'Hull', 'RectHull', 'PowerCell',
       'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell',
       'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor',
       'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher',
@@ -446,7 +451,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     color: '#00ccff',
     beamRange: BEAM_SMALL_RANGE,
     beamDps: BEAM_SMALL_DPS,
-    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'Shield', 'LargeShield'],
+    canAttachTo: ['Cockpit', 'Hull', 'RectHull', 'PowerCell', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 1, y: 0 },  // right
       { x: 0, y: 1 },  // bottom
@@ -472,8 +477,94 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
       { x: 2, y: 0 }   // right center
       // No top connections — fires forward
     ]
+  },
+
+  // Rectangular hull — 1×2 grid cells (32×16 px).
+  // Anchor (localOffset) is the LEFT cell at rotation 0.
+  // Connection points: 1 on each end cap, 2 on each long side = 6 total.
+  RectHull: {
+    type: 'RectHull',
+    width: GRID_SIZE * 2,  // 32 px
+    height: GRID_SIZE,     // 16 px
+    gridCols: 2,
+    gridRows: 1,
+    mass: 900,             // ~1.5× Hull — proportional to area
+    defaultHealth: 200,    // ~1.7× Hull
+    color: '#778899',      // Distinct slate-blue so it's recognisable in sandbox
+    canAttachTo: [
+      'Cockpit', 'Engine', 'Gun', 'Hull', 'RectHull', 'PowerCell',
+      'Shield', 'LargeShield', 'Beam', 'MissileLauncher',
+    ],
+    // Attachment points relative to anchor cell (top-left at rotation 0), in grid units
+    attachmentPoints: [
+      { x: -1, y: 0 },  // west end cap
+      { x:  2, y: 0 },  // east end cap
+      { x:  0, y: -1 }, // north long-side, left half
+      { x:  1, y: -1 }, // north long-side, right half
+      { x:  0, y:  1 }, // south long-side, left half
+      { x:  1, y:  1 }, // south long-side, right half
+    ]
   }
 };
+
+// ---------------------------------------------------------------------------
+// Multi-cell block helpers
+//
+// Convention for rectangular blocks (gridCols > 1 or gridRows > 1):
+//   • `localOffset` = anchor = top-left cell of the block's footprint in the
+//     CURRENT orientation, always at an integer multiple of GRID_SIZE.
+//   • `bodyOffset`  = pixel offset from anchor to the physics-body centre.
+//     For a 1×2 block at rotation 0: bodyOffset = {x: 8, y: 0}.
+//   • At rotations 90/270 the effective cols/rows are swapped.
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the pixel offset from `localOffset` (anchor) to the centre of the
+ * physics body for the given block type and rotation.
+ * For 1×1 blocks this is always {0, 0} — no change to existing behaviour.
+ */
+export function getEntityBodyOffset(type: EntityType, rotation: number): Vector2 {
+  const def = ENTITY_DEFINITIONS[type];
+  const gridCols = def.gridCols ?? 1;
+  const gridRows = def.gridRows ?? 1;
+  const swap = rotation === 90 || rotation === 270;
+  const effectiveCols = swap ? gridRows : gridCols;
+  const effectiveRows = swap ? gridCols : gridRows;
+  return {
+    x: (effectiveCols - 1) * GRID_SIZE / 2,
+    y: (effectiveRows - 1) * GRID_SIZE / 2,
+  };
+}
+
+/**
+ * Returns all grid cells (as {x, y} in grid units, NOT pixel units) occupied
+ * by an entity given its anchor localOffset, type, and current rotation.
+ * For 1×1 blocks returns a single cell — identical to the existing single-cell
+ * grid-map logic.
+ */
+export function getEntityOccupiedGridCells(
+  localOffset: Vector2,
+  type: EntityType,
+  rotation: number,
+): Vector2[] {
+  const def = ENTITY_DEFINITIONS[type];
+  const gridCols = def.gridCols ?? 1;
+  const gridRows = def.gridRows ?? 1;
+  const swap = rotation === 90 || rotation === 270;
+  const effectiveCols = swap ? gridRows : gridCols;
+  const effectiveRows = swap ? gridCols : gridRows;
+
+  const anchorGx = Math.round(localOffset.x / GRID_SIZE);
+  const anchorGy = Math.round(localOffset.y / GRID_SIZE);
+
+  const cells: Vector2[] = [];
+  for (let col = 0; col < effectiveCols; col++) {
+    for (let row = 0; row < effectiveRows; row++) {
+      cells.push({ x: anchorGx + col, y: anchorGy + row });
+    }
+  }
+  return cells;
+}
 
 export type ScenarioId = 'debug' | 'duel' | 'small-battle' | 'medium-battle' | 'huge' | 'sandbox';
 

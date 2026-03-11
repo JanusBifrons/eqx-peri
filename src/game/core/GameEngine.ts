@@ -1602,6 +1602,7 @@ export class GameEngine {
   private spawnSandboxScenario(): void {
     const SANDBOX_BLOCK_TYPES: EntityType[] = [
       'Cockpit', 'Cockpit',
+      'RectHull', 'RectHull', 'RectHull', 'RectHull',
       'Beam', 'Beam', 'LargeBeam',
       'Gun', 'Gun', 'Gun',
       'Engine', 'Engine', 'Engine', 'Engine',

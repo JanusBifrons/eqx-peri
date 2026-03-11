@@ -2,7 +2,7 @@ import * as Matter from 'matter-js';
 import * as PIXI from 'pixi.js';
 import { Assembly } from '../core/Assembly';
 import { Entity } from '../core/Entity';
-import { Vector2, GRID_SIZE, ENTITY_DEFINITIONS } from '../../types/GameTypes';
+import { Vector2, GRID_SIZE, ENTITY_DEFINITIONS, getEntityOccupiedGridCells, getEntityBodyOffset } from '../../types/GameTypes';
 import { Viewport } from '../rendering/Viewport';
 
 interface SnapCandidate {
@@ -12,6 +12,8 @@ interface SnapCandidate {
   snapDirection: Vector2;     // unit grid direction in target-LOCAL space (+x/-x/+y/-y)
   relativeAngle: number;      // angle to rotate held assembly, in radians, rounded to nearest π/2
   previewLocalOffsets: Map<string, { localOffset: Vector2; rotation: number }>;
+  snapSlotLocalOffset: Vector2; // player-local pixel offset of the attachment slot
+  snapHeldCell: Vector2;        // grid cell (in held-assembly space) that triggered the snap
   dist: number;
 }
 
@@ -384,28 +386,35 @@ export class BlockPickupSystem {
 
   private findBestSnap(heldAssembly: Assembly, playerAssembly: Assembly): SnapCandidate | null {
     const playerAngle = playerAssembly.rootBody.angle;
-    // relativeAngle is the rotation applied to held block relative to player orientation
+    const heldAngle   = heldAssembly.rootBody.angle;
     const relativeAngle = this.pendingRotationSteps * (Math.PI / 2);
 
     const localDirs: Vector2[] = [
       { x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 },
     ];
 
-    const occupiedOffsets = new Set<string>();
+    // Build the set of ALL grid cells occupied by the player assembly (pixel-based keys
+    // so existing comparisons stay consistent: "pixelX,pixelY" in local-offset space).
+    const occupiedGridCells = new Set<string>();
     playerAssembly.entities.forEach(e => {
-      occupiedOffsets.add(`${e.localOffset.x},${e.localOffset.y}`);
+      getEntityOccupiedGridCells(e.localOffset, e.type, e.rotation).forEach(cell => {
+        occupiedGridCells.add(`${cell.x},${cell.y}`);
+      });
     });
 
     const threshold = this.activeSnap ? DETACH_RADIUS : SNAP_RADIUS;
-    const cosA = Math.cos(playerAngle);
-    const sinA = Math.sin(playerAngle);
+    const cosP = Math.cos(playerAngle);
+    const sinP = Math.sin(playerAngle);
+    const cosH = Math.cos(heldAngle);
+    const sinH = Math.sin(heldAngle);
 
-    // Build ALL (heldEntity, playerSlot) pairs that are type-compatible and within range.
     type Pair = {
       heldEntity: Entity;
       targetEntity: Entity;
       localDir: Vector2;
       candidateLocalOffset: Vector2;
+      slotLocalOffset: Vector2;
+      heldCell: Vector2;
       dist: number;
     };
     const pairs: Pair[] = [];
@@ -414,43 +423,74 @@ export class BlockPickupSystem {
       const targetDef = ENTITY_DEFINITIONS[targetEntity.type];
       if (!targetDef) continue;
 
-      for (const localDir of localDirs) {
-        const candidateLocalOffset: Vector2 = {
-          x: targetEntity.localOffset.x + localDir.x * GRID_SIZE,
-          y: targetEntity.localOffset.y + localDir.y * GRID_SIZE,
-        };
-        if (occupiedOffsets.has(`${candidateLocalOffset.x},${candidateLocalOffset.y}`)) continue;
+      const targetBodyOffset = getEntityBodyOffset(targetEntity.type, targetEntity.rotation);
+      const targetCells = getEntityOccupiedGridCells(
+        targetEntity.localOffset, targetEntity.type, targetEntity.rotation,
+      );
 
-        const slotWorldX = targetEntity.body.position.x + (localDir.x * cosA - localDir.y * sinA) * GRID_SIZE;
-        const slotWorldY = targetEntity.body.position.y + (localDir.x * sinA + localDir.y * cosA) * GRID_SIZE;
+      for (const targetCell of targetCells) {
+        // World position of this target cell's centre.
+        // targetEntity.body.position is the body centre (= localOffset + bodyOffset in
+        // compound-local space, then transformed to world).
+        const cellRelX = targetCell.x * GRID_SIZE - (targetEntity.localOffset.x + targetBodyOffset.x);
+        const cellRelY = targetCell.y * GRID_SIZE - (targetEntity.localOffset.y + targetBodyOffset.y);
+        const cellWorldX = targetEntity.body.position.x + cellRelX * cosP - cellRelY * sinP;
+        const cellWorldY = targetEntity.body.position.y + cellRelX * sinP + cellRelY * cosP;
 
-        for (const heldEntity of heldAssembly.entities) {
-          const anchorDef = ENTITY_DEFINITIONS[heldEntity.type];
-          if (!anchorDef) continue;
-          if (!anchorDef.canAttachTo.includes(targetEntity.type)) continue;
-          if (!targetDef.canAttachTo.includes(heldEntity.type)) continue;
+        for (const localDir of localDirs) {
+          const slotGrid: Vector2 = { x: targetCell.x + localDir.x, y: targetCell.y + localDir.y };
+          if (occupiedGridCells.has(`${slotGrid.x},${slotGrid.y}`)) continue;
 
-          const heldWorldPos = this.getHeldEntityWorldPosFromBody(heldEntity, heldAssembly);
-          const dx = heldWorldPos.x - slotWorldX;
-          const dy = heldWorldPos.y - slotWorldY;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < threshold) {
-            pairs.push({ heldEntity, targetEntity, localDir, candidateLocalOffset, dist });
+          const slotWorldX = cellWorldX + (localDir.x * cosP - localDir.y * sinP) * GRID_SIZE;
+          const slotWorldY = cellWorldY + (localDir.x * sinP + localDir.y * cosP) * GRID_SIZE;
+          const slotLocalOffset: Vector2 = { x: slotGrid.x * GRID_SIZE, y: slotGrid.y * GRID_SIZE };
+
+          for (const heldEntity of heldAssembly.entities) {
+            const heldDef = ENTITY_DEFINITIONS[heldEntity.type];
+            if (!heldDef) continue;
+            if (!heldDef.canAttachTo.includes(targetEntity.type)) continue;
+            if (!targetDef.canAttachTo.includes(heldEntity.type)) continue;
+
+            // Effective rotation of held entity after pendingRotationSteps
+            const effectiveRot = ((heldEntity.rotation + this.pendingRotationSteps * 90) % 360 + 360) % 360;
+            const heldBodyOffset = getEntityBodyOffset(heldEntity.type, effectiveRot);
+            const heldCells = getEntityOccupiedGridCells(heldEntity.localOffset, heldEntity.type, effectiveRot);
+            const heldBodyWorldPos = this.getHeldEntityWorldPosFromBody(heldEntity, heldAssembly);
+
+            for (const heldCell of heldCells) {
+              // World position of this specific cell of the held entity.
+              const hcRelX = heldCell.x * GRID_SIZE - (heldEntity.localOffset.x + heldBodyOffset.x);
+              const hcRelY = heldCell.y * GRID_SIZE - (heldEntity.localOffset.y + heldBodyOffset.y);
+              const heldCellWorldX = heldBodyWorldPos.x + hcRelX * cosH - hcRelY * sinH;
+              const heldCellWorldY = heldBodyWorldPos.y + hcRelX * sinH + hcRelY * cosH;
+
+              const dx = heldCellWorldX - slotWorldX;
+              const dy = heldCellWorldY - slotWorldY;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+              if (dist < threshold) {
+                // Adjust candidateLocalOffset so THIS cell lands at slotLocalOffset.
+                const heldCellOffX = heldCell.x * GRID_SIZE - heldEntity.localOffset.x;
+                const heldCellOffY = heldCell.y * GRID_SIZE - heldEntity.localOffset.y;
+                const candidateLocalOffset: Vector2 = {
+                  x: slotLocalOffset.x - heldCellOffX,
+                  y: slotLocalOffset.y - heldCellOffY,
+                };
+                pairs.push({ heldEntity, targetEntity, localDir, candidateLocalOffset, slotLocalOffset, heldCell, dist });
+              }
+            }
           }
         }
       }
     }
 
-    // Sort ascending by distance so we always try the closest pair first
     pairs.sort((a, b) => a.dist - b.dist);
 
-    // Walk in order and return the first pair whose placement is collision-free
     for (const pair of pairs) {
       const preview = this.computePreviewOffsets(
         pair.heldEntity,
         pair.candidateLocalOffset,
         relativeAngle,
-        playerAssembly
+        playerAssembly,
       );
       if (!preview) continue;
 
@@ -461,6 +501,8 @@ export class BlockPickupSystem {
         snapDirection: pair.localDir,
         relativeAngle,
         previewLocalOffsets: preview,
+        snapSlotLocalOffset: pair.slotLocalOffset,
+        snapHeldCell: pair.heldCell,
         dist: pair.dist,
       };
     }
@@ -514,10 +556,13 @@ export class BlockPickupSystem {
 
     const rotateDegrees = Math.round(relativeAngle * 180 / Math.PI);
 
-    // Pre-build the set of occupied offsets for collision checking
+    // Pre-build the set of occupied grid cells for ALL player entities (including
+    // multi-cell blocks).  Stored as pixel-based "x,y" keys matching localOffset values.
     const occupiedOffsets = new Set<string>();
     playerAssembly.entities.forEach(e => {
-      occupiedOffsets.add(`${e.localOffset.x},${e.localOffset.y}`);
+      getEntityOccupiedGridCells(e.localOffset, e.type, e.rotation).forEach(cell => {
+        occupiedOffsets.add(`${cell.x * GRID_SIZE},${cell.y * GRID_SIZE}`);
+      });
     });
 
     const result = new Map<string, { localOffset: Vector2; rotation: number }>();
@@ -526,13 +571,28 @@ export class BlockPickupSystem {
       const lx = entity.localOffset.x;
       const ly = entity.localOffset.y;
 
-      const finalX = snap(lx * cosA - ly * sinA) + shiftX;
-      const finalY = snap(lx * sinA + ly * cosA) + shiftY;
-
-      if (occupiedOffsets.has(`${finalX},${finalY}`)) return null;
+      const finalAnchorX = snap(lx * cosA - ly * sinA) + shiftX;
+      const finalAnchorY = snap(lx * sinA + ly * cosA) + shiftY;
 
       const newRotation = ((entity.rotation + rotateDegrees) % 360 + 360) % 360;
-      result.set(entity.id, { localOffset: { x: finalX, y: finalY }, rotation: newRotation });
+
+      // Check ALL cells of this entity in its final position (handles multi-cell blocks).
+      const def = ENTITY_DEFINITIONS[entity.type];
+      const gridCols = def.gridCols ?? 1;
+      const gridRows = def.gridRows ?? 1;
+      const swap = newRotation === 90 || newRotation === 270;
+      const effectiveCols = swap ? gridRows : gridCols;
+      const effectiveRows = swap ? gridCols : gridRows;
+
+      for (let col = 0; col < effectiveCols; col++) {
+        for (let row = 0; row < effectiveRows; row++) {
+          const cellX = finalAnchorX + col * GRID_SIZE;
+          const cellY = finalAnchorY + row * GRID_SIZE;
+          if (occupiedOffsets.has(`${cellX},${cellY}`)) return null;
+        }
+      }
+
+      result.set(entity.id, { localOffset: { x: finalAnchorX, y: finalAnchorY }, rotation: newRotation });
     }
 
     return result;
@@ -627,7 +687,9 @@ export class BlockPickupSystem {
 
     const occupiedOffsets = new Set<string>();
     playerAssembly.entities.forEach(e => {
-      occupiedOffsets.add(`${e.localOffset.x},${e.localOffset.y}`);
+      getEntityOccupiedGridCells(e.localOffset, e.type, e.rotation).forEach(cell => {
+        occupiedOffsets.add(`${cell.x * GRID_SIZE},${cell.y * GRID_SIZE}`);
+      });
     });
     const localDirs = [
       { x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 },
@@ -640,22 +702,41 @@ export class BlockPickupSystem {
       const ghostY = heldWorldPos.y;
 
       if (heldEntity.id === activeAnchorId) {
-        // Bright line: anchor ghost → snap landing position
+        // Bright line: snapping cell of held block → snap landing position on player assembly.
         const anchorSnapData = this.activeSnap.previewLocalOffsets.get(heldEntity.id);
         if (anchorSnapData) {
-          const dlx = anchorSnapData.localOffset.x - refEntity.localOffset.x;
-          const dly = anchorSnapData.localOffset.y - refEntity.localOffset.y;
-          const landX = refEntity.body.position.x + dlx * cosP - dly * sinP;
-          const landY = refEntity.body.position.y + dlx * sinP + dly * cosP;
+          // Compute world position of the specific held cell that triggered the snap.
+          // heldWorldPos = cm + localOffset rotated (grid anchor, not body center).
+          // Snap cell world pos uses the same hcRelX/Y formula as findBestSnap.
+          const heldAngle = heldAssembly.rootBody.angle;
+          const cosH = Math.cos(heldAngle);
+          const sinH = Math.sin(heldAngle);
+          const effectiveRot = ((heldEntity.rotation + this.pendingRotationSteps * 90) % 360 + 360) % 360;
+          const heldBodyOff = getEntityBodyOffset(heldEntity.type, effectiveRot);
+          const snapCell = this.activeSnap.snapHeldCell;
+          // heldWorldPos = cm + localOffset*R (grid anchor in world space)
+          // cell world pos = heldWorldPos + (cell*GRID_SIZE - localOffset - bodyOffset)*R
+          const hcRelX = snapCell.x * GRID_SIZE - (heldEntity.localOffset.x + heldBodyOff.x);
+          const hcRelY = snapCell.y * GRID_SIZE - (heldEntity.localOffset.y + heldBodyOff.y);
+          const snapCellWorldX = heldWorldPos.x + hcRelX * cosH - hcRelY * sinH;
+          const snapCellWorldY = heldWorldPos.y + hcRelX * sinH + hcRelY * cosH;
+
+          // Compute world position of where the snapping cell will land on the player assembly.
+          // snapSlotLocalOffset is the player-local pixel offset of the attachment slot.
+          const refBodyOff = getEntityBodyOffset(refEntity.type, refEntity.rotation);
+          const sdlx = this.activeSnap.snapSlotLocalOffset.x - (refEntity.localOffset.x + refBodyOff.x);
+          const sdly = this.activeSnap.snapSlotLocalOffset.y - (refEntity.localOffset.y + refBodyOff.y);
+          const landX = refEntity.body.position.x + sdlx * cosP - sdly * sinP;
+          const landY = refEntity.body.position.y + sdlx * sinP + sdly * cosP;
 
           // Anchor line (solid semi-transparent, approximating dashed)
           gfx.lineStyle(1.5, 0x00ff88, 0.75);
-          gfx.moveTo(toX(ghostX), toY(ghostY));
+          gfx.moveTo(toX(snapCellWorldX), toY(snapCellWorldY));
           gfx.lineTo(toX(landX), toY(landY));
-          // Anchor dot
+          // Anchor dot at the snapping cell
           gfx.lineStyle(0);
           gfx.beginFill(0x00ff88, 0.9);
-          gfx.drawCircle(toX(ghostX), toY(ghostY), 3);
+          gfx.drawCircle(toX(snapCellWorldX), toY(snapCellWorldY), 3);
           gfx.endFill();
         }
       } else {
@@ -674,13 +755,20 @@ export class BlockPickupSystem {
           if (!anchorDef.canAttachTo.includes(targetEntity.type)) continue;
           if (!targetDef.canAttachTo.includes(heldEntity.type)) continue;
 
+          const tBodyOff = getEntityBodyOffset(targetEntity.type, targetEntity.rotation);
+          const tCells = getEntityOccupiedGridCells(targetEntity.localOffset, targetEntity.type, targetEntity.rotation);
+          for (const tCell of tCells) {
           for (const dir of localDirs) {
-            const cX = targetEntity.localOffset.x + dir.x * GRID_SIZE;
-            const cY = targetEntity.localOffset.y + dir.y * GRID_SIZE;
-            if (occupiedOffsets.has(`${cX},${cY}`)) continue;
+            const slotGx = tCell.x + dir.x;
+            const slotGy = tCell.y + dir.y;
+            if (occupiedOffsets.has(`${slotGx * GRID_SIZE},${slotGy * GRID_SIZE}`)) continue;
 
-            const slotWX = targetEntity.body.position.x + (dir.x * cosP - dir.y * sinP) * GRID_SIZE;
-            const slotWY = targetEntity.body.position.y + (dir.x * sinP + dir.y * cosP) * GRID_SIZE;
+            const tCellRelX = tCell.x * GRID_SIZE - (targetEntity.localOffset.x + tBodyOff.x);
+            const tCellRelY = tCell.y * GRID_SIZE - (targetEntity.localOffset.y + tBodyOff.y);
+            const tCellWX = targetEntity.body.position.x + tCellRelX * cosP - tCellRelY * sinP;
+            const tCellWY = targetEntity.body.position.y + tCellRelX * sinP + tCellRelY * cosP;
+            const slotWX = tCellWX + (dir.x * cosP - dir.y * sinP) * GRID_SIZE;
+            const slotWY = tCellWY + (dir.x * sinP + dir.y * cosP) * GRID_SIZE;
 
             const ddx = ghostX - slotWX;
             const ddy = ghostY - slotWY;
@@ -692,6 +780,7 @@ export class BlockPickupSystem {
               found = true;
             }
           }
+          } // end tCell loop
         }
 
         if (found) {
@@ -703,11 +792,17 @@ export class BlockPickupSystem {
       }
     }
 
-    // Green border around the target attachment cell on the player assembly
+    // Green border around the target attachment cell on the player assembly.
+    // Convert snapSlotLocalOffset (player-local pixels) → world space via the target entity
+    // as the reference point: target.body.position corresponds to localOffset + bodyOffset
+    // in player-local space, so we subtract that to get the delta, then rotate by playerAngle.
     const target = this.activeSnap.targetEntity;
-    const dir = this.activeSnap.snapDirection;
-    const attachWorldX = target.body.position.x + (dir.x * cosP - dir.y * sinP) * GRID_SIZE;
-    const attachWorldY = target.body.position.y + (dir.x * sinP + dir.y * cosP) * GRID_SIZE;
+    const snapSlot = this.activeSnap.snapSlotLocalOffset;
+    const tBodyOff = getEntityBodyOffset(target.type, target.rotation);
+    const sdlx = snapSlot.x - (target.localOffset.x + tBodyOff.x);
+    const sdly = snapSlot.y - (target.localOffset.y + tBodyOff.y);
+    const attachWorldX = target.body.position.x + sdlx * cosP - sdly * sinP;
+    const attachWorldY = target.body.position.y + sdlx * sinP + sdly * cosP;
 
     gfx.lineStyle(2, 0x00ff00, 0.7);
     drawRotatedRect(gfx, toX(attachWorldX), toY(attachWorldY), GRID_SIZE * scaleX, GRID_SIZE * scaleY, playerAngle);
@@ -732,33 +827,43 @@ export class BlockPickupSystem {
     const cosP = Math.cos(playerAngle);
     const sinP = Math.sin(playerAngle);
 
-    const occupiedOffsets = new Set<string>();
+    // All occupied grid cells (handles multi-cell blocks)
+    const occupiedGridCells = new Set<string>();
     playerAssembly.entities.forEach(e => {
-      occupiedOffsets.add(`${e.localOffset.x},${e.localOffset.y}`);
+      getEntityOccupiedGridCells(e.localOffset, e.type, e.rotation).forEach(cell => {
+        occupiedGridCells.add(`${cell.x},${cell.y}`);
+      });
     });
 
     const localDirs: { x: number; y: number }[] = [
       { x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 },
     ];
 
-    // Track drawn slots to avoid duplicating indicators for shared edges
     const drawnSlots = new Set<string>();
 
     gfx.lineStyle(1.5, 0x00ccff, 0.35);
     for (const entity of playerAssembly.entities) {
-      for (const dir of localDirs) {
-        const candidateX = entity.localOffset.x + dir.x * GRID_SIZE;
-        const candidateY = entity.localOffset.y + dir.y * GRID_SIZE;
-        const key = `${candidateX},${candidateY}`;
+      const bodyOff = getEntityBodyOffset(entity.type, entity.rotation);
+      const cells = getEntityOccupiedGridCells(entity.localOffset, entity.type, entity.rotation);
 
-        if (occupiedOffsets.has(key) || drawnSlots.has(key)) continue;
-        drawnSlots.add(key);
+      for (const cell of cells) {
+        for (const dir of localDirs) {
+          const slotGx = cell.x + dir.x;
+          const slotGy = cell.y + dir.y;
+          const key = `${slotGx},${slotGy}`;
+          if (occupiedGridCells.has(key) || drawnSlots.has(key)) continue;
+          drawnSlots.add(key);
 
-        // World position of this adjacent slot (relative to the entity body that borders it)
-        const worldX = entity.body.position.x + (dir.x * cosP - dir.y * sinP) * GRID_SIZE;
-        const worldY = entity.body.position.y + (dir.x * sinP + dir.y * cosP) * GRID_SIZE;
+          // Compute this cell's world position and add one GRID_SIZE step in dir.
+          const cellRelX = cell.x * GRID_SIZE - (entity.localOffset.x + bodyOff.x);
+          const cellRelY = cell.y * GRID_SIZE - (entity.localOffset.y + bodyOff.y);
+          const cellWX = entity.body.position.x + cellRelX * cosP - cellRelY * sinP;
+          const cellWY = entity.body.position.y + cellRelX * sinP + cellRelY * cosP;
+          const worldX = cellWX + (dir.x * cosP - dir.y * sinP) * GRID_SIZE;
+          const worldY = cellWY + (dir.x * sinP + dir.y * cosP) * GRID_SIZE;
 
-        drawRotatedRect(gfx, toX(worldX), toY(worldY), GRID_SIZE * scaleX, GRID_SIZE * scaleY, playerAngle);
+          drawRotatedRect(gfx, toX(worldX), toY(worldY), GRID_SIZE * scaleX, GRID_SIZE * scaleY, playerAngle);
+        }
       }
     }
   }

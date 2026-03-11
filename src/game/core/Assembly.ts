@@ -1,6 +1,6 @@
 import * as Matter from 'matter-js';
 import { Entity } from './Entity';
-import { EntityConfig, Vector2, EntityType, ENTITY_DEFINITIONS, ShieldState, SHIELD_REGEN_DELAY_MS, SHIELD_REGEN_DURATION_MS, SHIELD_COLLAPSE_COOLDOWN_MS, GRID_SIZE } from '../../types/GameTypes';
+import { EntityConfig, Vector2, EntityType, ENTITY_DEFINITIONS, ShieldState, SHIELD_REGEN_DELAY_MS, SHIELD_REGEN_DURATION_MS, SHIELD_COLLAPSE_COOLDOWN_MS, getEntityOccupiedGridCells, getEntityBodyOffset } from '../../types/GameTypes';
 import { PowerSystem } from '../systems/PowerSystem';
 import { MissileType } from '../weapons/Missile';
 
@@ -658,12 +658,21 @@ export class Assembly {
     // compensate for the center-of-mass shift after removing a block.  When Matter.js
     // rebuilds the compound with fewer parts it recomputes the COM; naively restoring
     // the old COM world position causes the whole assembly to visually jump.
-    let refLocalOffset: { x: number; y: number } | null = null;
+    // refBodyLocalPos = the reference entity's body centre in "local-offset space"
+    // (= localOffset + bodyOffset for multi-cell blocks; = localOffset for 1×1 blocks).
+    // refWorldPos = that body centre's current world position.
+    // The COM-compensation formula later uses these two together so that the reference
+    // entity stays visually fixed when the compound is rebuilt.
+    let refBodyLocalPos: { x: number; y: number } | null = null;
     let refWorldPos: { x: number; y: number } | null = null;
     if (oldRootBody) {
       for (const entity of this.entities) {
         if (!entity.destroyed) {
-          refLocalOffset = { x: entity.localOffset.x, y: entity.localOffset.y };
+          const bodyOff = getEntityBodyOffset(entity.type, entity.rotation);
+          refBodyLocalPos = {
+            x: entity.localOffset.x + bodyOff.x,
+            y: entity.localOffset.y + bodyOff.y,
+          };
           refWorldPos = { x: entity.body.position.x, y: entity.body.position.y };
           break;
         }
@@ -727,12 +736,12 @@ export class Assembly {
     //   T + rotate(refLocalOffset - newCOM, angle)
     // Solving for T so the entity lands at its original world position gives the formula below.
     let targetPosition: { x: number; y: number };
-    if (refLocalOffset && refWorldPos) {
-      const newCOM = this.rootBody.position; // COM in local-offset space right after create
+    if (refBodyLocalPos && refWorldPos) {
+      const newCOM = this.rootBody.position; // COM in body-centre local space right after create
       const cos = Math.cos(currentAngle);
       const sin = Math.sin(currentAngle);
-      const dx = refLocalOffset.x - newCOM.x;
-      const dy = refLocalOffset.y - newCOM.y;
+      const dx = refBodyLocalPos.x - newCOM.x;
+      const dy = refBodyLocalPos.y - newCOM.y;
       targetPosition = {
         x: refWorldPos.x - (dx * cos - dy * sin),
         y: refWorldPos.y - (dx * sin + dy * cos),
@@ -883,12 +892,13 @@ export class Assembly {
     const remaining = this.entities.filter(e => e !== entity);
     if (remaining.length === 0) return false;
 
-    // Build localOffset-based adjacency (mirrors buildConnectionGraph, read-only)
+    // Build localOffset-based adjacency — mirrors buildConnectionGraph, read-only.
+    // Multi-cell blocks register once per occupied cell.
     const gridMap = new Map<string, Entity>();
     remaining.forEach(e => {
-      const gx = Math.round(e.localOffset.x / GRID_SIZE);
-      const gy = Math.round(e.localOffset.y / GRID_SIZE);
-      gridMap.set(`${gx},${gy}`, e);
+      getEntityOccupiedGridCells(e.localOffset, e.type, e.rotation).forEach(cell => {
+        gridMap.set(`${cell.x},${cell.y}`, e);
+      });
     });
 
     const adj = new Map<string, Set<string>>();
@@ -896,14 +906,15 @@ export class Assembly {
 
     const dirs = [{ dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 }];
     remaining.forEach(e => {
-      const gx = Math.round(e.localOffset.x / GRID_SIZE);
-      const gy = Math.round(e.localOffset.y / GRID_SIZE);
-      dirs.forEach(({ dx, dy }) => {
-        const nbr = gridMap.get(`${gx + dx},${gy + dy}`);
-        if (nbr && this.canEntitiesConnect(e, nbr)) {
-          adj.get(e.id)!.add(nbr.id);
-          adj.get(nbr.id)!.add(e.id);
-        }
+      getEntityOccupiedGridCells(e.localOffset, e.type, e.rotation).forEach(cell => {
+        dirs.forEach(({ dx, dy }) => {
+          const nbr = gridMap.get(`${cell.x + dx},${cell.y + dy}`);
+          if (!nbr || nbr === e) return;
+          if (this.canEntitiesConnect(e, nbr)) {
+            adj.get(e.id)!.add(nbr.id);
+            adj.get(nbr.id)!.add(e.id);
+          }
+        });
       });
     });
 
@@ -1495,56 +1506,43 @@ export class Assembly {
       entity.clearAllSideConnections();
     });
 
-    // Create a grid map using localOffset — always grid-aligned regardless of world rotation.
-    // Using entity.body.position would fail after the ship has rotated because world positions
-    // are no longer integer multiples of GRID_SIZE in the cardinal directions.
+    // Build a grid map covering ALL cells of every entity (multi-cell blocks register
+    // once per occupied cell).  Using localOffset (always grid-aligned) not body.position
+    // (which drifts after rotation).
     const gridMap = new Map<string, Entity>();
     this.entities.forEach(entity => {
-      const gridPos = this.worldToGrid({ x: entity.localOffset.x, y: entity.localOffset.y });
-      const key = `${gridPos.x},${gridPos.y}`;
-      gridMap.set(key, entity);
+      getEntityOccupiedGridCells(entity.localOffset, entity.type, entity.rotation).forEach(cell => {
+        gridMap.set(`${cell.x},${cell.y}`, entity);
+      });
     });
 
-    // Check all entities for grid-adjacent connections
+    // Check all entities for grid-adjacent connections.  For multi-cell blocks every
+    // occupied cell is checked; same-entity neighbour cells are skipped automatically.
     let connectionCount = 0;
+    const directions = [
+      { dx: 0, dy: -1, side: 'north' as const },
+      { dx: 1, dy: 0,  side: 'east'  as const },
+      { dx: 0, dy: 1,  side: 'south' as const },
+      { dx: -1, dy: 0, side: 'west'  as const },
+    ];
+
     this.entities.forEach(entity => {
-      const entityGridPos = this.worldToGrid({ x: entity.localOffset.x, y: entity.localOffset.y });
-      
-      // Check all four cardinal directions for adjacent entities
-      const directions = [
-        { dx: 0, dy: -1, side: 'north' },   // North
-        { dx: 1, dy: 0, side: 'east' },     // East
-        { dx: 0, dy: 1, side: 'south' },    // South
-        { dx: -1, dy: 0, side: 'west' }     // West
-      ];
-
-      directions.forEach(dir => {
-        const adjacentPos = {
-          x: entityGridPos.x + dir.dx,
-          y: entityGridPos.y + dir.dy
-        };
-        const adjacentKey = `${adjacentPos.x},${adjacentPos.y}`;
-        const adjacentEntity = gridMap.get(adjacentKey);
-
-        if (adjacentEntity && this.canEntitiesConnect(entity, adjacentEntity)) {
-          if (this.createGridConnection(entity, adjacentEntity, dir.side as 'north' | 'east' | 'south' | 'west')) {
-            connectionCount++;
+      const cells = getEntityOccupiedGridCells(entity.localOffset, entity.type, entity.rotation);
+      cells.forEach(cell => {
+        directions.forEach(dir => {
+          const neighbourKey = `${cell.x + dir.dx},${cell.y + dir.dy}`;
+          const neighbour = gridMap.get(neighbourKey);
+          if (!neighbour || neighbour === entity) return; // skip missing / self
+          if (this.canEntitiesConnect(entity, neighbour)) {
+            if (this.createGridConnection(entity, neighbour, dir.side)) {
+              connectionCount++;
+            }
           }
-        }
-      });    });
+        });
+      });
+    });
     
     console.log(`🔗 ${this.shipName}: rebuilt connections using grid-based system, found ${connectionCount} connections between ${this.entities.length} entities`);
-  }
-
-  /**
-   * Convert world coordinates to grid coordinates
-   */
-  private worldToGrid(worldPos: { x: number, y: number }): { x: number, y: number } {
-    const GRID_SIZE = 16; // From GameTypes.ts
-    return {
-      x: Math.round(worldPos.x / GRID_SIZE),
-      y: Math.round(worldPos.y / GRID_SIZE)
-    };
   }
 
   /**
@@ -1571,16 +1569,14 @@ export class Assembly {
 
     console.log(`🔗 Creating grid connection: ${entity1.type} (${side}) -> ${entity2.type}`);
 
-    // Create the connection using the first available attachment points
-    // Since we're grid-based, we just need to mark them as connected
-    entity1.connectTo(entity2, 0, 0); // Simplified - using first attachment points
-    
-    // Set side-based connections for easier lookup
+    // Use the first available (null) slot in each entity's attachmentConnections so that
+    // multi-cell blocks can store more than one connection without overwriting.
+    const idx1 = entity1.findFreeAttachmentSlot();
+    const idx2 = entity2.findFreeAttachmentSlot();
+    entity1.connectTo(entity2, idx1, idx2);
+
     entity1.setConnectionOnSide(side, entity2.id);
-    
-    // Set the opposite side for entity2
-    const oppositeSide = this.getOppositeSide(side);
-    entity2.setConnectionOnSide(oppositeSide, entity1.id);
+    entity2.setConnectionOnSide(this.getOppositeSide(side), entity1.id);
     
     return true;
   }
