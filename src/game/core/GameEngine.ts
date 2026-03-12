@@ -26,6 +26,7 @@ import { ShockwaveRenderer } from '../rendering/ShockwaveRenderer';
 import { ParticleRenderer } from '../rendering/ParticleRenderer';
 import { StarfieldRenderer } from '../rendering/StarfieldRenderer';
 import { ParticleSystem } from '../systems/ParticleSystem';
+import { AsteroidFieldSystem } from '../systems/AsteroidFieldSystem';
 
 export class GameEngine {
   private engine: Matter.Engine;
@@ -79,6 +80,9 @@ export class GameEngine {
 
   // Block pickup system for drag-and-attach building
   private blockPickupSystem!: BlockPickupSystem;
+
+  // Procedural asteroid field (null when the current scenario doesn't use one)
+  private asteroidFieldSystem: AsteroidFieldSystem | null = null;
 
   // Current mouse position in world coordinates (updated every frame)
   private mouseWorldPos: Vector2 = { x: 0, y: 0 };
@@ -691,6 +695,10 @@ export class GameEngine {
     // Cleanup missile system
     this.missileSystem.cleanup();
 
+    // Cleanup asteroid field
+    this.asteroidFieldSystem?.dispose();
+    this.asteroidFieldSystem = null;
+
   } private gameLoop(): void {
     if (!this.running) return;
 
@@ -788,6 +796,11 @@ export class GameEngine {
 
     // Update camera — pilot mode or observer mode
     this.updateCamera(deltaTime);
+
+    // Stream asteroid chunks in/out based on camera position
+    if (this.asteroidFieldSystem) {
+      this.asteroidFieldSystem.update(this.getCameraCenter());
+    }
 
     // Update zoom based on speed
     this.updateSpeedBasedZoom();
@@ -1564,8 +1577,19 @@ export class GameEngine {
       this.blockPickupSystem.forceDropAtCurrentPosition();
     }
 
+    // Tear down any existing asteroid field before rebuilding the scene
+    this.asteroidFieldSystem?.dispose();
+    this.asteroidFieldSystem = null;
+
     this.toastSystem.showGameEvent(`${cfg.label} — Battle Start!`);
     this.observerPos = { x: 0, y: 0 };
+
+    if (cfg.spawnAsteroids) {
+      this.asteroidFieldSystem = new AsteroidFieldSystem(
+        (body) => Matter.World.add(this.world, body),
+        (body) => Matter.World.remove(this.world, body),
+      );
+    }
 
     if (cfg.sandboxMode) {
       this.spawnSandboxScenario();
