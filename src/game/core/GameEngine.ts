@@ -25,6 +25,7 @@ import { BeamRenderer } from '../rendering/BeamRenderer';
 import { ShockwaveRenderer } from '../rendering/ShockwaveRenderer';
 import { ParticleRenderer } from '../rendering/ParticleRenderer';
 import { StarfieldRenderer } from '../rendering/StarfieldRenderer';
+import { StrategicIconRenderer } from '../rendering/StrategicIconRenderer';
 import { ParticleSystem } from '../systems/ParticleSystem';
 import { AsteroidFieldSystem } from '../systems/AsteroidFieldSystem';
 
@@ -56,7 +57,7 @@ export class GameEngine {
   private playerCommand: string | null = null;
   private playerCommandTarget: Assembly | null = null;
   private zoomLevel: number = 0.05; // Will be calculated based on window size
-  private minZoom: number = 0.01; // Allow zooming out much further
+  private minZoom: number = 1 / 15; // Maximum 15× zoom out
   private maxZoom: number = 4; // Allow zooming in more
   private lastFrameTime: number = 0;
   private controllerManager: ControllerManager = new ControllerManager();
@@ -799,7 +800,11 @@ export class GameEngine {
 
     // Stream asteroid chunks in/out based on camera position
     if (this.asteroidFieldSystem) {
-      this.asteroidFieldSystem.update(this.getCameraCenter());
+      const b = this.render.bounds;
+      const halfW = (b.max.x - b.min.x) / 2;
+      const halfH = (b.max.y - b.min.y) / 2;
+      const viewportHalfDiag = Math.hypot(halfW, halfH);
+      this.asteroidFieldSystem.update(this.getCameraCenter(), viewportHalfDiag);
     }
 
     // Update zoom based on speed
@@ -1508,6 +1513,11 @@ export class GameEngine {
       () => this.assemblies,
       () => this.world,
     ));
+    this.renderSystem.register(new StrategicIconRenderer(
+      () => this.assemblies,
+      () => this.getAsteroidBodies(),
+      () => this.playerAssembly,
+    ));
     this.renderSystem.register(new BlockFrillsRenderer(
       () => this.assemblies,
       () => this.blockPickupSystem.getHeldAssembly(),
@@ -1982,6 +1992,24 @@ export class GameEngine {
 
   public getAllAssemblies(): Assembly[] {
     return [...this.assemblies]; // Return a copy to prevent external modification
+  }
+
+  /** All asteroid Matter.Body objects currently streamed into the world. */
+  public getAsteroidBodies(): Matter.Body[] {
+    return this.asteroidFieldSystem?.getAllBodies() ?? [];
+  }
+
+  /** Asteroid world positions within `range` units of `center` — lightweight for UI polling. */
+  public getAsteroidPositions(center: { x: number; y: number }, range: number): { x: number; y: number }[] {
+    const bodies = this.asteroidFieldSystem?.getAllBodies() ?? [];
+    const r2 = range * range;
+    return bodies
+      .filter(b => {
+        const dx = b.position.x - center.x;
+        const dy = b.position.y - center.y;
+        return dx * dx + dy * dy <= r2;
+      })
+      .map(b => ({ x: b.position.x, y: b.position.y }));
   }
 
   public selectAssemblyById(id: string): void {

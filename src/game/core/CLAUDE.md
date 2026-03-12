@@ -63,6 +63,7 @@ Matter.js compound bodies are created via `Matter.Body.create({ parts: [...] })`
 | 5  | `StarfieldRenderer` | Infinitely tiling parallax star field (4 depth layers) |
 | 10 | `GridRenderer` | Background grid lines |
 | 20 | `BlockBodyRenderer` | Ship/block bodies with `shadowBlur` glow; bullets/missiles without glow |
+| 21 | `StrategicIconRenderer` | Diamond/circle icons for objects too small to render at current zoom; greedy group-badge clustering |
 | 30 | `BlockFrillsRenderer` | Decorative frills on block edges |
 | 40 | `ShieldRenderer` | Shield gradient + collapse ring |
 | 22 | `ParticleRenderer` | Drives `ParticleSystem` — thrust puffs per engine, delegates impact/explosion to GameEngine |

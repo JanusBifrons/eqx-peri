@@ -1,20 +1,23 @@
 import * as Matter from 'matter-js';
 
 // ── Biome / zone constants ─────────────────────────────────────────────────
-/** Side length of a sector cell — one zone centre per sector (or none). */
-const SECTOR_SIZE      = 100_000;
-/** Probability that a given sector contains a zone. */
-const ZONE_PROBABILITY = 0.50;
-const ZONE_MIN_RADIUS  = 20_000;
-const ZONE_MAX_RADIUS  = 50_000;
+/**
+ * Side length of a sector cell.  Each sector may contain one zone centre.
+ * Smaller = denser fields, less empty space between them.
+ */
+const SECTOR_SIZE      = 30_000;
+/** Probability that a given sector contains a zone (excluding guaranteed zones). */
+const ZONE_PROBABILITY = 0.65;
+const ZONE_MIN_RADIUS  =  5_000;
+const ZONE_MAX_RADIUS  = 12_000;
 
 // ── Chunk streaming constants ──────────────────────────────────────────────
 /** Fine streaming grid side length. */
-const CHUNK_SIZE    = 3_000;
+const CHUNK_SIZE    = 2_000;
 /** Load chunks whose centre is within this distance of the camera. */
-const LOAD_RADIUS   = 15_000;
+const LOAD_RADIUS   = 10_000;
 /** Unload chunks beyond this (hysteresis gap prevents thrashing). */
-const UNLOAD_RADIUS = 20_000;
+const UNLOAD_RADIUS = 14_000;
 
 // ── Asteroid generation constants ──────────────────────────────────────────
 /** Max number of asteroid candidates per chunk (fewer actually spawn based on influence). */
@@ -111,11 +114,24 @@ export class AsteroidFieldSystem {
   /**
    * Call every game loop frame.  Streams asteroid chunks in and out around the
    * camera centre.
+   *
+   * @param viewportHalfDiag  Half-diagonal of the visible viewport in world
+   *   units (distance from camera centre to a screen corner).  When the player
+   *   zooms out the viewport grows, so we extend the load radius to match —
+   *   preventing chunks that are on-screen from being unloaded and popping out.
    */
-  public update(cameraCenter: Vec2): void {
+  public update(cameraCenter: Vec2, viewportHalfDiag: number = 0): void {
     const { x: cx, y: cy } = cameraCenter;
 
-    const chunkRadius = Math.ceil(LOAD_RADIUS / CHUNK_SIZE);
+    // Grow with the viewport so on-screen chunks aren't culled, but cap hard
+    // to bound the total body count.  Beyond the cap, far-edge asteroids may
+    // pop in/out slightly — acceptable given they'll show as icons anyway.
+    const MAX_LOAD   = LOAD_RADIUS   * 2;   // hard ceiling = 20 000 units → ≤ ~314 chunks
+    const MAX_UNLOAD = UNLOAD_RADIUS * 2;
+    const effectiveLoad   = Math.min(MAX_LOAD,   Math.max(LOAD_RADIUS,   viewportHalfDiag * 1.20));
+    const effectiveUnload = Math.min(MAX_UNLOAD, Math.max(UNLOAD_RADIUS, viewportHalfDiag * 1.50));
+
+    const chunkRadius = Math.ceil(effectiveLoad / CHUNK_SIZE);
     const camChunkX   = Math.floor(cx / CHUNK_SIZE);
     const camChunkY   = Math.floor(cy / CHUNK_SIZE);
 
@@ -127,7 +143,7 @@ export class AsteroidFieldSystem {
         const ccy = camChunkY + dy;
         const centreX = (ccx + 0.5) * CHUNK_SIZE;
         const centreY = (ccy + 0.5) * CHUNK_SIZE;
-        if (Math.hypot(cx - centreX, cy - centreY) <= LOAD_RADIUS) {
+        if (Math.hypot(cx - centreX, cy - centreY) <= effectiveLoad) {
           desired.add(`${ccx},${ccy}`);
         }
       }
@@ -147,10 +163,19 @@ export class AsteroidFieldSystem {
       const [ccxStr, ccyStr] = key.split(',');
       const centreX = (parseInt(ccxStr, 10) + 0.5) * CHUNK_SIZE;
       const centreY = (parseInt(ccyStr, 10) + 0.5) * CHUNK_SIZE;
-      if (Math.hypot(cx - centreX, cy - centreY) > UNLOAD_RADIUS) {
+      if (Math.hypot(cx - centreX, cy - centreY) > effectiveUnload) {
         this.unloadChunk(key, bodies);
       }
     }
+  }
+
+  /** Returns a flat list of every asteroid body currently loaded in the world. */
+  public getAllBodies(): Matter.Body[] {
+    const result: Matter.Body[] = [];
+    for (const bodies of this.activeChunks.values()) {
+      for (const b of bodies) result.push(b);
+    }
+    return result;
   }
 
   /** Remove all asteroid bodies from the world (call on scene teardown). */
@@ -165,8 +190,14 @@ export class AsteroidFieldSystem {
   /**
    * Returns the zone info for sector (sx, sy), or null if that sector is empty.
    * Deterministic — same sector always returns the same result.
+   *
+   * Sector (0,0) always contains a zone so the player starts inside a field.
    */
   private getZoneForSector(sx: number, sy: number): ZoneInfo | null {
+    if (sx === 0 && sy === 0) {
+      // Guaranteed spawn-area zone close to the origin.
+      return { x: 2_500, y: 1_800, radius: ZONE_MAX_RADIUS };
+    }
     const rng = mulberry32(gridSeed(sx, sy) ^ 0xdeadbeef);
     if (rng() > ZONE_PROBABILITY) return null;
     return {
@@ -178,10 +209,10 @@ export class AsteroidFieldSystem {
 
   /**
    * Returns the strongest zone influence [0–1] at world position (wx, wy).
-   * Checks the 3×3 neighbourhood of sectors around the point (a zone from an
-   * adjacent sector can extend this far into the current sector).
-   * Influence follows a quadratic falloff for a smooth biome gradient:
-   *   influence = clamp(1 − dist/zoneRadius, 0, 1)²
+   * Checks the 3×3 neighbourhood of sectors around the point.
+   * Linear falloff: influence = clamp(1 − dist/zoneRadius, 0, 1)
+   * This produces a gradual entry/exit to each field rather than the harsh
+   * t⁴ formula that made fields nearly invisible outside their exact centre.
    */
   private getZoneInfluence(wx: number, wy: number): number {
     const sx = Math.floor(wx / SECTOR_SIZE);
@@ -192,9 +223,8 @@ export class AsteroidFieldSystem {
       for (let dsy = -1; dsy <= 1; dsy++) {
         const zone = this.getZoneForSector(sx + dsx, sy + dsy);
         if (!zone) continue;
-        const dist  = Math.hypot(wx - zone.x, wy - zone.y);
-        const t     = Math.max(0, 1 - dist / zone.radius);
-        const influence = t * t;  // quadratic — gentle edge, dense core
+        const dist      = Math.hypot(wx - zone.x, wy - zone.y);
+        const influence = Math.max(0, 1 - dist / zone.radius);
         if (influence > maxInfluence) maxInfluence = influence;
       }
     }
@@ -213,8 +243,8 @@ export class AsteroidFieldSystem {
       const wx = cx * CHUNK_SIZE + rng() * CHUNK_SIZE;
       const wy = cy * CHUNK_SIZE + rng() * CHUNK_SIZE;
 
-      const influence  = this.getZoneInfluence(wx, wy);
-      const spawnChance = influence * influence * MAX_SPAWN_CHANCE;
+      const influence   = this.getZoneInfluence(wx, wy);
+      const spawnChance = influence * MAX_SPAWN_CHANCE;   // linear: gentle edges, dense core
       if (rng() >= spawnChance) continue;
 
       // Radius scales linearly with influence: small at edges, huge at core.

@@ -99,7 +99,9 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
     const [activeCommand, setActiveCommand] = useState<string | null>(null);
     const [commandTarget, setCommandTarget] = useState<string | null>(null);
     const [currentZoom, setCurrentZoom] = useState<number>(0.1);
-    const [currentSpeed, setCurrentSpeed] = useState<number>(0); const [speedBasedZoom, setSpeedBasedZoom] = useState<boolean>(true);
+    const [currentSpeed, setCurrentSpeed] = useState<number>(0);
+    const [speedBasedZoom, setSpeedBasedZoom] = useState<boolean>(true);
+    const [asteroidPositions, setAsteroidPositions] = useState<{ x: number; y: number }[]>([]);
 
     const selectedRowRef = useRef<HTMLTableRowElement | null>(null);
     const setSelectedRowRef = useCallback((el: HTMLTableRowElement | null) => {
@@ -127,6 +129,15 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
                     setRadarData(shipsWithDistance);
                 } else {
                     setRadarData(data);
+                }
+
+                // Asteroid positions for minimap (within radar range)
+                if (playerShip) {
+                    const asteroids = gameEngine.getAsteroidPositions(
+                        { x: playerShip.x, y: playerShip.y },
+                        10000,
+                    );
+                    setAsteroidPositions(asteroids);
                 }
 
                 // Update zoom and speed info from GameEngine
@@ -379,7 +390,35 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
                         borderRadius: 0.25
                     }}>
                         {(1 / currentZoom).toFixed(0)}x
-                    </Typography>                    {radarData.map((item) => {
+                    </Typography>                    {/* Asteroid blips */}
+                    {(() => {
+                        const playerShip = radarData.find(s => s.isPlayer);
+                        if (!playerShip) return null;
+                        const centerX = 140, centerY = 60;
+                        const radarScale = 50 / 10000;
+                        return asteroidPositions.map((ast, idx) => {
+                            const x = centerX + (ast.x - playerShip.x) * radarScale;
+                            const y = centerY + (ast.y - playerShip.y) * radarScale;
+                            if (x < 4 || x > 276 || y < 4 || y > 116) return null;
+                            return (
+                                <Box
+                                    key={`ast-${idx}`}
+                                    sx={{
+                                        position: 'absolute',
+                                        left: x - 1.5,
+                                        top:  y - 1.5,
+                                        width:  3,
+                                        height: 3,
+                                        borderRadius: '50%',
+                                        backgroundColor: '#6b5e52',
+                                        opacity: 0.75,
+                                    }}
+                                />
+                            );
+                        });
+                    })()}
+
+                    {radarData.map((item) => {
                         const playerShip = radarData.find(s => s.isPlayer);
                         if (!playerShip) return null;
 

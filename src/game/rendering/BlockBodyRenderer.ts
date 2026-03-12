@@ -58,12 +58,20 @@ export class BlockBodyRenderer implements IRenderer {
       }
     }
 
-    // --- Non-entity bodies (bullets, missiles, etc.) ---
+    // --- Non-entity bodies (bullets, missiles, asteroids, etc.) ---
     const worldBodies = Matter.Composite.allBodies(this.getWorld());
     for (const body of worldBodies) {
       if (body.render?.visible === false) continue;
       if (entityBodyIds.has(body.id)) continue;
       if (body.parent !== body) continue;
+
+      // Skip asteroids whose on-screen footprint is too small to see — they are
+      // rendered as icons by StrategicIconRenderer at that zoom level.  Avoids
+      // iterating thousands of sub-pixel polygon draw calls when zoomed out.
+      if (body.label === 'asteroid') {
+        const bw = (body.bounds.max.x - body.bounds.min.x) * scale;
+        if (bw < 2) continue;
+      }
 
       if (body.parts.length > 1) {
         for (let i = 1; i < body.parts.length; i++) {
