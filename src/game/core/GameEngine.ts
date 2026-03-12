@@ -60,11 +60,11 @@ export class GameEngine {
   private lastFrameTime: number = 0;
   private controllerManager: ControllerManager = new ControllerManager();
   private flightController: FlightController | null = null;  // Advanced flight control  // Zoom control properties
-  private baseZoomLevel: number = 0.05; // Start much further out to see more of the battlefield
+  private baseZoomLevel: number = 0.05; // Current eased base zoom (lerps toward targetBaseZoomLevel)
+  private targetBaseZoomLevel: number = 0.05; // Desired zoom set by scroll/piloting; baseZoomLevel eases here
   private speedBasedZoomEnabled: boolean = true;
   private lastManualZoomTime: number = 0; // Track when player last manually adjusted zoom
   private manualZoomCooldown: number = 2000; // 2 seconds of reduced speed-based zoom after manual adjustment
-  // private zoomSmoothingFactor: number = 0.02; // Smooth transitions - currently unused
 
   // Inertial dampening — linear velocity damping applied to the player body each frame when on
   private inertialDampeningEnabled: boolean = true;
@@ -92,6 +92,10 @@ export class GameEngine {
   private readonly EDGE_SCROLL_MARGIN = 8;    // CSS px from canvas edge that triggers scroll
   private lastTouchDistance: number = 0;
   private touchStartPos: { x: number; y: number } | null = null;
+  // Mouse drag-to-pan state (observer mode)
+  private observerDragActive: boolean = false;
+  private observerDragLastScreenPos: { x: number; y: number } | null = null;
+  private observerDragStartScreenPos: { x: number; y: number } | null = null;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -200,31 +204,17 @@ export class GameEngine {
   }
 
   private calculateDefaultZoom(containerWidth: number, containerHeight: number): void {
-    // Base zoom calculation - larger windows should zoom out more to show more battlefield
-    const minDimension = Math.min(containerWidth, containerHeight);
-    const maxDimension = Math.max(containerWidth, containerHeight);    // Calculate base zoom - smaller windows get closer zoom, larger windows get further zoom
-    let baseZoom = 0.3; // Default for small screens - much further out
+    // Show ~2000 world units across the canvas width by default.
+    // This gives a sensible battlefield overview on all screen sizes —
+    // larger monitors naturally see more of the world at the same pixel density.
+    const TARGET_WORLD_WIDTH = 2000;
+    const baseZoom = containerWidth / TARGET_WORLD_WIDTH;
 
-    if (minDimension >= 800) {
-      // Large screens - zoom out more to show more of the battlefield
-      const sizeMultiplier = Math.min(minDimension / 800, 2.5); // Cap at 2.5x multiplier
-      baseZoom = 0.3 / sizeMultiplier; // Inverse relationship - larger screen = smaller zoom = more zoomed out
-    } else if (minDimension >= 600) {
-      // Medium screens - moderate zoom out
-      const sizeMultiplier = minDimension / 600;
-      baseZoom = 0.3 / (1 + (sizeMultiplier - 1) * 0.5);
-    }
-
-    // Adjust for very wide screens (ultrawide monitors) - zoom out even more
-    const aspectRatio = maxDimension / minDimension;
-    if (aspectRatio > 1.8) {
-      const wideScreenMultiplier = Math.min(aspectRatio / 1.8, 1.5);
-      baseZoom = baseZoom / wideScreenMultiplier;
-    }    // Ensure the calculated zoom is within bounds
     this.baseZoomLevel = Math.max(this.minZoom, Math.min(this.maxZoom, baseZoom));
-    this.zoomLevel = this.baseZoomLevel; // Initialize current zoom
+    this.targetBaseZoomLevel = this.baseZoomLevel;
+    this.zoomLevel = this.baseZoomLevel;
 
-    console.log(`🔍 Calculated default zoom: ${this.baseZoomLevel.toFixed(2)} for ${containerWidth}x${containerHeight}`);
+    console.log(`🔍 Default zoom: ${this.baseZoomLevel.toFixed(2)} for ${containerWidth}×${containerHeight}`);
   }
 
   // Calculate zoom so the player's ship occupies roughly 1/SHIP_ZOOM_BUFFER of the viewport's
@@ -254,10 +244,15 @@ export class GameEngine {
     const zoomY = canvasH / (shipHeight * SHIP_ZOOM_BUFFER);
     const targetZoom = Math.min(zoomX, zoomY);
 
-    this.baseZoomLevel = Math.max(this.minZoom, Math.min(this.maxZoom, targetZoom));
-    this.zoomLevel = this.baseZoomLevel;
+    this.targetBaseZoomLevel = Math.max(this.minZoom, Math.min(this.maxZoom, targetZoom));
+    // Do not snap zoomLevel — let it ease toward the new target via updateSpeedBasedZoom.
+    // Only hard-snap baseZoomLevel on initial construction (zoomLevel == baseZoomLevel == 0.05).
+    if (this.zoomLevel === this.baseZoomLevel && this.baseZoomLevel === 0.05) {
+      this.baseZoomLevel = this.targetBaseZoomLevel;
+      this.zoomLevel = this.baseZoomLevel;
+    }
 
-    console.log(`🔍 Ship-based zoom: ${this.baseZoomLevel.toFixed(3)} (ship bounds: ${Math.round(shipWidth)}×${Math.round(shipHeight)})`);
+    console.log(`🔍 Ship-based zoom target: ${this.targetBaseZoomLevel.toFixed(3)} (ship bounds: ${Math.round(shipWidth)}×${Math.round(shipHeight)})`);
   }
 
   private setInitialCameraView(): void {
@@ -1139,6 +1134,25 @@ export class GameEngine {
       // Update world-space cursor position (used for weapon aiming and BlockPickupSystem)
       this.updateCursorWorldPosition();
 
+      // Observer drag-to-pan
+      if (this.observerDragLastScreenPos && !this.playerAssembly && !this.blockPickupSystem.isHolding()) {
+        const sx = this.mousePosition.x;
+        const sy = this.mousePosition.y;
+        // Activate once moved > 5 CSS px from where the button went down
+        if (!this.observerDragActive && this.observerDragStartScreenPos) {
+          const ddx = sx - this.observerDragStartScreenPos.x;
+          const ddy = sy - this.observerDragStartScreenPos.y;
+          if (Math.sqrt(ddx * ddx + ddy * ddy) > 5) this.observerDragActive = true;
+        }
+        if (this.observerDragActive) {
+          const prev = this.screenToWorld(this.observerDragLastScreenPos.x, this.observerDragLastScreenPos.y);
+          const curr = this.screenToWorld(sx, sy);
+          this.observerPos.x -= curr.x - prev.x;
+          this.observerPos.y -= curr.y - prev.y;
+          this.observerDragLastScreenPos = { x: sx, y: sy };
+        }
+      }
+
       if (this.blockPickupSystem.isHolding()) {
         // Actively dragging — skip hover detection and show grabbing cursor
         this.setHoveredAssembly(null);
@@ -1146,6 +1160,11 @@ export class GameEngine {
       } else if (this.blockPickupSystem.isPendingPickup()) {
         // Mousedown on a block, waiting for hold/drag threshold — keep grab cursor
         this.setHoveredAssembly(null);
+        this.render.canvas.style.cursor = 'grab';
+      } else if (this.observerDragActive) {
+        this.render.canvas.style.cursor = 'grabbing';
+      } else if (!this.playerAssembly && this.observerDragLastScreenPos) {
+        // Mouse is down in observer mode but drag not yet started
         this.render.canvas.style.cursor = 'grab';
       } else {
         // Normal hover detection
@@ -1165,6 +1184,9 @@ export class GameEngine {
                    this.playerAssembly!.canDetachEntity(e);
           });
           this.render.canvas.style.cursor = isDetachable ? 'grab' : 'crosshair';
+        } else if (!this.playerAssembly) {
+          // Observer mode, hovering empty space — hint that panning is available
+          this.render.canvas.style.cursor = 'grab';
         } else {
           this.render.canvas.style.cursor = 'crosshair';
         }
@@ -1194,6 +1216,12 @@ export class GameEngine {
           this.mouseDown = false; // suppress weapon fire while holding
         } else {
           this.mouseDown = true;
+          // Observer mode: begin tracking for drag-to-pan
+          if (!this.playerAssembly) {
+            this.observerDragLastScreenPos = { x: screenX, y: screenY };
+            this.observerDragStartScreenPos = { x: screenX, y: screenY };
+            this.observerDragActive = false;
+          }
         }
       } else if (event.button === 2) { // Right mouse button
         this.handleRightClick(event);
@@ -1205,8 +1233,12 @@ export class GameEngine {
         // Always call tryRelease so pendingPickupState is cleared even on quick clicks
         this.blockPickupSystem.tryRelease();
         this.mouseDown = false;
-        // Suppress the click event that the browser fires after mouseup when a drag occurred
-        this.dragJustCompleted = wasDragging;
+        // Suppress the click event that fires after a drag pan or block drag
+        this.dragJustCompleted = wasDragging || this.observerDragActive;
+        // Reset observer drag state
+        this.observerDragActive = false;
+        this.observerDragLastScreenPos = null;
+        this.observerDragStartScreenPos = null;
       }
     });    // Add click event for target selection
     this.render.canvas.addEventListener('click', (event) => {
@@ -1301,7 +1333,7 @@ export class GameEngine {
         const newDist = Math.sqrt(dx * dx + dy * dy);
         if (this.lastTouchDistance > 0) {
           const ratio = newDist / this.lastTouchDistance;
-          this.baseZoomLevel = Math.max(this.minZoom, Math.min(this.maxZoom, this.baseZoomLevel * ratio));
+          this.targetBaseZoomLevel = Math.max(this.minZoom, Math.min(this.maxZoom, this.targetBaseZoomLevel * ratio));
           this.lastManualZoomTime = Date.now();
         }
         this.lastTouchDistance = newDist;
@@ -1358,22 +1390,14 @@ export class GameEngine {
     // is now handled in handleCanvasClick which is called by the click event
     console.log('🖱️ Right click detected - targeting handled by click event');
   } private handleMouseWheel(event: WheelEvent): void {
-    // Zoom in/out based on wheel direction (inverted for natural feel)
-    const zoomFactor = event.deltaY > 0 ? 0.9 : 1.1; // Wheel down = zoom out, wheel up = zoom in
+    // Accumulate scroll in log-space so each notch is a consistent percentage change
+    // regardless of current zoom level. 0.065 per notch ≈ 6.5% — gradual and smooth.
+    const LOG_STEP = 0.065;
+    const logTarget = Math.log(this.targetBaseZoomLevel) + (event.deltaY > 0 ? -LOG_STEP : LOG_STEP);
+    this.targetBaseZoomLevel = Math.max(this.minZoom, Math.min(this.maxZoom, Math.exp(logTarget)));
 
-    // Apply zoom to baseZoomLevel instead of zoomLevel so it persists and isn't overwritten by speed-based zoom
-    this.baseZoomLevel *= zoomFactor;
-
-    // Clamp base zoom level
-    this.baseZoomLevel = Math.max(this.minZoom, Math.min(this.maxZoom, this.baseZoomLevel));
-
-    // Record that the player manually adjusted zoom
+    // Record that the player manually adjusted zoom (suppresses speed-based zoom briefly)
     this.lastManualZoomTime = Date.now();
-
-    console.log(`🔍 Mouse Wheel Zoom: ${this.baseZoomLevel.toFixed(3)}`);
-
-    // The actual zoom application will happen in updateCameraWithMouse() which uses this.zoomLevel
-    // this.zoomLevel is calculated in updateSpeedBasedZoom() based on baseZoomLevel
   }
   /** Camera update dispatcher — pilot mode follows the player ship; observer mode pans freely. */
   private updateCamera(deltaTime: number): void {
@@ -2125,15 +2149,13 @@ export class GameEngine {
   }
   // Zoom control methods
   public zoomIn(): void {
-    this.baseZoomLevel = Math.min(this.baseZoomLevel * 1.5, this.maxZoom);
+    this.targetBaseZoomLevel = Math.min(this.targetBaseZoomLevel * 1.5, this.maxZoom);
     this.lastManualZoomTime = Date.now();
-    console.log(`🔍 Zoom In: ${this.baseZoomLevel.toFixed(2)}`);
   }
 
   public zoomOut(): void {
-    this.baseZoomLevel = Math.max(this.baseZoomLevel * 0.67, this.minZoom);
+    this.targetBaseZoomLevel = Math.max(this.targetBaseZoomLevel * 0.67, this.minZoom);
     this.lastManualZoomTime = Date.now();
-    console.log(`🔍 Zoom Out: ${this.baseZoomLevel.toFixed(2)}`);
   } public resetZoom(): void {
     if (this.playerAssembly) {
       this.calculateZoomForAssembly(this.playerAssembly);
@@ -2177,9 +2199,15 @@ export class GameEngine {
     return Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
   }  // Update zoom based on speed - call this in the update loop
   private updateSpeedBasedZoom(): void {
+    // Step 1: ease baseZoomLevel toward the scroll/pilot target (smooth scroll feel).
+    // Use a moderate lerp factor so rapid scroll-wheel flicks accumulate gracefully.
+    const BASE_EASE = 0.10;
+    this.baseZoomLevel += (this.targetBaseZoomLevel - this.baseZoomLevel) * BASE_EASE;
+
     if (!this.speedBasedZoomEnabled || !this.playerAssembly) {
-      // In observer mode or when speed-based zoom is off, use the base zoom directly
-      this.zoomLevel = this.baseZoomLevel;
+      // Observer mode: just ease zoomLevel toward baseZoomLevel
+      const observerEase = 0.08;
+      this.zoomLevel += (this.baseZoomLevel - this.zoomLevel) * observerEase;
       return;
     }
 
@@ -2189,31 +2217,41 @@ export class GameEngine {
     // If player recently manually adjusted zoom, reduce or disable speed-based zoom temporarily
     let speedZoomInfluence = 1.0;
     if (timeSinceManualZoom < this.manualZoomCooldown) {
-      // Gradually fade in speed-based zoom over the cooldown period
       speedZoomInfluence = timeSinceManualZoom / this.manualZoomCooldown;
     }
 
     const speed = this.getCurrentSpeed();
 
-    // Calculate speed-based zoom adjustment as a percentage (max 50% zoom out)
-    const maxSpeedZoomPercent = 0.50 * speedZoomInfluence;
-    const speedThreshold = 20; // Speed at which max zoom out is reached
-    const speedPercent = Math.min(speed / speedThreshold, 1.0);
+    // Scale the speed threshold by ship size so larger ships need higher speed to trigger zoom-out.
+    // Reference radius ~80px (small fighter). Larger ships feel slower so their threshold rises.
+    const assemblyRadius = this.getAssemblyBoundingRadius(this.playerAssembly);
+    const SIZE_REFERENCE = 80;
+    const sizeAdjustedThreshold = 20 * Math.sqrt(assemblyRadius / SIZE_REFERENCE);
+
+    // Max 40% zoom-out at full speed (slightly reduced from 50% for a subtler feel)
+    const maxSpeedZoomPercent = 0.40 * speedZoomInfluence;
+    const speedPercent = Math.min(speed / sizeAdjustedThreshold, 1.0);
     const zoomOutPercent = speedPercent * maxSpeedZoomPercent;
 
-    // Apply the zoom out percentage to the player's chosen base zoom level
-    const targetZoom = this.baseZoomLevel * (1 - zoomOutPercent);
-    const clampedTargetZoom = Math.max(this.minZoom, targetZoom);
+    // Target zoom combines player's chosen base with speed adjustment
+    const targetZoom = Math.max(this.minZoom, this.baseZoomLevel * (1 - zoomOutPercent));
 
-    // Smooth but responsive transition
-    const smoothingFactor = 0.05;
-    this.zoomLevel += (clampedTargetZoom - this.zoomLevel) * smoothingFactor;
+    // Smooth ease-out for zoom-in (slower = more satisfying), faster ease-in for zoom-out
+    const zoomingOut = targetZoom < this.zoomLevel;
+    const smoothingFactor = zoomingOut ? 0.04 : 0.06;
+    this.zoomLevel += (targetZoom - this.zoomLevel) * smoothingFactor;
+  }
 
-    // Debug logging (uncomment to see zoom changes)
-   
-    // if (speed > 1 || speedZoomInfluence < 1) {
-    //   console.log(`🔍 Speed: ${speed.toFixed(1)}, BaseZoom: ${this.baseZoomLevel.toFixed(3)}, Influence: ${(speedZoomInfluence * 100).toFixed(0)}%, ZoomOut%: ${(zoomOutPercent * 100).toFixed(1)}%, Target: ${clampedTargetZoom.toFixed(3)}, Current: ${this.zoomLevel.toFixed(3)}`);
-    // }
+  /** Returns the bounding radius of an assembly (furthest entity edge from origin). */
+  private getAssemblyBoundingRadius(assembly: Assembly): number {
+    let maxR = 0;
+    assembly.entities.forEach(entity => {
+      const def = ENTITY_DEFINITIONS[entity.type];
+      const r = Math.sqrt(entity.localOffset.x ** 2 + entity.localOffset.y ** 2)
+               + Math.max(def.width, def.height) / 2;
+      if (r > maxR) maxR = r;
+    });
+    return Math.max(maxR, 50);
   }
 
   public getPlayerAssembly(): Assembly | null {
@@ -2546,6 +2584,9 @@ export class GameEngine {
     this.controllerManager.createPlayerController(assembly);
     PowerSystem.getInstance().setPlayerAssembly(assembly);
     this.toastSystem.showSuccess(`Piloting ${assembly.shipName}`);
+
+    // Smoothly zoom to a ship-appropriate level (eases in over ~1 second)
+    this.calculateZoomForAssembly(assembly);
   }
 
   /** Return the current ship to AI and go back to observer mode. */
