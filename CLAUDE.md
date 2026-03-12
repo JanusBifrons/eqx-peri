@@ -57,7 +57,7 @@ src/
 - "Width" of a ship = its Y extent in grid units, not its part count.
 - `applyThrust` takes **ship-local** input. World-space vectors must be rotated by `−shipAngle` first.
 
-**Multi-cell (rectangular) blocks (`RectHull`, future rect variants):**
+**Multi-cell (rectangular) blocks (`RectHull`, `Hull1x3`, `Hull1x4`, `Hull2x2`) and triangle blocks (`TriHull`, `TriHull2x1`, `TriHull3x1`, `TriHull2x2`):**
 - `EntityTypeDefinition` has optional `gridCols?: number` and `gridRows?: number` (default 1 each).
 - `localOffset` = **anchor** = top-left cell of the block's footprint in current orientation. Always at an integer multiple of `GRID_SIZE`. The physics body centre is offset from the anchor by `getEntityBodyOffset(type, rotation)`.
 - For rotation 0/180: `effectiveCols = gridCols, effectiveRows = gridRows`. For 90/270: cols and rows swap.
@@ -65,6 +65,8 @@ src/
 - `buildConnectionGraph`, `canDetachEntity`, `findBestSnap`, `computePreviewOffsets`, and `renderAvailableSlots` all use `getEntityOccupiedGridCells` so multi-cell blocks connect correctly on all perimeter edges.
 - `Entity.findFreeAttachmentSlot()` finds the first null slot in `attachmentConnections`, preventing multi-connection overwrites when a multi-cell block has several neighbours on the same logical side.
 - `createFreshBody` uses `entity.localOffset + getEntityBodyOffset(type, rotation)` as the reference body position (not just `entity.localOffset`) for correct COM-compensation when the compound is rebuilt.
+- **Triangle hull body creation**: all `TriHull*` types use `Matter.Bodies.fromVertices([verts], opts)` followed immediately by `Matter.Body.setPosition(body, {bodyX, bodyY})` to defeat Matter.js's internal centroid re-centering. `getTriHullVertices(type, rotation)` returns vertices **centred at the geometric centroid** (centroid = {0,0}); each 90° CW step applies `(x,y)→(−y,x)`. `getEntityBodyOffset` returns a rotation-dependent offset: `{W/3−GRID_SIZE/2, H/3−GRID_SIZE/2}` at rot 0, so the bounding-box edges land exactly on grid-cell borders for flush snapping. `Matter.Body.rotate` is NOT called (rotation baked into vertices). RA progression: rot 0 = NW, rot 90 = NE, rot 180 = SE, rot 270 = SW. Blocked sides: east+south at rot 0 (hypotenuse).
+- **`blockedSidesBase` / `getBlockedConnectionDirs(type, rotation)`**: optional field on `EntityTypeDefinition` listing sides (at rotation 0) with no physical face. For all `TriHull*` variants `blockedSidesBase = ['east','south']`. `getBlockedConnectionDirs` rotates them by 90° CCW per `rotation/90` step. Used in `buildConnectionGraph`, `canDetachEntity`, `findBestSnap`, and the snap hint renderer to prevent connections on the hypotenuse.
 
 **Block pickup / assembly building (`BlockPickupSystem`):**
 - Lives in `src/game/systems/BlockPickupSystem.ts`; instantiated by `GameEngine` (not a singleton).

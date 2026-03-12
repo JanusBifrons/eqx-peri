@@ -2,7 +2,7 @@ import * as Matter from 'matter-js';
 import * as PIXI from 'pixi.js';
 import { Assembly } from '../core/Assembly';
 import { Entity } from '../core/Entity';
-import { Vector2, GRID_SIZE, ENTITY_DEFINITIONS, getEntityOccupiedGridCells, getEntityBodyOffset } from '../../types/GameTypes';
+import { Vector2, GRID_SIZE, ENTITY_DEFINITIONS, getEntityOccupiedGridCells, getEntityBodyOffset, getBlockedConnectionDirs } from '../../types/GameTypes';
 import { Viewport } from '../rendering/Viewport';
 
 interface SnapCandidate {
@@ -441,6 +441,10 @@ export class BlockPickupSystem {
           const slotGrid: Vector2 = { x: targetCell.x + localDir.x, y: targetCell.y + localDir.y };
           if (occupiedGridCells.has(`${slotGrid.x},${slotGrid.y}`)) continue;
 
+          // Skip if the target entity has no face on this side (e.g. TriHull hypotenuse)
+          const targetBlocked = getBlockedConnectionDirs(targetEntity.type, targetEntity.rotation);
+          if (targetBlocked.some(b => b.x === localDir.x && b.y === localDir.y)) continue;
+
           const slotWorldX = cellWorldX + (localDir.x * cosP - localDir.y * sinP) * GRID_SIZE;
           const slotWorldY = cellWorldY + (localDir.x * sinP + localDir.y * cosP) * GRID_SIZE;
           const slotLocalOffset: Vector2 = { x: slotGrid.x * GRID_SIZE, y: slotGrid.y * GRID_SIZE };
@@ -468,6 +472,11 @@ export class BlockPickupSystem {
               const dy = heldCellWorldY - slotWorldY;
               const dist = Math.sqrt(dx * dx + dy * dy);
               if (dist < threshold) {
+                // Skip if the held entity has no face on the side that would touch the target
+                // (direction from held cell toward target is the reverse of localDir)
+                const heldBlocked = getBlockedConnectionDirs(heldEntity.type, effectiveRot);
+                if (heldBlocked.some(b => b.x === -localDir.x && b.y === -localDir.y)) continue;
+
                 // Adjust candidateLocalOffset so THIS cell lands at slotLocalOffset.
                 const heldCellOffX = heldCell.x * GRID_SIZE - heldEntity.localOffset.x;
                 const heldCellOffY = heldCell.y * GRID_SIZE - heldEntity.localOffset.y;
@@ -762,6 +771,9 @@ export class BlockPickupSystem {
             const slotGx = tCell.x + dir.x;
             const slotGy = tCell.y + dir.y;
             if (occupiedOffsets.has(`${slotGx * GRID_SIZE},${slotGy * GRID_SIZE}`)) continue;
+            // Skip blocked sides (e.g. TriHull hypotenuse)
+            const tBlocked = getBlockedConnectionDirs(targetEntity.type, targetEntity.rotation);
+            if (tBlocked.some(b => b.x === dir.x && b.y === dir.y)) continue;
 
             const tCellRelX = tCell.x * GRID_SIZE - (targetEntity.localOffset.x + tBodyOff.x);
             const tCellRelY = tCell.y * GRID_SIZE - (targetEntity.localOffset.y + tBodyOff.y);

@@ -1,6 +1,6 @@
 import * as Matter from 'matter-js';
 import * as PIXI from 'pixi.js';
-import { EntityConfig, EntityType, ENTITY_DEFINITIONS, Vector2, GRID_SIZE, AttachmentConnection, getEntityBodyOffset } from '../../types/GameTypes';
+import { EntityConfig, EntityType, ENTITY_DEFINITIONS, Vector2, GRID_SIZE, AttachmentConnection, getEntityBodyOffset, getTriHullVertices } from '../../types/GameTypes';
 import { Viewport } from '../rendering/Viewport';
 
 export class Entity {
@@ -67,31 +67,46 @@ export class Entity {
     const bodyX = config.x + bodyOff.x;
     const bodyY = config.y + bodyOff.y;
 
-    // Create Matter.js body at exact position with enhanced physics and visual styling
-    this.body = Matter.Bodies.rectangle(
-      bodyX,
-      bodyY,
-      definition.width,
-      definition.height,
-      {
-        mass: definition.mass,
-        frictionAir: 0, // No air resistance in space
-        friction: 0, // No surface friction in space
-        restitution: 0.2, // Low bounce - space debris doesn't bounce much
-        inertia: definition.mass * (definition.width * definition.width + definition.height * definition.height) / 12, // Realistic rotational inertia
-        render: {
-          fillStyle: this.getSolidHullColor(this.type), // Solid grey hull colors
-          strokeStyle: this.getHullStrokeColor(this.type), // Darker grey borders for depth
-          lineWidth: 3 // Moderate border thickness for solid appearance
-        }
-      }
-    );
+    // Create Matter.js body — triangles use fromVertices; all other shapes use rectangle.
+    const renderOpts = {
+      fillStyle: this.getSolidHullColor(this.type),
+      strokeStyle: this.getHullStrokeColor(this.type),
+      lineWidth: 3,
+    };
+    if (this.type === 'TriHull' || this.type === 'TriHull2x1' || this.type === 'TriHull3x1' || this.type === 'TriHull2x2') {
+      const verts = getTriHullVertices(this.type, this.rotation);
+      this.body = Matter.Bodies.fromVertices(
+        bodyX,
+        bodyY,
+        [verts as unknown as Matter.Vector[]],
+        { mass: definition.mass, frictionAir: 0, friction: 0, restitution: 0.2, render: renderOpts },
+      );
+      // Matter.js fromVertices recomputes its own centroid internally and can place the body
+      // at a slightly different position than requested.  Force the exact position here.
+      Matter.Body.setPosition(this.body, { x: bodyX, y: bodyY });
+    } else {
+      this.body = Matter.Bodies.rectangle(
+        bodyX,
+        bodyY,
+        definition.width,
+        definition.height,
+        {
+          mass: definition.mass,
+          frictionAir: 0,
+          friction: 0,
+          restitution: 0.2,
+          inertia: definition.mass * (definition.width * definition.width + definition.height * definition.height) / 12,
+          render: renderOpts,
+        },
+      );
+    }
 
     // Store reference to this entity in the body
     this.body.entity = this;
 
-    // Apply rotation
-    if (this.rotation !== 0) {
+    // Triangle hulls skip rotation — it is already baked into the vertex positions.
+    const isTriangle = this.type === 'TriHull' || this.type === 'TriHull2x1' || this.type === 'TriHull3x1' || this.type === 'TriHull2x2';
+    if (this.rotation !== 0 && !isTriangle) {
       Matter.Body.rotate(this.body, (this.rotation * Math.PI) / 180);
     }
   }

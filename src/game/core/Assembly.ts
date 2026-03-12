@@ -1,6 +1,6 @@
 import * as Matter from 'matter-js';
 import { Entity } from './Entity';
-import { EntityConfig, Vector2, EntityType, ENTITY_DEFINITIONS, ShieldState, SHIELD_REGEN_DELAY_MS, SHIELD_REGEN_DURATION_MS, SHIELD_COLLAPSE_COOLDOWN_MS, getEntityOccupiedGridCells, getEntityBodyOffset } from '../../types/GameTypes';
+import { EntityConfig, Vector2, EntityType, ENTITY_DEFINITIONS, ShieldState, SHIELD_REGEN_DELAY_MS, SHIELD_REGEN_DURATION_MS, SHIELD_COLLAPSE_COOLDOWN_MS, getEntityOccupiedGridCells, getEntityBodyOffset, getBlockedConnectionDirs } from '../../types/GameTypes';
 import { PowerSystem } from '../systems/PowerSystem';
 import { MissileType } from '../weapons/Missile';
 
@@ -906,10 +906,14 @@ export class Assembly {
 
     const dirs = [{ dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 }];
     remaining.forEach(e => {
+      const blockedA = getBlockedConnectionDirs(e.type, e.rotation);
       getEntityOccupiedGridCells(e.localOffset, e.type, e.rotation).forEach(cell => {
         dirs.forEach(({ dx, dy }) => {
+          if (blockedA.some(b => b.x === dx && b.y === dy)) return;
           const nbr = gridMap.get(`${cell.x + dx},${cell.y + dy}`);
           if (!nbr || nbr === e) return;
+          const blockedB = getBlockedConnectionDirs(nbr.type, nbr.rotation);
+          if (blockedB.some(b => b.x === -dx && b.y === -dy)) return;
           if (this.canEntitiesConnect(e, nbr)) {
             adj.get(e.id)!.add(nbr.id);
             adj.get(nbr.id)!.add(e.id);
@@ -1528,11 +1532,20 @@ export class Assembly {
 
     this.entities.forEach(entity => {
       const cells = getEntityOccupiedGridCells(entity.localOffset, entity.type, entity.rotation);
+      const blockedA = getBlockedConnectionDirs(entity.type, entity.rotation);
       cells.forEach(cell => {
         directions.forEach(dir => {
+          // Skip if this entity has no face in this direction (e.g. TriHull hypotenuse)
+          if (blockedA.some(b => b.x === dir.dx && b.y === dir.dy)) return;
+
           const neighbourKey = `${cell.x + dir.dx},${cell.y + dir.dy}`;
           const neighbour = gridMap.get(neighbourKey);
-          if (!neighbour || neighbour === entity) return; // skip missing / self
+          if (!neighbour || neighbour === entity) return;
+
+          // Skip if the neighbour has no face toward this entity
+          const blockedB = getBlockedConnectionDirs(neighbour.type, neighbour.rotation);
+          if (blockedB.some(b => b.x === -dir.dx && b.y === -dir.dy)) return;
+
           if (this.canEntitiesConnect(entity, neighbour)) {
             if (this.createGridConnection(entity, neighbour, dir.side)) {
               connectionCount++;
