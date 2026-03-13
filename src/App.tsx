@@ -8,6 +8,7 @@ import MainMenu from './ui/MainMenu';
 import SettingsPanel from './ui/SettingsPanel';
 import ShipActionPanel from './ui/ShipActionPanel';
 import ConfirmDialog from './ui/ConfirmDialog';
+import PerformanceBar from './ui/PerformanceBar';
 import {
   Box,
   Button,
@@ -15,6 +16,7 @@ import {
   createTheme
 } from '@mui/material';
 import { ScenarioConfig } from './types/GameTypes';
+import { PERF_BAR_HEIGHT } from './ui/PerformanceBar';
 
 // Create a dark theme for the space game
 const darkTheme = createTheme({
@@ -59,6 +61,11 @@ const App: React.FC = () => {
   const [gameEngine, setGameEngine] = useState<GameEngine | null>(null);
   const [screen, setScreen] = useState<AppScreen>('main-menu');
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [showPerfBar, setShowPerfBar] = useState(false);
+
+  const handlePerfBarChange = (visible: boolean): void => {
+    setShowPerfBar(visible);
+  };
 
   const returnToMenu = (): void => {
     if (gameEngineRef.current) {
@@ -125,7 +132,7 @@ const App: React.FC = () => {
             onClick={() => setConfirmOpen(true)}
             sx={{
               position: 'absolute',
-              top: 10,
+              top: showPerfBar ? PERF_BAR_HEIGHT + 10 : 10,
               left: 10,
               zIndex: 1100,
               fontSize: '0.7rem',
@@ -146,7 +153,7 @@ const App: React.FC = () => {
         <Box
           sx={{
             position: 'absolute',
-            top: 10,
+            top: showPerfBar ? PERF_BAR_HEIGHT + 10 : 10,
             right: 10,
             display: 'flex',
             flexDirection: 'row',
@@ -170,7 +177,10 @@ const App: React.FC = () => {
         <FlightControls gameEngine={gameEngine} />
 
         {/* Settings panel - bottom left */}
-        <SettingsPanel gameEngine={gameEngine} />
+        <SettingsPanel gameEngine={gameEngine} onPerfBarChange={handlePerfBarChange} />
+
+        {/* Performance bar - top of screen, toggled via Settings */}
+        <PerformanceBar gameEngine={gameEngine} visible={showPerfBar} />
 
 
         {/* Return-to-menu confirm dialog */}

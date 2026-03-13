@@ -24,6 +24,7 @@ import { SoundSystem } from '../game/systems/SoundSystem';
 // ── Storage keys ────────────────────────────────────────────────────────────
 const STORAGE_KEY_DEBUG         = 'eqx_physicsDebug';
 const STORAGE_KEY_DEBUG_ONLY    = 'eqx_physicsDebugOnly';
+const STORAGE_KEY_PERF_BAR      = 'eqx_perfBar';
 const STORAGE_KEY_MASTER_VOL    = 'eqx_masterVolume';
 const STORAGE_KEY_MUSIC_VOL     = 'eqx_musicVolume';
 const STORAGE_KEY_SFX_VOL       = 'eqx_sfxVolume';
@@ -56,15 +57,17 @@ const loadAudioSettings = (): AudioSettings => ({
 
 interface SettingsPanelProps {
   gameEngine: GameEngine | null;
+  onPerfBarChange: (visible: boolean) => void;
 }
 
-const SettingsPanel: React.FC<SettingsPanelProps> = ({ gameEngine }) => {
+const SettingsPanel: React.FC<SettingsPanelProps> = ({ gameEngine, onPerfBarChange }) => {
   const [open,    setOpen]    = useState(false);
   const [activeTab, setActiveTab] = useState(0);
 
   // General tab — draft state, applied only on OK.
   const [draftDebug,     setDraftDebug]     = useState(false);
   const [draftDebugOnly, setDraftDebugOnly] = useState(false);
+  const [draftPerfBar,   setDraftPerfBar]   = useState(false);
 
   // Audio tab — applied immediately for live preview; Cancel reverts.
   const [masterVolume,  setMasterVolume]  = useState(0.5);
@@ -85,6 +88,9 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ gameEngine }) => {
     const debugOnly = localStorage.getItem(STORAGE_KEY_DEBUG_ONLY) === 'true';
     if (debug) gameEngine.setDebugPhysics(true, debugOnly);
 
+    // Performance bar
+    onPerfBarChange(localStorage.getItem(STORAGE_KEY_PERF_BAR) === 'true');
+
     // Audio — apply volumes and honour the music-enabled flag.
     // Volumes are safe to set before or after SoundSystem.init(); the stored
     // settings.* values are read by init() when it creates the gain nodes.
@@ -103,6 +109,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ gameEngine }) => {
   const handleOpen = (): void => {
     setDraftDebug(localStorage.getItem(STORAGE_KEY_DEBUG) === 'true');
     setDraftDebugOnly(localStorage.getItem(STORAGE_KEY_DEBUG_ONLY) === 'true');
+    setDraftPerfBar(localStorage.getItem(STORAGE_KEY_PERF_BAR) === 'true');
 
     // Mirror the live SoundSystem state so sliders start at their real values.
     const ss = SoundSystem.getInstance();
@@ -140,6 +147,10 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ gameEngine }) => {
     localStorage.setItem(STORAGE_KEY_DEBUG,      String(draftDebug));
     localStorage.setItem(STORAGE_KEY_DEBUG_ONLY, String(draftDebug && draftDebugOnly));
     gameEngine?.setDebugPhysics(draftDebug, draftDebug && draftDebugOnly);
+
+    // Persist and apply performance bar toggle.
+    localStorage.setItem(STORAGE_KEY_PERF_BAR, String(draftPerfBar));
+    onPerfBarChange(draftPerfBar);
 
     // Persist audio (already live).
     localStorage.setItem(STORAGE_KEY_MASTER_VOL,    String(masterVolume));
@@ -273,6 +284,16 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ gameEngine }) => {
                 slotProps={{ typography: { color: draftDebug ? 'text.primary' : 'text.disabled' } }}
               />
             </Box>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={draftPerfBar}
+                  onChange={(e) => setDraftPerfBar(e.target.checked)}
+                />
+              }
+              label="Show Performance Bar"
+              sx={{ mt: 1 }}
+            />
           </Box>
 
           {/* ── Audio ───────────────────────────────────────────────────── */}

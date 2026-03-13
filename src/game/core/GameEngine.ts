@@ -2,7 +2,7 @@ import * as Matter from 'matter-js';
 import Stats from 'stats.js';
 import { Assembly } from './Assembly';
 import { Entity } from './Entity';
-import { EntityConfig, GRID_SIZE, ENTITY_DEFINITIONS, EntityType, ScenarioConfig, SCENARIOS, SHIP_SPAWN_SPACING, Vector2 } from '../../types/GameTypes';
+import { EntityConfig, GRID_SIZE, ENTITY_DEFINITIONS, EntityType, ScenarioConfig, SCENARIOS, SHIP_SPAWN_SPACING, Vector2, PerformanceMetrics } from '../../types/GameTypes';
 import shipsData from '../../data/ships.json';
 import { ControllerManager } from '../ai/ControllerManager';
 import { FlightController } from '../ai/FlightController';
@@ -74,6 +74,18 @@ export class GameEngine {
 
   // Stats.js for FPS monitoring
   private stats: Stats;
+
+  // Performance metrics tracking
+  private perfFrameCount: number = 0;          // frames counted in current 1s window
+  private perfFpsWindowStart: number = 0;      // timestamp when current window began
+  private perfDisplayFps: number = 0;          // last committed FPS value
+  private perfLastTickMs: number = 0;
+  private perfCollisionEventsInWindow: number = 0;
+  private perfCollisionWindowStart: number = 0;
+  private perfCollisionsPerSecond: number = 0;
+  private perfMemorySamples: number[] = [];    // MB samples, capped at 5
+  private perfMemoryLastSampleTime: number = 0;
+
   private scenarioConfig: ScenarioConfig = SCENARIOS['debug'];
 
   // Toast system for game events
@@ -334,6 +346,7 @@ export class GameEngine {
     });
   } private setupCollisionDetection(): void {
     Matter.Events.on(this.engine, 'collisionStart', (event: { pairs: { bodyA: Matter.Body; bodyB: Matter.Body }[] }) => {
+      this.perfCollisionEventsInWindow += event.pairs.length;
       event.pairs.forEach(pair => {
         const { bodyA, bodyB } = pair;
 
@@ -708,6 +721,34 @@ export class GameEngine {
     const deltaTime = (currentTime - (this.lastFrameTime || currentTime)) / 1000; // Convert ms to seconds
     this.lastFrameTime = currentTime;
 
+    // Count frames in a 1-second window for accurate FPS
+    this.perfFrameCount++;
+    if (this.perfFpsWindowStart === 0) this.perfFpsWindowStart = currentTime;
+    const fpsDelta = currentTime - this.perfFpsWindowStart;
+    if (fpsDelta >= 1000) {
+      this.perfDisplayFps = Math.round(this.perfFrameCount * 1000 / fpsDelta);
+      this.perfFrameCount = 0;
+      this.perfFpsWindowStart = currentTime;
+    }
+
+    // Roll the 1-second collision window
+    if (this.perfCollisionWindowStart === 0) this.perfCollisionWindowStart = currentTime;
+    if (currentTime - this.perfCollisionWindowStart >= 1000) {
+      this.perfCollisionsPerSecond = this.perfCollisionEventsInWindow;
+      this.perfCollisionEventsInWindow = 0;
+      this.perfCollisionWindowStart = currentTime;
+    }
+
+    // Sample memory once per second, keep a 5-sample rolling window (~5 s average)
+    const mem = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;
+    if (mem && currentTime - this.perfMemoryLastSampleTime >= 1000) {
+      this.perfMemorySamples.push(mem.usedJSHeapSize / 1048576);
+      if (this.perfMemorySamples.length > 5) this.perfMemorySamples.shift();
+      this.perfMemoryLastSampleTime = currentTime;
+    }
+
+    const tickStart = performance.now();
+
     // Update cursor position for weapon aiming (every frame)
     this.updateCursorWorldPosition();
 
@@ -809,6 +850,9 @@ export class GameEngine {
 
     // Update zoom based on speed
     this.updateSpeedBasedZoom();
+
+    // Record game-loop tick duration (excludes rendering, which runs in RenderSystem)
+    this.perfLastTickMs = performance.now() - tickStart;
 
     // Continue loop
     requestAnimationFrame(() => this.gameLoop());
@@ -1992,6 +2036,28 @@ export class GameEngine {
 
   public getAllAssemblies(): Assembly[] {
     return [...this.assemblies]; // Return a copy to prevent external modification
+  }
+
+  public getPerformanceMetrics(): PerformanceMetrics {
+    const avgMem = this.perfMemorySamples.length > 0
+      ? Math.round(this.perfMemorySamples.reduce((a, b) => a + b, 0) / this.perfMemorySamples.length)
+      : null;
+    return {
+      fps: this.perfDisplayFps,
+      tickMs: Math.round(this.perfLastTickMs * 10) / 10,
+      memoryMb: avgMem,
+      physicsBodyCount: this.world.bodies.length,
+      assemblyCount: this.assemblies.length,
+      entityCount: this.assemblies.reduce((sum, a) => sum + a.entities.length, 0),
+      bulletCount: this.bullets.length,
+      missileCount: this.missileSystem.getMissiles().filter(m => !m.destroyed).length,
+      collisionsPerSecond: this.perfCollisionsPerSecond,
+    };
+  }
+
+  /** Show or hide the stats.js FPS widget. Hide it when PerformanceBar is active. */
+  public setStatsPanelVisible(visible: boolean): void {
+    this.stats.dom.style.display = visible ? '' : 'none';
   }
 
   /** All asteroid Matter.Body objects currently streamed into the world. */

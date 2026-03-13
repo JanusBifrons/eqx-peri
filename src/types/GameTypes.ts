@@ -68,6 +68,19 @@ export const BEAM_LARGE_RANGE = 600;     // Max range in world units for LargeBe
 export const BEAM_LARGE_DPS = 80;        // Damage per second for LargeBeam
 export const BEAM_DISPLAY_DURATION_MS = 80; // How long beam visual persists after last firing
 
+// Performance metrics snapshot — returned by GameEngine.getPerformanceMetrics()
+export interface PerformanceMetrics {
+  fps: number;              // Smoothed frames per second
+  tickMs: number;           // Last game-loop tick duration in ms
+  memoryMb: number | null;  // JS heap used (MB) — null if browser doesn't expose it
+  physicsBodyCount: number; // Total bodies in the Matter.js world
+  assemblyCount: number;    // Live assemblies (ships + debris)
+  entityCount: number;      // Total entity blocks across all assemblies
+  bulletCount: number;      // Active laser bolts
+  missileCount: number;     // Active (non-destroyed) missiles
+  collisionsPerSecond: number; // Physics collision pairs per second (1 s rolling average)
+}
+
 // Connection information for tracking what's attached to each attachment point
 export interface AttachmentConnection {
   connectedEntity: string | null; // Entity ID that's connected to this point
