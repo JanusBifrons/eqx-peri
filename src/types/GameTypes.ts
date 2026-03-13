@@ -823,7 +823,7 @@ export function getEntityOccupiedGridCells(
   return cells;
 }
 
-export type ScenarioId = 'debug' | 'duel' | 'small-battle' | 'medium-battle' | 'huge' | 'sandbox';
+export type ScenarioId = 'debug' | 'duel' | 'small-battle' | 'medium-battle' | 'huge' | 'sandbox' | 'open-world';
 
 export interface ScenarioConfig {
   id: ScenarioId;
@@ -849,7 +849,8 @@ export const SCENARIOS: Readonly<Record<ScenarioId, ScenarioConfig>> = {
   'small-battle':  { id: 'small-battle',   label: 'Small Battle',  description: '5v5 — two squads engage.',          teamSize: 5,   spawnX: BATTLE_SPAWN_X, shipIndex: 0, lineFormation: true,  spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false },
   'medium-battle': { id: 'medium-battle',  label: 'Medium Battle', description: '10v10 — fleet engagement.',         teamSize: 10,  spawnX: BATTLE_SPAWN_X, shipIndex: 0, lineFormation: true,  spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false },
   huge:            { id: 'huge',           label: 'Huge',          description: '100v100 — maximum chaos.',          teamSize: 100, spawnX: BATTLE_SPAWN_X, shipIndex: 0, lineFormation: true,  spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false },
-  sandbox:         { id: 'sandbox',        label: 'Sandbox',       description: 'Start as a bare cockpit. Scavenge blocks to build your ship.', teamSize: 0, spawnX: 0, shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0, sandboxMode: true,  spawnAsteroids: true  },
+  sandbox:         { id: 'sandbox',        label: 'Sandbox',       description: 'Start as a bare cockpit. Scavenge blocks to build your ship.', teamSize: 0, spawnX: 0, shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0, sandboxMode: true,  spawnAsteroids: false },
+  'open-world':    { id: 'open-world',     label: 'Open World',    description: 'Build your ship and explore a procedural asteroid field.',        teamSize: 0, spawnX: 0, shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0, sandboxMode: true,  spawnAsteroids: true  },
 } as const;
 
-export const SCENARIO_ORDER: ScenarioId[] = ['sandbox', 'debug', 'duel', 'small-battle', 'medium-battle', 'huge'];
+export const SCENARIO_ORDER: ScenarioId[] = ['sandbox', 'open-world', 'debug', 'duel', 'small-battle', 'medium-battle', 'huge'];

@@ -523,7 +523,8 @@ export class ParticleSystem {
       if (p.life <= 0) {
         p.sprite.visible = false;
         this.free.push(p);
-        this.active.splice(i, 1);
+        this.active[i] = this.active[this.active.length - 1];
+        this.active.pop();
         continue;
       }
 
