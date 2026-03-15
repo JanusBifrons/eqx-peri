@@ -51,7 +51,7 @@ export class ControllerManager {    private controllers: Map<string, IController
         // Update AI controllers with available targets
         this.updateAITargets(assemblies);
 
-        const newBullets: Matter.Body[] = [];
+        const newLasers: Matter.Body[] = [];
 
         // Process all controller inputs and apply them
         for (const [assemblyId, controller] of this.controllers) {
@@ -62,14 +62,14 @@ export class ControllerManager {    private controllers: Map<string, IController
             }
 
             const input = controller.update(deltaTime);
-            const bullets = this.applyInput(assembly, input, deltaTime, assemblies);
-            newBullets.push(...bullets);
+            const lasers = this.applyInput(assembly, input, deltaTime, assemblies);
+            newLasers.push(...lasers);
         }
 
-        return newBullets;
+        return newLasers;
     }    // Apply control input to an assembly
     private applyInput(assembly: Assembly, input: ControlInput, deltaTime: number, assemblies: Assembly[]): Matter.Body[] {
-        if (assembly.destroyed) return []; const bullets: Matter.Body[] = [];
+        if (assembly.destroyed) return []; const lasers: Matter.Body[] = [];
 
         // Debug logging disabled to reduce spam
         // const thrustMag = Math.sqrt(input.thrust.x * input.thrust.x + input.thrust.y * input.thrust.y);
@@ -119,8 +119,8 @@ export class ControllerManager {    private controllers: Map<string, IController
             assembly.applyTorque(input.torque);
         }        // Fire weapons
         if (input.fire) {
-            const newBullets = assembly.fireWeapons();
-            bullets.push(...newBullets);
+            const newLasers = assembly.fireWeapons();
+            lasers.push(...newLasers);
 
             // Also fire missiles
             if (this.missileSystem) {
@@ -145,7 +145,7 @@ export class ControllerManager {    private controllers: Map<string, IController
             }
         }
 
-        return bullets;
+        return lasers;
     }
 
     // Update AI controllers with available targets

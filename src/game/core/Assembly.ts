@@ -567,8 +567,8 @@ export class Assembly {
 
     Matter.Body.setVelocity(laser, velocity);
 
-    // Mark as bullet for collision detection and store the source assembly ID
-    laser.isBullet = true;
+    // Mark as laser for collision detection and store the source assembly ID
+    laser.isLaser = true;
     laser.timeToLive = Date.now() + 8000; // 8 seconds TTL
     (laser as any).sourceAssemblyId = this.id; // Store which assembly fired this laser
 
@@ -1611,7 +1611,7 @@ export class Assembly {
 declare module 'matter-js' {
   interface Body {
     assembly?: Assembly;
-    isBullet?: boolean;
+    isLaser?: boolean;
     timeToLive?: number;
   }
 }

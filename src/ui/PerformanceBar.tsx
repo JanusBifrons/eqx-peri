@@ -138,7 +138,7 @@ const PerformanceBar: React.FC<Props> = ({ gameEngine, visible }) => {
       <Divider>|</Divider>
       <Metric label="ENTS"    value={String(metrics.entityCount)}       valueWidth={36} />
       <Divider>|</Divider>
-      <Metric label="BULLETS" value={String(metrics.bulletCount)}       valueWidth={27} />
+      <Metric label="LASERS"  value={String(metrics.laserCount)}        valueWidth={27} />
       <Divider>|</Divider>
       <Metric label="MSL"     value={String(metrics.missileCount)}      valueWidth={27} />
       <Divider>|</Divider>

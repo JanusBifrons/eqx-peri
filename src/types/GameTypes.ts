@@ -76,7 +76,7 @@ export interface PerformanceMetrics {
   physicsBodyCount: number; // Total bodies in the Matter.js world
   assemblyCount: number;    // Live assemblies (ships + debris)
   entityCount: number;      // Total entity blocks across all assemblies
-  bulletCount: number;      // Active laser bolts
+  laserCount: number;       // Active laser bolts
   missileCount: number;     // Active (non-destroyed) missiles
   collisionsPerSecond: number; // Physics collision pairs per second (1 s rolling average)
 }

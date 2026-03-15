@@ -176,7 +176,7 @@ export class BeamSystem {
     // Apply damage based on what was hit
     if (closestBody) {
       if ((closestBody as any).isShieldPart) {
-        // Beam hit the physical shield circle — same path as handleBulletHitShield
+        // Beam hit the physical shield circle — same path as handleLaserHitShield
         const hitAssembly = (closestBody as any).parentAssembly as Assembly;
         if (hitAssembly && !hitAssembly.destroyed) {
           const sourceAssembly = assemblies.find(a => a.id === spec.sourceAssemblyId);
@@ -188,7 +188,7 @@ export class BeamSystem {
             .forEach(e => e.triggerCollisionFlash());
         }
       } else if ((closestBody as any).entity) {
-        // Beam hit an entity block body — same path as handleBulletHit
+        // Beam hit an entity block body — same path as handleLaserHit
         const entity = (closestBody as any).entity as Entity;
         const hitAssembly = assemblies.find(a => a.entities.includes(entity));
         if (hitAssembly && !entity.destroyed) {
@@ -197,7 +197,7 @@ export class BeamSystem {
           hitAssembly.lastHitByAssemblyId = spec.sourceAssemblyId;
           hitAssembly.lastHitByPlayer = sourceAssembly?.isPlayerControlled ?? false;
 
-          // Shield interception check — mirrors handleBulletHit logic
+          // Shield interception check — mirrors handleLaserHit logic
           if (hitAssembly.damageShield(damage, Date.now())) {
             hitAssembly.entities
               .filter(e => (e.type === 'Shield' || e.type === 'LargeShield') && !e.destroyed)

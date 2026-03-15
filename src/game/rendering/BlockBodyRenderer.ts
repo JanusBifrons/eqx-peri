@@ -13,7 +13,7 @@ export class BlockBodyRenderer implements IRenderer {
 
   private glowGraphics!:   PIXI.Graphics;
   private blockGraphics!:  PIXI.Graphics;
-  private bulletGraphics!: PIXI.Graphics;
+  private laserGraphics!: PIXI.Graphics;
 
   constructor(
     private readonly getAssemblies: () => Assembly[],
@@ -31,14 +31,14 @@ export class BlockBodyRenderer implements IRenderer {
     this.blockGraphics = new PIXI.Graphics();
     stage.addChild(this.blockGraphics);
 
-    this.bulletGraphics = new PIXI.Graphics();
-    stage.addChild(this.bulletGraphics);
+    this.laserGraphics = new PIXI.Graphics();
+    stage.addChild(this.laserGraphics);
   }
 
   render(viewport: Viewport, _timestamp: number): void {
     this.glowGraphics.clear();
     this.blockGraphics.clear();
-    this.bulletGraphics.clear();
+    this.laserGraphics.clear();
     const scale = viewport.scale;
     const assemblies = this.getAssemblies();
 
@@ -58,7 +58,7 @@ export class BlockBodyRenderer implements IRenderer {
       }
     }
 
-    // --- Non-entity bodies (bullets, missiles, asteroids, etc.) ---
+    // --- Non-entity bodies (lasers, missiles, asteroids, etc.) ---
     const worldBodies = Matter.Composite.allBodies(this.getWorld());
     for (const body of worldBodies) {
       if (body.render?.visible === false) continue;
@@ -77,10 +77,10 @@ export class BlockBodyRenderer implements IRenderer {
         for (let i = 1; i < body.parts.length; i++) {
           const part = body.parts[i];
           if (part.render?.visible === false) continue;
-          this.drawPolygon(this.bulletGraphics, viewport, part, scale);
+          this.drawPolygon(this.laserGraphics, viewport, part, scale);
         }
       } else {
-        this.drawPolygon(this.bulletGraphics, viewport, body, scale);
+        this.drawPolygon(this.laserGraphics, viewport, body, scale);
       }
     }
   }

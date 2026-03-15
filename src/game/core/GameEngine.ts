@@ -35,7 +35,7 @@ export class GameEngine {
   private renderSystem!: RenderSystem;
   private container!: HTMLElement;
   private assemblies: Assembly[] = [];
-  private bullets: Matter.Body[] = [];
+  private lasers: Matter.Body[] = [];
   private missileSystem: MissileSystem;
   private beamSystem!: BeamSystem;
   private shockwaveRenderer!: ShockwaveRenderer;
@@ -350,15 +350,29 @@ export class GameEngine {
       event.pairs.forEach(pair => {
         const { bodyA, bodyB } = pair;
 
-        // Check for bullet/laser collisions
-        if (bodyA.isBullet && bodyB.entity) {
-          this.handleBulletHit(bodyA, bodyB.entity);
-        } else if (bodyB.isBullet && bodyA.entity) {
-          this.handleBulletHit(bodyB, bodyA.entity);
-        } else if (bodyA.isBullet && (bodyB as any).isShieldPart) {
-          this.handleBulletHitShield(bodyA, (bodyB as any).parentAssembly);
-        } else if (bodyB.isBullet && (bodyA as any).isShieldPart) {
-          this.handleBulletHitShield(bodyB, (bodyA as any).parentAssembly);
+        // Check for laser collisions
+        if (bodyA.isLaser && bodyB.entity) {
+          this.handleLaserHit(bodyA, bodyB.entity);
+        } else if (bodyB.isLaser && bodyA.entity) {
+          this.handleLaserHit(bodyB, bodyA.entity);
+        } else if (bodyA.isLaser && (bodyB as any).isShieldPart) {
+          this.handleLaserHitShield(bodyA, (bodyB as any).parentAssembly);
+        } else if (bodyB.isLaser && (bodyA as any).isShieldPart) {
+          this.handleLaserHitShield(bodyB, (bodyA as any).parentAssembly);
+        } else if (bodyA.isLaser && bodyB.label === 'asteroid') {
+          const contacts = (pair as any).activeContacts as { vertex: Matter.Vector }[] | undefined;
+          const hitPos = contacts?.length
+            ? { x: contacts.reduce((s, c) => s + c.vertex.x, 0) / contacts.length,
+                y: contacts.reduce((s, c) => s + c.vertex.y, 0) / contacts.length }
+            : bodyA.position;
+          this.handleLaserHitAsteroid(bodyA, hitPos);
+        } else if (bodyB.isLaser && bodyA.label === 'asteroid') {
+          const contacts = (pair as any).activeContacts as { vertex: Matter.Vector }[] | undefined;
+          const hitPos = contacts?.length
+            ? { x: contacts.reduce((s, c) => s + c.vertex.x, 0) / contacts.length,
+                y: contacts.reduce((s, c) => s + c.vertex.y, 0) / contacts.length }
+            : bodyB.position;
+          this.handleLaserHitAsteroid(bodyB, hitPos);
         }
         // Check for missile collisions
         else if ((bodyA as any).isMissile && bodyB.entity) {
@@ -425,9 +439,9 @@ export class GameEngine {
         }
       }
     }
-  } private handleBulletHit(bullet: Matter.Body, entity: Entity): void {
+  } private handleLaserHit(laser: Matter.Body, entity: Entity): void {
     const LASER_DAMAGE = 10;
-    const sourceAssemblyId = (bullet as any).sourceAssemblyId;
+    const sourceAssemblyId = (laser as any).sourceAssemblyId;
     const hitAssembly = this.assemblies.find(a => a.entities.includes(entity));
 
     if (sourceAssemblyId) {
@@ -440,8 +454,8 @@ export class GameEngine {
       }
     }
 
-    Matter.World.remove(this.world, bullet);
-    this.bullets = this.bullets.filter(b => b !== bullet);
+    Matter.World.remove(this.world, laser);
+    this.lasers = this.lasers.filter(l => l !== laser);
 
     // Play impact sound
     SoundSystem.getInstance().playLaserImpact();
@@ -467,7 +481,7 @@ export class GameEngine {
   }
 
   /**
-   * Shared destruction cascade used by both bullet hits and beam hits.
+   * Shared destruction cascade used by both laser hits and beam hits.
    * Call only after entity.takeDamage() has returned true (i.e. the entity is confirmed destroyed).
    */
   private processEntityDestruction(entity: Entity, assembly: Assembly): void {
@@ -577,9 +591,9 @@ export class GameEngine {
     }
   }
 
-  private handleBulletHitShield(bullet: Matter.Body, shieldAssembly: Assembly): void {
+  private handleLaserHitShield(laser: Matter.Body, shieldAssembly: Assembly): void {
     const LASER_DAMAGE = 10;
-    const sourceAssemblyId = (bullet as any).sourceAssemblyId;
+    const sourceAssemblyId = (laser as any).sourceAssemblyId;
 
     // Self-hit prevention — don't let a ship's own lasers hit its own shield.
     if (sourceAssemblyId && shieldAssembly.id === sourceAssemblyId) return;
@@ -590,8 +604,8 @@ export class GameEngine {
       shieldAssembly.lastHitByPlayer = sourceAssembly?.isPlayerControlled || false;
     }
 
-    Matter.World.remove(this.world, bullet);
-    this.bullets = this.bullets.filter(b => b !== bullet);
+    Matter.World.remove(this.world, laser);
+    this.lasers = this.lasers.filter(l => l !== laser);
     SoundSystem.getInstance().playLaserImpact();
 
     shieldAssembly.damageShield(LASER_DAMAGE, Date.now());
@@ -605,6 +619,13 @@ export class GameEngine {
       Matter.World.add(this.world, shieldAssembly.rootBody);
       shieldAssembly.pendingBodySwap = null;
     }
+  }
+
+  private handleLaserHitAsteroid(laser: Matter.Body, hitPos: Matter.Vector): void {
+    Matter.World.remove(this.world, laser);
+    this.lasers = this.lasers.filter(l => l !== laser);
+    SoundSystem.getInstance().playLaserImpact();
+    this.particleSystem.emitImpact(hitPos.x, hitPos.y, 'laser');
   }
 
   private handleMissileHitShield(missile: any, shieldAssembly: Assembly): void {
@@ -753,16 +774,16 @@ export class GameEngine {
     this.updateCursorWorldPosition();
 
     // Update controllers (handles both player input and AI)
-    const newBullets = this.controllerManager.update(deltaTime, this.assemblies);
+    const newLasers = this.controllerManager.update(deltaTime, this.assemblies);
 
-    // Add new bullets to physics world
-    if (newBullets.length > 0) {
+    // Add new lasers to physics world
+    if (newLasers.length > 0) {
       // Play laser fire sound (once per batch to avoid audio spam)
       SoundSystem.getInstance().playLaserFire();
     }
-    newBullets.forEach(bullet => {
-      Matter.World.add(this.world, bullet);
-      this.bullets.push(bullet);
+    newLasers.forEach(laser => {
+      Matter.World.add(this.world, laser);
+      this.lasers.push(laser);
     });
 
     // Handle additional player input (mouse controls, etc.)
@@ -776,7 +797,7 @@ export class GameEngine {
     });
 
     // Process any body swaps queued by Assembly.update() (e.g. collision damage destroyed an
-    // entity mid-frame).  handleBulletHit clears pendingBodySwap itself; this catches the
+    // entity mid-frame).  handleLaserHit clears pendingBodySwap itself; this catches the
     // collision-damage path where Assembly.update() calls createFreshBody() independently.
     this.assemblies.forEach(assembly => {
       if (assembly.pendingBodySwap) {
@@ -792,8 +813,8 @@ export class GameEngine {
     // Update entity flash effects
     this.updateEntityFlashes(deltaTime);
 
-    // Update bullets (TTL, out-of-bounds removal)
-    this.updateBullets();
+    // Update lasers (TTL, out-of-bounds removal)
+    this.updateLasers();
 
     // Update missile system (targeting, steering, fuel consumption)
     this.missileSystem.update(deltaTime, this.assemblies);
@@ -928,29 +949,29 @@ export class GameEngine {
     }
   }
 
-  private updateBullets(): void {
-    const bulletsToRemove: Matter.Body[] = [];
+  private updateLasers(): void {
+    const lasersToRemove: Matter.Body[] = [];
 
-    this.bullets.forEach(bullet => {
+    this.lasers.forEach(laser => {
       // Check time to live
-      if (bullet.timeToLive && Date.now() > bullet.timeToLive) {
-        bulletsToRemove.push(bullet);
+      if (laser.timeToLive && Date.now() > laser.timeToLive) {
+        lasersToRemove.push(laser);
       }
 
-      // Check if bullet is out of bounds
+      // Check if laser is out of bounds
       const bounds = this.render.bounds;
-      if (bullet.position.x < bounds.min.x - 100 ||
-        bullet.position.x > bounds.max.x + 100 ||
-        bullet.position.y < bounds.min.y - 100 ||
-        bullet.position.y > bounds.max.y + 100) {
-        bulletsToRemove.push(bullet);
+      if (laser.position.x < bounds.min.x - 100 ||
+        laser.position.x > bounds.max.x + 100 ||
+        laser.position.y < bounds.min.y - 100 ||
+        laser.position.y > bounds.max.y + 100) {
+        lasersToRemove.push(laser);
       }
     });
 
-    // Remove expired bullets
-    bulletsToRemove.forEach(bullet => {
-      Matter.World.remove(this.world, bullet);
-      this.bullets = this.bullets.filter(b => b !== bullet);
+    // Remove expired lasers
+    lasersToRemove.forEach(laser => {
+      Matter.World.remove(this.world, laser);
+      this.lasers = this.lasers.filter(l => l !== laser);
     });
   }
 
@@ -2041,7 +2062,7 @@ export class GameEngine {
       physicsBodyCount: this.world.bodies.length,
       assemblyCount: this.assemblies.length,
       entityCount: this.assemblies.reduce((sum, a) => sum + a.entities.length, 0),
-      bulletCount: this.bullets.length,
+      laserCount: this.lasers.length,
       missileCount: this.missileSystem.getMissiles().filter(m => !m.destroyed).length,
       collisionsPerSecond: this.perfCollisionsPerSecond,
     };
