@@ -37,12 +37,12 @@ All game logic, physics, AI, and entity management. No React imports here — th
 
 **Asteroid field (`AsteroidFieldSystem`):**
 - Lives in `src/game/systems/AsteroidFieldSystem.ts`; NOT a singleton — instantiated by `GameEngine` when `ScenarioConfig.spawnAsteroids` is true.
-- Chunk-based streaming: world is divided into `CHUNK_SIZE=8000` unit cells. Chunks within `LOAD_RADIUS=18000` of the camera centre are loaded; chunks beyond `UNLOAD_RADIUS=22000` are unloaded (hysteresis prevents thrashing).
+- Chunk-based streaming: world is divided into `CHUNK_SIZE=2000` unit cells. Chunks within `LOAD_RADIUS=10000` of the camera centre are loaded; chunks beyond `UNLOAD_RADIUS=14000` are unloaded (hysteresis prevents thrashing).
 - Asteroid bodies are `isStatic: true` plain `Matter.Body` objects — **not entities or assemblies**. Rendered automatically by `BlockBodyRenderer`'s non-entity world-body loop via `body.render.fillStyle/strokeStyle/lineWidth`.
 - Matter.js skips static-static collision natively, so overlapping asteroids cost nothing in physics and create interesting visual terrain features.
 - Each chunk's asteroid count and positions are derived from a deterministic seeded PRNG (`mulberry32` seeded from chunk coords), so chunks regenerate identically on re-entry.
 - `body.label = 'asteroid'` tags asteroid bodies for identification.
-- Constructor: `(addBodyToWorld, removeBodyFromWorld)` callbacks; `update(cameraCenter)` called every game loop frame; `dispose()` on scene teardown.
+- Constructor: `(addBodyToWorld, removeBodyFromWorld)` callbacks; `update(cameraCenter, viewportHalfDiag)` called every game loop frame; `dispose()` on scene teardown.
 
 **Shield damage interception:**
 - Damage from lasers, missiles, and collisions is routed through `Assembly.damageShield(damage, now)` before reaching entity HP.

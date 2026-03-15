@@ -107,9 +107,13 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
     const setSelectedRowRef = useCallback((el: HTMLTableRowElement | null) => {
         selectedRowRef.current = el;
     }, []);
+    const asteroidCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
     useEffect(() => {
         if (!gameEngine) return;
+
+        let asteroidTickCount = 0;
+        const ASTEROID_INTERVAL = 20; // Update asteroids every 20 ticks = 2 seconds
 
         const updateRadar = () => {
             try {
@@ -131,8 +135,10 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
                     setRadarData(data);
                 }
 
-                // Asteroid positions for minimap (within radar range)
-                if (playerShip) {
+                // Asteroid positions for minimap — update infrequently (asteroids are static)
+                asteroidTickCount++;
+                if (playerShip && asteroidTickCount >= ASTEROID_INTERVAL) {
+                    asteroidTickCount = 0;
                     const asteroids = gameEngine.getAsteroidPositions(
                         { x: playerShip.x, y: playerShip.y },
                         10000,
@@ -165,6 +171,29 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
         const interval = setInterval(updateRadar, 100);
         return () => clearInterval(interval);
     }, [gameEngine]);
+
+    // Draw asteroid blips on a canvas (avoids creating hundreds of React/MUI elements)
+    useEffect(() => {
+        const canvas = asteroidCanvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const playerShip = radarData.find(s => s.isPlayer);
+        if (!playerShip || asteroidPositions.length === 0) return;
+
+        const centerX = 140, centerY = 60;
+        const radarScale = 50 / 10000;
+
+        ctx.fillStyle = 'rgba(107, 94, 82, 0.75)';
+        for (const ast of asteroidPositions) {
+            const x = centerX + (ast.x - playerShip.x) * radarScale;
+            const y = centerY + (ast.y - playerShip.y) * radarScale;
+            if (x < 4 || x > 276 || y < 4 || y > 116) continue;
+            ctx.fillRect(x - 1, y - 1, 2, 2);
+        }
+    }, [asteroidPositions, radarData]);
 
     // Auto-scroll to selected row when selection changes
     useEffect(() => {
@@ -390,33 +419,13 @@ const Radar: React.FC<RadarProps> = ({ gameEngine }) => {
                         borderRadius: 0.25
                     }}>
                         {(1 / currentZoom).toFixed(0)}x
-                    </Typography>                    {/* Asteroid blips */}
-                    {(() => {
-                        const playerShip = radarData.find(s => s.isPlayer);
-                        if (!playerShip) return null;
-                        const centerX = 140, centerY = 60;
-                        const radarScale = 50 / 10000;
-                        return asteroidPositions.map((ast, idx) => {
-                            const x = centerX + (ast.x - playerShip.x) * radarScale;
-                            const y = centerY + (ast.y - playerShip.y) * radarScale;
-                            if (x < 4 || x > 276 || y < 4 || y > 116) return null;
-                            return (
-                                <Box
-                                    key={`ast-${idx}`}
-                                    sx={{
-                                        position: 'absolute',
-                                        left: x - 1.5,
-                                        top:  y - 1.5,
-                                        width:  3,
-                                        height: 3,
-                                        borderRadius: '50%',
-                                        backgroundColor: '#6b5e52',
-                                        opacity: 0.75,
-                                    }}
-                                />
-                            );
-                        });
-                    })()}
+                    </Typography>                    {/* Asteroid blips — rendered on a canvas to avoid 1000+ DOM elements */}
+                    <canvas
+                        ref={asteroidCanvasRef}
+                        width={280}
+                        height={120}
+                        style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }}
+                    />
 
                     {radarData.map((item) => {
                         const playerShip = radarData.find(s => s.isPlayer);

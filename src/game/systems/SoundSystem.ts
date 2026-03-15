@@ -176,37 +176,31 @@ export class SoundSystem {
   // ============ Sound Effects ============
 
   public playLaserFire(): void {
-    console.log('🔫 SoundSystem.playLaserFire called');
     if (!this.canPlaySound()) return;
     this.playProceduralLaser();
   }
 
   public playLaserImpact(): void {
-    console.log('💥 SoundSystem.playLaserImpact called');
     if (!this.canPlaySound()) return;
     this.playProceduralImpact();
   }
 
   public playBlockDestroyed(): void {
-    console.log('🧱 SoundSystem.playBlockDestroyed called');
     if (!this.canPlaySound()) return;
     this.playProceduralDestruction(0.3);
   }
 
   public playShipBreakApart(): void {
-    console.log('💀 SoundSystem.playShipBreakApart called');
     if (!this.canPlaySound()) return;
     this.playProceduralDestruction(0.6);
   }
 
   public playMissileLaunch(): void {
-    console.log('🚀 SoundSystem.playMissileLaunch called');
     if (!this.canPlaySound()) return;
     this.playProceduralMissileLaunch();
   }
 
   public playMissileExplosion(): void {
-    console.log('💣 SoundSystem.playMissileExplosion called');
     if (!this.canPlaySound()) return;
     this.playProceduralExplosion();
   }

@@ -17,6 +17,7 @@ export class RenderSystem {
   private debugRender: Matter.Render | null = null;
   private debugOnly: boolean = false;
 
+
   constructor(
     container: HTMLElement,
     matterCanvas: HTMLCanvasElement,
@@ -113,6 +114,7 @@ export class RenderSystem {
     }
 
     this.app.renderer.render(this.app.stage);
+
     this.stats.end();
 
     this.rafId = requestAnimationFrame((ts) => this.loop(ts));

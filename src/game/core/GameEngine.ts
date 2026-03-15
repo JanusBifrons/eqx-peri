@@ -86,6 +86,7 @@ export class GameEngine {
   private perfMemorySamples: number[] = [];    // MB samples, capped at 5
   private perfMemoryLastSampleTime: number = 0;
 
+
   private scenarioConfig: ScenarioConfig = SCENARIOS['debug'];
 
   // Toast system for game events
@@ -134,22 +135,21 @@ export class GameEngine {
     // Set timing for more stable physics
     this.engine.timing.timeScale = 1.0;
 
-    // Set global friction to zero for space-like physics
+    // Set global friction to zero for space-like physics (bodies already created with 0)
     this.engine.world.bodies.forEach(body => {
-      body.frictionAir = 0; // No air resistance in space
-      body.friction = 0; // No surface friction in space
-    });    // Add event listener to ensure all new bodies have realistic physics settings
-    Matter.Events.on(this.engine, 'beforeUpdate', () => {
-      this.engine.world.bodies.forEach(body => {
-        // Remove all friction for space physics
-        if (body.frictionAir !== 0) body.frictionAir = 0;
-        if (body.friction !== 0) body.friction = 0;
+      body.frictionAir = 0;
+      body.friction = 0;
+    });
 
-        // Apply angular damping to spinning debris to make collisions more realistic
+    // Angular damping for spinning debris — only check dynamic (non-static) bodies
+    // to avoid iterating hundreds of static asteroid bodies every physics tick.
+    Matter.Events.on(this.engine, 'beforeUpdate', () => {
+      for (const assembly of this.assemblies) {
+        const body = assembly.rootBody;
         if (Math.abs(body.angularVelocity) > 0.1) {
-          Matter.Body.setAngularVelocity(body, body.angularVelocity * 0.98); // 2% angular velocity loss per frame
+          Matter.Body.setAngularVelocity(body, body.angularVelocity * 0.98);
         }
-      });
+      }
     });
 
     // Create renderer with debug options - matching MVP spec
@@ -763,22 +763,12 @@ export class GameEngine {
     newBullets.forEach(bullet => {
       Matter.World.add(this.world, bullet);
       this.bullets.push(bullet);
-    });    // Handle missile launches from all assemblies (REMOVED - missiles now fire with weapons)
-    // this.assemblies.forEach(assembly => {
-    //   const missileRequests = assembly.getMissileLaunchRequests();
-    //   missileRequests.forEach(request => {
-    //     this.missileSystem.createMissile(
-    //       request.position,
-    //       request.angle,
-    //       request.missileType,
-    //       request.sourceAssemblyId,
-    //       request.targetAssembly
-    //     );
-    //   });
-    // });
+    });
 
     // Handle additional player input (mouse controls, etc.)
-    this.handlePlayerInput();// Update assemblies (deltaTime is in seconds; update() expects milliseconds)
+    this.handlePlayerInput();
+
+    // Update assemblies (deltaTime is in seconds; update() expects milliseconds)
     const deltaTimeMs = deltaTime * 1000;
     this.assemblies.forEach(assembly => {
       assembly.update(deltaTimeMs);
@@ -812,7 +802,9 @@ export class GameEngine {
     this.beamSystem.update(deltaTime);
 
     // Clean up destroyed assemblies
-    this.cleanupDestroyedAssemblies();    // Transition to observer mode when the piloted ship is destroyed or loses its cockpit
+    this.cleanupDestroyedAssemblies();
+
+    // Transition to observer mode when the piloted ship is destroyed or loses its cockpit
     if (this.playerAssembly &&
         (this.playerAssembly.destroyed || !this.playerAssembly.hasControlCenter())) {
       this.observerPos = { ...this.playerAssembly.rootBody.position };
