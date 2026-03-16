@@ -20,6 +20,8 @@ So a "7-long × 3-wide" ship spans `x: -48..+48` (7 grid units along the spine) 
 
 `applyThrust` takes **ship-local** coordinates: `{x:1,y:0}` means "thrust forward along the ship's nose direction" regardless of world angle. Any code computing thrust in world space must rotate by `-shipAngle` before passing it to `applyThrust`.
 
+**Positional thrust**: `applyThrust` applies each engine's force at that engine's world position (`engine.body.position`), not at the assembly's center of mass. Off-center engines naturally create torque via Matter.js, so a ship with engines only on one side will spin. Symmetric engine placement produces balanced thrust with no net torque.
+
 ## Compound Body Lifecycle
 
 Matter.js compound bodies are created via `Matter.Body.create({ parts: [...] })`. When added to the world with `Matter.World.add`, **each part body is also added individually** to `world.bodies` (not just the compound root). This means:

@@ -196,8 +196,8 @@ export class Assembly {
           y: thrustContribution.x * Math.sin(shipAngle) + thrustContribution.y * Math.cos(shipAngle)
         };
 
-        // Apply force at CENTER OF MASS to avoid unwanted torque from engine positioning
-        Matter.Body.applyForce(this.rootBody, this.rootBody.position, worldForce);
+        // Apply force at the engine's world position — off-center engines create torque
+        Matter.Body.applyForce(this.rootBody, engine.body.position, worldForce);
       }
     });
   } private getEngineThrust(engineType: string): number {
