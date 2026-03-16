@@ -24,6 +24,19 @@ export interface BeamFireSpec {
   weaponType: EntityType;
 }
 
+// All engines start at this fraction of full thrust when the balanced system is active.
+// The remaining headroom (up to 1.0) is used to correct torque imbalance or add rotation bias.
+const BASE_THRUST_LEVEL = 0.5;
+
+// Fraction of the maximum achievable one-sided torque applied at full rotationInput during
+// combined thrust + rotation (W+A / W+D). Lower = gentler banking turn.
+const ROTATION_TORQUE_BLEND = 0.6;
+
+// Minimum torque-arm magnitude (ship-local pixels) for an engine to participate in torque
+// correction. Engines within this band of the thrust axis are treated as on-centre.
+// Half a grid cell (GRID_SIZE = 16).
+const BALANCE_MIN_TORQUE_ARM = 8;
+
 export class Assembly {
   public id: string;
   public rootBody: Matter.Body;
@@ -186,11 +199,15 @@ export class Assembly {
 
     const thrustMagnitude = Math.sqrt(thrustInput.x * thrustInput.x + thrustInput.y * thrustInput.y);
 
-    // Engine-based rotation: only applies to player-controlled ships with dedicated engines
-    // when a rotation direction is requested.
-    const isRotating = this.isPlayerControlled && Math.abs(rotationInput) > 0.1 && this.hasDedicatedEngines();
+    // Pure-rotation path: only when there is no forward/lateral thrust, so the player is
+    // exclusively steering (A / D keys). Fires only the engines on the correct side.
+    // When thrust is also requested (W+A), the balanced thrust path handles turning instead.
+    const isPureRotation = this.isPlayerControlled
+      && thrustMagnitude < 0.1
+      && Math.abs(rotationInput) > 0.1
+      && this.hasDedicatedEngines();
 
-    if (isRotating) {
+    if (isPureRotation) {
       // Compute each engine's ship-local Y relative to the assembly COM by unrotating
       // the world-space offset. This gives the actual torque arm length.
       const com = this.rootBody.position;
@@ -248,36 +265,170 @@ export class Assembly {
       // No engines on the correct side: fall through to normal thrust + let caller use applyTorque
     }
 
-    // Normal thrust path: all engines fire proportionally
+    // ── Thrust path ──────────────────────────────────────────────────────────
+    if (thrustMagnitude < 0.0001) {
+      engines.forEach(engine => engine.setThrustLevel(0));
+      return false;
+    }
+
+    // Player ships with dedicated engines: dynamic torque-balanced thrust.
+    // All engines start at BASE_THRUST_LEVEL (50 %); individual engines are boosted
+    // up to 100 % to cancel natural torque imbalance and to add intentional turning bias.
+    if (this.isPlayerControlled && this.hasDedicatedEngines()) {
+      const powerEfficiency = PowerSystem.getInstance().getEngineEfficiency();
+      return this.applyBalancedThrust(engines, thrustInput, thrustMagnitude, rotationInput, powerEfficiency);
+    }
+
+    // Uniform thrust for AI ships and cockpit-only ships (original algorithm).
     engines.forEach((engine) => {
       let engineThrust = this.getEngineThrust(engine.type);
 
       if (this.isPlayerControlled) {
-        const powerSystem = PowerSystem.getInstance();
-        engineThrust *= powerSystem.getEngineEfficiency();
+        engineThrust *= PowerSystem.getInstance().getEngineEfficiency();
       }
 
       engine.setThrustLevel(thrustMagnitude);
 
-      if (thrustMagnitude > 0) {
-        const shipAngle = this.rootBody.angle;
-        const worldForce = {
-          x: (thrustInput.x * engineThrust) * Math.cos(shipAngle) - (thrustInput.y * engineThrust) * Math.sin(shipAngle),
-          y: (thrustInput.x * engineThrust) * Math.sin(shipAngle) + (thrustInput.y * engineThrust) * Math.cos(shipAngle)
-        };
-        Matter.Body.applyForce(this.rootBody, engine.body.position, worldForce);
-      }
+      const shipAngle = this.rootBody.angle;
+      const worldForce = {
+        x: (thrustInput.x * engineThrust) * Math.cos(shipAngle) - (thrustInput.y * engineThrust) * Math.sin(shipAngle),
+        y: (thrustInput.x * engineThrust) * Math.sin(shipAngle) + (thrustInput.y * engineThrust) * Math.cos(shipAngle)
+      };
+      Matter.Body.applyForce(this.rootBody, engine.body.position, worldForce);
     });
 
     return false;
-  } private getEngineThrust(engineType: string): number {
+  }
+
+  private getEngineThrust(engineType: string): number {
     // Get thrust from engine part definition
     const definition = ENTITY_DEFINITIONS[engineType as EntityType];
     if (definition && definition.thrust) {
       return definition.thrust;
     }
     return 0;
-  }  public applyTorque(torqueInput: number): void {
+  }
+
+  /**
+   * Dynamic torque-balanced thrust for player ships with dedicated engines.
+   *
+   * All engines start at BASE_THRUST_LEVEL (50 %).  Per-engine levels are then
+   * boosted up to 1.0 to achieve two goals in priority order:
+   *
+   *   1. Auto-balance: counteract unwanted torque from asymmetric engine placement.
+   *      Example: 2 engines on one side, 1 on the other → the lone engine is boosted to
+   *      equalise the torque moment; if full equalisation is impossible the ship still
+   *      drifts, but less than it would without any compensation.
+   *
+   *   2. Rotation bias: when rotationInput is non-zero (W+A / W+D), the target torque is
+   *      offset proportionally, giving a controlled banking turn rather than a pure spin.
+   *
+   * Physics:
+   *   The torque produced by engine i at unit thrust is:
+   *     arm_i  = −thrustDir.x × localY_i  +  thrustDir.y × localX_i
+   *   At BASE_THRUST_LEVEL:
+   *     baseTorque = Σ( T_i × BASE_LEVEL × arm_i )
+   *   Target:
+   *     targetTorque = rotationInput × maxTorqueMoment × ROTATION_TORQUE_BLEND
+   *   Deficit = targetTorque − baseTorque is covered by boosting engines whose arm
+   *   has the same sign as the deficit, proportionally up to their maximum headroom.
+   *
+   * Returns true when the engine differential generates rotation (suppresses applyTorque).
+   */
+  private applyBalancedThrust(
+    engines: Entity[],
+    thrustInput: Vector2,
+    thrustMagnitude: number,
+    rotationInput: number,
+    powerEfficiency: number
+  ): boolean {
+    const com = this.rootBody.position;
+    const angle = this.rootBody.angle;
+    const cosA = Math.cos(angle);
+    const sinA = Math.sin(angle);
+
+    // Normalise thrust direction for torque-arm calculation (magnitude is applied separately).
+    const invMag = 1 / thrustMagnitude;
+    const thrustDirX = thrustInput.x * invMag;
+    const thrustDirY = thrustInput.y * invMag;
+
+    interface EngineInfo {
+      engine: Entity;
+      baseThrust: number; // definition thrust × power efficiency
+      torqueArm: number;  // signed: positive ≡ CW torque contribution per unit thrust
+    }
+
+    const infos: EngineInfo[] = engines.map(engine => {
+      const dx = engine.body.position.x - com.x;
+      const dy = engine.body.position.y - com.y;
+      // Ship-local coordinates (rotate world offset by −shipAngle)
+      const localX = dx * cosA + dy * sinA;
+      const localY = -dx * sinA + dy * cosA;
+      // Torque arm in the requested thrust direction
+      // τ_i = T_i × level_i × arm_i  (positive → CW)
+      const torqueArm = -thrustDirX * localY + thrustDirY * localX;
+      return { engine, baseThrust: this.getEngineThrust(engine.type) * powerEfficiency, torqueArm };
+    });
+
+    // Torque at BASE_THRUST_LEVEL from all engines
+    const baseTorque = infos.reduce((sum, ei) => sum + ei.baseThrust * BASE_THRUST_LEVEL * ei.torqueArm, 0);
+
+    // Maximum additional torque achievable by boosting each engine from BASE to 1.0
+    const maxTorqueMoment = infos.reduce(
+      (sum, ei) => sum + ei.baseThrust * (1.0 - BASE_THRUST_LEVEL) * Math.abs(ei.torqueArm), 0
+    );
+
+    // Target torque: zero = pure balance; biased when the player requests rotation.
+    // ROTATION_TORQUE_BLEND fraction of maxTorqueMoment is the ceiling for intentional turning.
+    const targetTorque = rotationInput * maxTorqueMoment * ROTATION_TORQUE_BLEND;
+    const deficit = targetTorque - baseTorque;
+
+    // Per-engine thrust levels (start at BASE, boosted as needed)
+    const levels = new Map<Entity, number>(engines.map(e => [e, BASE_THRUST_LEVEL]));
+    let torqueApplied = false;
+
+    if (Math.abs(deficit) > 0.001) {
+      // Engines that can contribute torque in the deficit direction
+      const helpful = infos.filter(ei => {
+        if (Math.abs(ei.torqueArm) < BALANCE_MIN_TORQUE_ARM) return false;
+        return deficit > 0 ? ei.torqueArm > 0 : ei.torqueArm < 0;
+      });
+
+      // Total headroom available from helpful engines (their extra torque potential)
+      const potential = helpful.reduce(
+        (sum, ei) => sum + ei.baseThrust * (1.0 - BASE_THRUST_LEVEL) * Math.abs(ei.torqueArm), 0
+      );
+
+      if (potential > 0) {
+        // How much of the headroom to use (clamped so levels stay ≤ 1.0)
+        const coverageRatio = Math.min(1.0, Math.abs(deficit) / potential);
+        helpful.forEach(ei => {
+          levels.set(ei.engine, BASE_THRUST_LEVEL + coverageRatio * (1.0 - BASE_THRUST_LEVEL));
+        });
+        torqueApplied = coverageRatio > 0.05;
+      }
+    }
+
+    // Apply forces at each engine's world position
+    infos.forEach(ei => {
+      const level = levels.get(ei.engine) ?? BASE_THRUST_LEVEL;
+      const effectiveThrust = ei.baseThrust * level;
+
+      // setThrustLevel drives particle emission intensity (0–1)
+      ei.engine.setThrustLevel(level * thrustMagnitude);
+
+      const worldForce = {
+        x: (thrustInput.x * effectiveThrust) * cosA - (thrustInput.y * effectiveThrust) * sinA,
+        y: (thrustInput.x * effectiveThrust) * sinA + (thrustInput.y * effectiveThrust) * cosA
+      };
+      Matter.Body.applyForce(this.rootBody, ei.engine.body.position, worldForce);
+    });
+
+    // Suppress applyTorque when the engine differential is handling rotation
+    return torqueApplied && Math.abs(rotationInput) > 0.1;
+  }
+
+  public applyTorque(torqueInput: number): void {
     if (this.destroyed) return;
 
     // More consistent rotation using Matter.js angular velocity.
