@@ -350,32 +350,14 @@ export class GameEngine {
       event.pairs.forEach(pair => {
         const { bodyA, bodyB } = pair;
 
-        // Check for laser collisions
-        if (bodyA.isLaser && bodyB.entity) {
-          this.handleLaserHit(bodyA, bodyB.entity);
-        } else if (bodyB.isLaser && bodyA.entity) {
-          this.handleLaserHit(bodyB, bodyA.entity);
-        } else if (bodyA.isLaser && (bodyB as any).isShieldPart) {
-          this.handleLaserHitShield(bodyA, (bodyB as any).parentAssembly);
-        } else if (bodyB.isLaser && (bodyA as any).isShieldPart) {
-          this.handleLaserHitShield(bodyB, (bodyA as any).parentAssembly);
-        } else if (bodyA.isLaser && bodyB.label === 'asteroid') {
-          const contacts = (pair as any).activeContacts as { vertex: Matter.Vector }[] | undefined;
-          const hitPos = contacts?.length
-            ? { x: contacts.reduce((s, c) => s + c.vertex.x, 0) / contacts.length,
-                y: contacts.reduce((s, c) => s + c.vertex.y, 0) / contacts.length }
-            : bodyA.position;
-          this.handleLaserHitAsteroid(bodyA, hitPos);
-        } else if (bodyB.isLaser && bodyA.label === 'asteroid') {
-          const contacts = (pair as any).activeContacts as { vertex: Matter.Vector }[] | undefined;
-          const hitPos = contacts?.length
-            ? { x: contacts.reduce((s, c) => s + c.vertex.x, 0) / contacts.length,
-                y: contacts.reduce((s, c) => s + c.vertex.y, 0) / contacts.length }
-            : bodyB.position;
-          this.handleLaserHitAsteroid(bodyB, hitPos);
+        // Laser collisions are handled by the beforeUpdate raycast (setupLaserRaycast).
+        // Skip any laser pairs that leak through from the physics step.
+        if (bodyA.isLaser || bodyB.isLaser) {
+          return;
         }
+
         // Check for missile collisions
-        else if ((bodyA as any).isMissile && bodyB.entity) {
+        if ((bodyA as any).isMissile && bodyB.entity) {
           this.handleMissileHit((bodyA as any).missile, bodyB.entity);
         } else if ((bodyB as any).isMissile && bodyA.entity) {
           this.handleMissileHit((bodyB as any).missile, bodyA.entity);
@@ -397,7 +379,122 @@ export class GameEngine {
 
     // NOTE: No collisionActive handler — re-triggering the flash every frame for sustained
     // contact caused a permanent white glow.  collisionStart is sufficient for impact feedback.
-  } private handleEntityCollision(entityA: Entity, entityB: Entity): void {
+
+    this.setupLaserRaycast();
+  }
+
+  /**
+   * Pre-physics raycast: each frame before Matter.js moves laser bodies,
+   * cast a ray along each laser's velocity to find the first thing it will
+   * hit this tick (entity, shield, or asteroid).  This prevents lasers from
+   * ever rendering inside a target and gives exact surface-edge impact
+   * positions for particle effects.
+   */
+  private setupLaserRaycast(): void {
+    Matter.Events.on(this.engine, 'beforeUpdate', () => {
+      if (this.lasers.length === 0) return;
+
+      // Build candidate body list: all assembly part bodies + asteroid bodies.
+      // Skip index-0 of compound parts (the compound root has no real geometry).
+      const candidateBodies: Matter.Body[] = [];
+      for (const assembly of this.assemblies) {
+        const parts = assembly.rootBody.parts;
+        for (let i = parts.length > 1 ? 1 : 0; i < parts.length; i++) {
+          candidateBodies.push(parts[i]);
+        }
+      }
+      const asteroidBodies = this.asteroidFieldSystem?.getAllBodies() ?? [];
+      for (const ab of asteroidBodies) candidateBodies.push(ab);
+
+      if (candidateBodies.length === 0) return;
+
+      // Process each laser — collect hits, then handle them after the loop
+      // (handling mutates the lasers array).
+      const laserHits: Array<{
+        laser: Matter.Body;
+        hitBody: Matter.Body;
+        hitPos: Matter.Vector;
+      }> = [];
+
+      for (const laser of this.lasers) {
+        const vel = laser.velocity;
+        const speed = Math.sqrt(vel.x * vel.x + vel.y * vel.y);
+        if (speed < 0.1) continue;
+
+        const nx = vel.x / speed;
+        const ny = vel.y / speed;
+
+        // Laser body length ≈ 1.5× per-tick travel; half-length ≈ 0.75× speed.
+        // Cast from trailing tip to one full tick past the leading tip.
+        const halfLen = speed * 0.75;
+        const from = {
+          x: laser.position.x - nx * halfLen,
+          y: laser.position.y - ny * halfLen,
+        };
+        const to = {
+          x: laser.position.x + nx * (halfLen + speed),
+          y: laser.position.y + ny * (halfLen + speed),
+        };
+
+        const rayHits = Matter.Query.ray(candidateBodies, from, to);
+        if (rayHits.length === 0) continue;
+
+        // Find the closest surface intersection across all hit bodies.
+        const dx = to.x - from.x;
+        const dy = to.y - from.y;
+        let closestT = Infinity;
+        let closestBody: Matter.Body | null = null;
+
+        for (const rh of rayHits) {
+          // Matter.js types for Query.ray are incomplete; body is a runtime field
+          const body = (rh as any).body as Matter.Body;
+          if (!body) continue;
+
+          // Skip self — don't let a laser hit its own ship
+          const sourceId = (laser as any).sourceAssemblyId;
+          if (sourceId && body.assembly?.id === sourceId) continue;
+
+          // Ray-edge intersection (Cramer's rule) against the body polygon
+          const verts = body.vertices;
+          for (let i = 0; i < verts.length; i++) {
+            const a = verts[i];
+            const b = verts[(i + 1) % verts.length];
+            const ex = b.x - a.x;
+            const ey = b.y - a.y;
+            const det = dx * (-ey) - dy * (-ex);
+            if (Math.abs(det) < 1e-10) continue;
+            const t = ((a.x - from.x) * (-ey) - (a.y - from.y) * (-ex)) / det;
+            const s = (dx * (a.y - from.y) - dy * (a.x - from.x)) / det;
+            if (t >= 0 && t <= 1 && s >= 0 && s <= 1 && t < closestT) {
+              closestT = t;
+              closestBody = body;
+            }
+          }
+        }
+
+        if (!closestBody) continue;
+
+        const hitPos = closestT < Infinity
+          ? { x: from.x + dx * closestT, y: from.y + dy * closestT }
+          : laser.position;
+
+        laserHits.push({ laser, hitBody: closestBody, hitPos });
+      }
+
+      // Dispatch each hit to the appropriate handler
+      for (const { laser, hitBody, hitPos } of laserHits) {
+        if ((hitBody as any).isShieldPart) {
+          this.handleLaserHitShield(laser, (hitBody as any).parentAssembly, hitPos);
+        } else if (hitBody.entity) {
+          this.handleLaserHit(laser, hitBody.entity, hitPos);
+        } else if (hitBody.label === 'asteroid') {
+          this.handleLaserHitAsteroid(laser, hitPos);
+        }
+      }
+    });
+  }
+
+  private handleEntityCollision(entityA: Entity, entityB: Entity): void {
     // Flash on impact for any entity collision
     if (!entityA.destroyed && !entityA.isFlashing) {
       entityA.triggerCollisionFlash();
@@ -439,7 +536,7 @@ export class GameEngine {
         }
       }
     }
-  } private handleLaserHit(laser: Matter.Body, entity: Entity): void {
+  } private handleLaserHit(laser: Matter.Body, entity: Entity, hitPos: Matter.Vector): void {
     const LASER_DAMAGE = 10;
     const sourceAssemblyId = (laser as any).sourceAssemblyId;
     const hitAssembly = this.assemblies.find(a => a.entities.includes(entity));
@@ -470,8 +567,8 @@ export class GameEngine {
 
     if (!entity.destroyed) entity.triggerCollisionFlash();
 
-    // Laser impact sparks at the hit location
-    this.particleSystem.emitImpact(entity.body.position.x, entity.body.position.y, 'laser');
+    // Laser impact sparks at the exact surface intersection
+    this.particleSystem.emitImpact(hitPos.x, hitPos.y, 'laser');
 
     const entityDestroyed = entity.takeDamage(LASER_DAMAGE);
     if (!entityDestroyed) return;
@@ -591,7 +688,7 @@ export class GameEngine {
     }
   }
 
-  private handleLaserHitShield(laser: Matter.Body, shieldAssembly: Assembly): void {
+  private handleLaserHitShield(laser: Matter.Body, shieldAssembly: Assembly, _hitPos: Matter.Vector): void {
     const LASER_DAMAGE = 10;
     const sourceAssemblyId = (laser as any).sourceAssemblyId;
 
