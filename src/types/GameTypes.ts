@@ -5,7 +5,11 @@ export type EntityType = 'Cockpit' | 'Engine' | 'Gun' | 'Hull' | 'PowerCell' |
   'Shield' | 'LargeShield' |
   'Beam' | 'LargeBeam' |
   'RectHull' | 'Hull1x3' | 'Hull1x4' | 'Hull2x2' |
-  'TriHull' | 'TriHull2x1' | 'TriHull3x1' | 'TriHull2x2';
+  'Hull5x1' | 'Hull3x2' | 'Hull4x2' | 'Hull5x2' |
+  'Hull3x3' | 'Hull4x3' | 'Hull5x3' | 'Hull4x4' | 'Hull5x4' | 'Hull5x5' |
+  'TriHull' | 'TriHull2x1' | 'TriHull3x1' | 'TriHull2x2' |
+  'TriHull4x1' | 'TriHull5x1' | 'TriHull3x2' | 'TriHull4x2' | 'TriHull5x2' |
+  'TriHull3x3' | 'TriHull4x3' | 'TriHull5x3' | 'TriHull4x4' | 'TriHull5x4' | 'TriHull5x5';
 
 export interface EntityConfig {
   type: EntityType;
@@ -37,6 +41,8 @@ export interface EntityTypeDefinition {
   mass: number;
   defaultHealth: number;
   color: string;
+  /** Block geometry shape — 'rect' for rectangular, 'triangle' for right-angle triangle. */
+  shape: 'rect' | 'triangle';
   thrust?: number;    // Optional thrust value for engine parts
   shieldHp?: number;  // Max shield field HP for shield-type blocks
   beamRange?: number; // Max beam length in world units (beam weapons only)
@@ -89,6 +95,106 @@ export interface AttachmentConnection {
 
 export const GRID_SIZE = 16;
 
+// ---------------------------------------------------------------------------
+// Structural block constants & factory functions
+// ---------------------------------------------------------------------------
+
+const RECT_HULL_MASS_PER_CELL = 600;
+const RECT_HULL_HEALTH_PER_CELL = 120; // slightly less for multi-cell (first cell full, rest ~93)
+const TRI_HULL_MASS_PER_CELL = 300;
+const TRI_HULL_HEALTH_PER_CELL = 60;
+const STRUCTURAL_COLOR = '#778899';
+
+/** Returns true if the given entity type is a structural hull block (rect or triangle). */
+export function isStructuralBlock(type: EntityType): boolean {
+  const def = ENTITY_DEFINITIONS[type];
+  return def !== undefined && STRUCTURAL_TYPES.has(type);
+}
+
+/** Set of all structural block type names — used by isStructuralBlock and canAttachTo filtering. */
+const STRUCTURAL_TYPES: ReadonlySet<EntityType> = new Set<EntityType>([
+  // Rectangular hulls
+  'Hull', 'RectHull', 'Hull1x3', 'Hull1x4', 'Hull2x2',
+  'Hull5x1', 'Hull3x2', 'Hull4x2', 'Hull5x2',
+  'Hull3x3', 'Hull4x3', 'Hull5x3', 'Hull4x4', 'Hull5x4', 'Hull5x5',
+  // Triangle hulls
+  'TriHull', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2',
+  'TriHull4x1', 'TriHull5x1', 'TriHull3x2', 'TriHull4x2', 'TriHull5x2',
+  'TriHull3x3', 'TriHull4x3', 'TriHull5x3', 'TriHull4x4', 'TriHull5x4', 'TriHull5x5',
+]);
+
+/**
+ * Auto-generate attachment points for a rectangular hull block.
+ * One point per external face of each occupied cell (perimeter only).
+ */
+function generateRectAttachmentPoints(cols: number, rows: number): Vector2[] {
+  const points: Vector2[] = [];
+  for (let c = 0; c < cols; c++) {
+    points.push({ x: c, y: -1 });        // north face
+    points.push({ x: c, y: rows });      // south face
+  }
+  for (let r = 0; r < rows; r++) {
+    points.push({ x: -1, y: r });        // west face
+    points.push({ x: cols, y: r });      // east face
+  }
+  return points;
+}
+
+/**
+ * Auto-generate attachment points for a triangle hull block.
+ * Only the straight sides (north + west at rotation 0) have connection points;
+ * the hypotenuse (east + south) is blocked.
+ */
+function generateTriAttachmentPoints(cols: number, rows: number): Vector2[] {
+  const points: Vector2[] = [];
+  // North face — full width
+  for (let c = 0; c < cols; c++) {
+    points.push({ x: c, y: -1 });
+  }
+  // West face — full height
+  for (let r = 0; r < rows; r++) {
+    points.push({ x: -1, y: r });
+  }
+  return points;
+}
+
+/** Factory: create a rectangular structural hull definition. */
+function createRectHullDef(type: EntityType, cols: number, rows: number): EntityTypeDefinition {
+  const cells = cols * rows;
+  return {
+    type,
+    width: GRID_SIZE * cols,
+    height: GRID_SIZE * rows,
+    gridCols: cols > 1 || rows > 1 ? cols : undefined,
+    gridRows: cols > 1 || rows > 1 ? rows : undefined,
+    mass: RECT_HULL_MASS_PER_CELL * cells,
+    defaultHealth: RECT_HULL_HEALTH_PER_CELL * cells,
+    color: STRUCTURAL_COLOR,
+    shape: 'rect',
+    canAttachTo: [], // populated after ENTITY_DEFINITIONS is built
+    attachmentPoints: generateRectAttachmentPoints(cols, rows),
+  };
+}
+
+/** Factory: create a triangular structural hull definition. */
+function createTriHullDef(type: EntityType, cols: number, rows: number): EntityTypeDefinition {
+  const cells = cols * rows;
+  return {
+    type,
+    width: GRID_SIZE * cols,
+    height: GRID_SIZE * rows,
+    gridCols: cols > 1 || rows > 1 ? cols : undefined,
+    gridRows: cols > 1 || rows > 1 ? rows : undefined,
+    mass: TRI_HULL_MASS_PER_CELL * cells,
+    defaultHealth: TRI_HULL_HEALTH_PER_CELL * cells,
+    color: STRUCTURAL_COLOR,
+    shape: 'triangle',
+    blockedSidesBase: ['east', 'south'] as const,
+    canAttachTo: [], // populated after ENTITY_DEFINITIONS is built
+    attachmentPoints: generateTriAttachmentPoints(cols, rows),
+  };
+}
+
 export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
   Cockpit: {
     type: 'Cockpit',
@@ -97,8 +203,9 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 500,
     defaultHealth: 1000,
     color: '#00ff00',
+    shape: 'rect',
     thrust: 0.5, // Emergency RCS only — engines are the primary propulsion source
-    canAttachTo: ['Engine', 'Gun', 'Hull', 'RectHull', 'Hull1x3', 'Hull1x4', 'Hull2x2', 'TriHull', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2', 'PowerCell', 'Shield', 'LargeShield', 'Beam'],
+    canAttachTo: ['Engine', 'Gun', 'PowerCell', 'Shield', 'LargeShield', 'Beam'],
     attachmentPoints: [
       { x: 0, y: -1 }, // top
       { x: 1, y: 0 },  // right
@@ -113,8 +220,9 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 750,
     defaultHealth: 80,
     color: '#ff6600',
+    shape: 'rect',
     thrust: 2.0, // Primary propulsion block; ~4× better efficiency per mass than Cockpit
-    canAttachTo: ['Cockpit', 'Hull', 'RectHull', 'Hull1x3', 'Hull1x4', 'Hull2x2', 'TriHull', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2', 'PowerCell', 'Shield', 'LargeShield'],
+    canAttachTo: ['Cockpit', 'PowerCell', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 0, y: -1 }, // top (exhaust is bottom)
       { x: 1, y: 0 },  // right
@@ -128,28 +236,15 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 400, // Significantly increased for realistic physics
     defaultHealth: 60,
     color: '#ff0000',
-    canAttachTo: ['Cockpit', 'Hull', 'RectHull', 'Hull1x3', 'Hull1x4', 'Hull2x2', 'TriHull', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2', 'PowerCell', 'Shield', 'LargeShield', 'Beam'],
+    shape: 'rect',
+    canAttachTo: ['Cockpit', 'PowerCell', 'Shield', 'LargeShield', 'Beam'],
     attachmentPoints: [
       { x: 1, y: 0 },  // right
       { x: 0, y: 1 },  // bottom
       { x: -1, y: 0 }  // left
     ]
   },
-  Hull: {
-    type: 'Hull',
-    width: GRID_SIZE,
-    height: GRID_SIZE,
-    mass: 600, // Significantly increased for realistic physics
-    defaultHealth: 120,
-    color: '#888888',
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'RectHull', 'Hull1x3', 'Hull1x4', 'Hull2x2', 'TriHull', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2', 'PowerCell', 'Shield', 'LargeShield', 'Beam'],
-    attachmentPoints: [
-      { x: 0, y: -1 }, // top
-      { x: 1, y: 0 },  // right
-      { x: 0, y: 1 },  // bottom
-      { x: -1, y: 0 }  // left
-    ]
-  },
+  Hull: createRectHullDef('Hull', 1, 1),
   PowerCell: {
     type: 'PowerCell',
     width: GRID_SIZE,
@@ -157,7 +252,8 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 300, // Significantly increased for realistic physics
     defaultHealth: 40,
     color: '#ffff00',
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'RectHull', 'Hull1x3', 'Hull1x4', 'Hull2x2', 'TriHull', 'Shield', 'LargeShield', 'Beam'],
+    shape: 'rect',
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Shield', 'LargeShield', 'Beam'],
     attachmentPoints: [
       { x: 0, y: -1 }, // top
       { x: 1, y: 0 },  // right
@@ -171,11 +267,14 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     type: 'LargeCockpit',
     width: GRID_SIZE * 2,
     height: GRID_SIZE * 2,
+    gridCols: 2,
+    gridRows: 2,
     mass: 2000,
     defaultHealth: 2500,
     color: '#00aa00',
+    shape: 'rect',
     thrust: 2.0, // Emergency RCS (same efficiency as Cockpit — 0.001 thrust/mass)
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'Hull1x3', 'Hull1x4', 'Hull2x2', 'TriHull', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield', 'Beam', 'LargeBeam'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield', 'Beam', 'LargeBeam'],
     attachmentPoints: [
       { x: 0, y: -2 }, // top center
       { x: 1, y: -1 }, // top right
@@ -191,11 +290,14 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     type: 'LargeEngine',
     width: GRID_SIZE * 2,
     height: GRID_SIZE * 2,
+    gridCols: 2,
+    gridRows: 2,
     mass: 3000,
     defaultHealth: 200,
     color: '#cc4400',
+    shape: 'rect',
     thrust: 8.0, // Primary propulsion (0.00267 thrust/mass — consistent with Engine)
-    canAttachTo: ['Cockpit', 'Hull', 'Hull1x3', 'Hull1x4', 'Hull2x2', 'TriHull', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield'],
+    canAttachTo: ['Cockpit', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 0, y: -2 }, // top center
       { x: 1, y: -1 }, // top right
@@ -209,10 +311,13 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     type: 'LargeGun',
     width: GRID_SIZE * 2,
     height: GRID_SIZE * 2,
+    gridCols: 2,
+    gridRows: 2,
     mass: 1600, // 4x mass for 4x size (2x2)
     defaultHealth: 150,
     color: '#cc0000',
-    canAttachTo: ['Cockpit', 'Hull', 'Hull1x3', 'Hull1x4', 'Hull2x2', 'TriHull', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield', 'LargeBeam'],
+    shape: 'rect',
+    canAttachTo: ['Cockpit', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield', 'LargeBeam'],
     attachmentPoints: [
       { x: 1, y: 1 },  // bottom right
       { x: 0, y: 2 },  // bottom center
@@ -226,10 +331,13 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     type: 'HeavyHull',
     width: GRID_SIZE * 2,
     height: GRID_SIZE * 2,
+    gridCols: 2,
+    gridRows: 2,
     mass: 2400, // 4x mass for 4x size (2x2)
     defaultHealth: 300,
     color: '#666666',
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'Hull1x3', 'Hull1x4', 'Hull2x2', 'TriHull', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield', 'Beam', 'LargeBeam'],
+    shape: 'rect',
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield', 'Beam', 'LargeBeam'],
     attachmentPoints: [
       { x: 0, y: -2 }, // top center
       { x: 1, y: -1 }, // top right
@@ -245,10 +353,13 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     type: 'LargePowerCell',
     width: GRID_SIZE * 2,
     height: GRID_SIZE * 2,
+    gridCols: 2,
+    gridRows: 2,
     mass: 1200, // 4x mass for 4x size (2x2)
     defaultHealth: 100,
     color: '#dddd00',
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'Hull1x3', 'Hull1x4', 'Hull2x2', 'TriHull', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'Shield', 'LargeShield', 'Beam', 'LargeBeam'],
+    shape: 'rect',
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'Shield', 'LargeShield', 'Beam', 'LargeBeam'],
     attachmentPoints: [
       { x: 0, y: -2 }, // top center
       { x: 1, y: -1 }, // top right
@@ -266,11 +377,14 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     type: 'CapitalCore',
     width: GRID_SIZE * 4,
     height: GRID_SIZE * 4,
+    gridCols: 4,
+    gridRows: 4,
     mass: 8000,
     defaultHealth: 10000,
     color: '#0066ff',
+    shape: 'rect',
     thrust: 8.0, // Emergency RCS (0.001 thrust/mass — consistent with Cockpit tier)
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'Hull1x3', 'Hull1x4', 'Hull2x2', 'TriHull', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 0, y: -4 }, // top center
       { x: 2, y: -2 }, // top right
@@ -286,11 +400,14 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     type: 'CapitalEngine',
     width: GRID_SIZE * 4,
     height: GRID_SIZE * 4,
+    gridCols: 4,
+    gridRows: 4,
     mass: 12000,
     defaultHealth: 800,
     color: '#ff3300',
+    shape: 'rect',
     thrust: 32.0, // Primary propulsion (0.00267 thrust/mass — consistent with Engine tier)
-    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield'],
+    canAttachTo: ['Cockpit', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 0, y: -4 }, // top center
       { x: 2, y: -2 }, // top right
@@ -304,10 +421,13 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     type: 'CapitalWeapon',
     width: GRID_SIZE * 4,
     height: GRID_SIZE * 4,
+    gridCols: 4,
+    gridRows: 4,
     mass: 6400, // 16x mass for 16x size (4x4)
     defaultHealth: 600,
     color: '#aa0000',
-    canAttachTo: ['Cockpit', 'Hull', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield'],
+    shape: 'rect',
+    canAttachTo: ['Cockpit', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 2, y: 2 },  // bottom right
       { x: 0, y: 4 },  // bottom center
@@ -321,10 +441,13 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     type: 'MegaHull',
     width: GRID_SIZE * 4,
     height: GRID_SIZE * 4,
+    gridCols: 4,
+    gridRows: 4,
     mass: 9600, // 16x mass for 16x size (4x4)
     defaultHealth: 1200,
     color: '#444444',
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'Hull1x3', 'Hull1x4', 'Hull2x2', 'TriHull', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield'],
+    shape: 'rect',
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 0, y: -4 }, // top center
       { x: 2, y: -2 }, // top right
@@ -340,10 +463,13 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     type: 'PowerReactor',
     width: GRID_SIZE * 4,
     height: GRID_SIZE * 4,
+    gridCols: 4,
+    gridRows: 4,
     mass: 4800, // 16x mass for 16x size (4x4)
     defaultHealth: 400,
     color: '#ffaa00',
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Hull', 'Hull1x3', 'Hull1x4', 'Hull2x2', 'TriHull', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'Shield', 'LargeShield'],
+    shape: 'rect',
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 0, y: -4 }, // top center
       { x: 2, y: -2 }, // top right
@@ -364,7 +490,8 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 450, // Similar to guns but slightly heavier
     defaultHealth: 70,
     color: '#ff9900', // Orange color for missiles
-    canAttachTo: ['Cockpit', 'Hull', 'RectHull', 'Hull1x3', 'Hull1x4', 'Hull2x2', 'TriHull', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2', 'PowerCell', 'Shield', 'LargeShield'],
+    shape: 'rect',
+    canAttachTo: ['Cockpit', 'PowerCell', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 1, y: 0 },  // right
       { x: 0, y: 1 },  // bottom
@@ -375,10 +502,13 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     type: 'LargeMissileLauncher',
     width: GRID_SIZE * 2,
     height: GRID_SIZE * 2,
+    gridCols: 2,
+    gridRows: 2,
     mass: 1800, // 4x mass for 4x size
     defaultHealth: 180,
     color: '#ff7700', // Darker orange for large launchers
-    canAttachTo: ['Cockpit', 'Hull', 'Hull1x3', 'Hull1x4', 'Hull2x2', 'TriHull', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield'],
+    shape: 'rect',
+    canAttachTo: ['Cockpit', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 1, y: 1 },  // bottom right
       { x: 0, y: 2 },  // bottom center
@@ -391,10 +521,13 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     type: 'CapitalMissileLauncher',
     width: GRID_SIZE * 4,
     height: GRID_SIZE * 4,
+    gridCols: 4,
+    gridRows: 4,
     mass: 7200, // 16x mass for 16x size
     defaultHealth: 720,
     color: '#ff5500', // Even darker orange for capital launchers
-    canAttachTo: ['Cockpit', 'Hull', 'Hull1x3', 'Hull1x4', 'Hull2x2', 'TriHull', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield'],
+    shape: 'rect',
+    canAttachTo: ['Cockpit', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 2, y: 2 },  // bottom right
       { x: 0, y: 4 },  // bottom center
@@ -414,9 +547,10 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 600,
     defaultHealth: 200,
     color: '#4488ff',
+    shape: 'rect',
     shieldHp: 300,
     canAttachTo: [
-      'Cockpit', 'Engine', 'Gun', 'Hull', 'RectHull', 'Hull1x3', 'Hull1x4', 'Hull2x2', 'TriHull', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2', 'PowerCell',
+      'Cockpit', 'Engine', 'Gun', 'PowerCell',
       'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell',
       'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor',
       'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher',
@@ -433,12 +567,15 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     type: 'LargeShield',
     width: GRID_SIZE * 2,
     height: GRID_SIZE * 2,
+    gridCols: 2,
+    gridRows: 2,
     mass: 2400,
     defaultHealth: 400,
     color: '#2255cc',
+    shape: 'rect',
     shieldHp: 700,
     canAttachTo: [
-      'Cockpit', 'Engine', 'Gun', 'Hull', 'RectHull', 'Hull1x3', 'Hull1x4', 'Hull2x2', 'TriHull', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2', 'PowerCell',
+      'Cockpit', 'Engine', 'Gun', 'PowerCell',
       'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell',
       'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor',
       'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher',
@@ -465,9 +602,10 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     mass: 400,
     defaultHealth: 60,
     color: '#00ccff',
+    shape: 'rect',
     beamRange: BEAM_SMALL_RANGE,
     beamDps: BEAM_SMALL_DPS,
-    canAttachTo: ['Cockpit', 'Hull', 'RectHull', 'Hull1x3', 'Hull1x4', 'Hull2x2', 'TriHull', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2', 'PowerCell', 'Shield', 'LargeShield'],
+    canAttachTo: ['Cockpit', 'PowerCell', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 1, y: 0 },  // right
       { x: 0, y: 1 },  // bottom
@@ -479,12 +617,15 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     type: 'LargeBeam',
     width: GRID_SIZE * 2,
     height: GRID_SIZE * 2,
+    gridCols: 2,
+    gridRows: 2,
     mass: 1600,
     defaultHealth: 150,
     color: '#0066cc',
+    shape: 'rect',
     beamRange: BEAM_LARGE_RANGE,
     beamDps: BEAM_LARGE_DPS,
-    canAttachTo: ['Cockpit', 'Hull', 'Hull1x3', 'Hull1x4', 'Hull2x2', 'TriHull', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield'],
+    canAttachTo: ['Cockpit', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield'],
     attachmentPoints: [
       { x: 1, y: 1 },  // bottom right
       { x: 0, y: 2 },  // bottom center
@@ -495,216 +636,73 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     ]
   },
 
-  // Rectangular hull — 1×2 grid cells (32×16 px).
-  // Anchor (localOffset) is the LEFT cell at rotation 0.
-  // Connection points: 1 on each end cap, 2 on each long side = 6 total.
-  RectHull: {
-    type: 'RectHull',
-    width: GRID_SIZE * 2,  // 32 px
-    height: GRID_SIZE,     // 16 px
-    gridCols: 2,
-    gridRows: 1,
-    mass: 900,             // ~1.5× Hull — proportional to area
-    defaultHealth: 200,    // ~1.7× Hull
-    color: '#778899',      // Distinct slate-blue so it's recognisable in sandbox
-    canAttachTo: [
-      'Cockpit', 'Engine', 'Gun', 'Hull', 'RectHull', 'Hull1x3', 'Hull1x4', 'Hull2x2', 'TriHull', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2', 'PowerCell',
-      'Shield', 'LargeShield', 'Beam', 'MissileLauncher',
-    ],
-    // Attachment points relative to anchor cell (top-left at rotation 0), in grid units
-    attachmentPoints: [
-      { x: -1, y: 0 },  // west end cap
-      { x:  2, y: 0 },  // east end cap
-      { x:  0, y: -1 }, // north long-side, left half
-      { x:  1, y: -1 }, // north long-side, right half
-      { x:  0, y:  1 }, // south long-side, left half
-      { x:  1, y:  1 }, // south long-side, right half
-    ]
-  },
-
-  // 1×3 rectangular hull — 3 grid cells wide, 1 tall (48×16 px).
-  Hull1x3: {
-    type: 'Hull1x3',
-    width: GRID_SIZE * 3,
-    height: GRID_SIZE,
-    gridCols: 3,
-    gridRows: 1,
-    mass: 1350,
-    defaultHealth: 280,
-    color: '#778899',
-    canAttachTo: [
-      'Cockpit', 'Engine', 'Gun', 'Hull', 'RectHull', 'Hull1x3', 'Hull1x4', 'Hull2x2', 'TriHull', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2', 'PowerCell',
-      'Shield', 'LargeShield', 'Beam', 'MissileLauncher',
-    ],
-    attachmentPoints: [
-      { x: -1, y:  0 }, // west end cap
-      { x:  3, y:  0 }, // east end cap
-      { x:  0, y: -1 }, // north, col 0
-      { x:  1, y: -1 }, // north, col 1
-      { x:  2, y: -1 }, // north, col 2
-      { x:  0, y:  1 }, // south, col 0
-      { x:  1, y:  1 }, // south, col 1
-      { x:  2, y:  1 }, // south, col 2
-    ],
-  },
-
-  // 1×4 rectangular hull — 4 grid cells wide, 1 tall (64×16 px).
-  Hull1x4: {
-    type: 'Hull1x4',
-    width: GRID_SIZE * 4,
-    height: GRID_SIZE,
-    gridCols: 4,
-    gridRows: 1,
-    mass: 1800,
-    defaultHealth: 360,
-    color: '#778899',
-    canAttachTo: [
-      'Cockpit', 'Engine', 'Gun', 'Hull', 'RectHull', 'Hull1x3', 'Hull1x4', 'Hull2x2', 'TriHull', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2', 'PowerCell',
-      'Shield', 'LargeShield', 'Beam', 'MissileLauncher',
-    ],
-    attachmentPoints: [
-      { x: -1, y:  0 }, // west end cap
-      { x:  4, y:  0 }, // east end cap
-      { x:  0, y: -1 }, // north, col 0
-      { x:  1, y: -1 }, // north, col 1
-      { x:  2, y: -1 }, // north, col 2
-      { x:  3, y: -1 }, // north, col 3
-      { x:  0, y:  1 }, // south, col 0
-      { x:  1, y:  1 }, // south, col 1
-      { x:  2, y:  1 }, // south, col 2
-      { x:  3, y:  1 }, // south, col 3
-    ],
-  },
-
-  // 2×2 square hull — 2 grid cells wide, 2 tall (32×32 px).
-  // Uses gridCols/gridRows for the new-style multi-cell system.
-  Hull2x2: {
-    type: 'Hull2x2',
-    width: GRID_SIZE * 2,
-    height: GRID_SIZE * 2,
-    gridCols: 2,
-    gridRows: 2,
-    mass: 2400,
-    defaultHealth: 400,
-    color: '#778899',
-    canAttachTo: [
-      'Cockpit', 'Engine', 'Gun', 'Hull', 'RectHull', 'Hull1x3', 'Hull1x4', 'Hull2x2', 'TriHull', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2', 'PowerCell',
-      'Shield', 'LargeShield', 'Beam', 'MissileLauncher',
-      'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell',
-      'LargeMissileLauncher', 'LargeBeam',
-    ],
-    attachmentPoints: [
-      { x:  0, y: -1 }, // north, col 0
-      { x:  1, y: -1 }, // north, col 1
-      { x:  0, y:  2 }, // south, col 0
-      { x:  1, y:  2 }, // south, col 1
-      { x: -1, y:  0 }, // west, row 0
-      { x: -1, y:  1 }, // west, row 1
-      { x:  2, y:  0 }, // east, row 0
-      { x:  2, y:  1 }, // east, row 1
-    ],
-  },
-
-  // Right-angle triangle hull — occupies 1×1 grid cell; body is triangular.
-  // At rotation 0 the right angle is at the top-left (NW corner).
-  // The two straight sides (north + west at rot 0) accept connections;
-  // the hypotenuse (east + south at rot 0) is blocked via blockedSidesBase.
-  // Body center = centroid, placed at localOffset (bodyOffset = {0,0}).
-  TriHull: {
-    type: 'TriHull',
-    width: GRID_SIZE,
-    height: GRID_SIZE,
-    mass: 300,
-    defaultHealth: 60,
-    color: '#778899',
-    blockedSidesBase: ['east', 'south'],
-    canAttachTo: [
-      'Cockpit', 'Engine', 'Gun', 'Hull', 'RectHull', 'Hull1x3', 'Hull1x4', 'Hull2x2',
-      'TriHull', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2', 'PowerCell',
-      'Shield', 'LargeShield', 'Beam', 'MissileLauncher',
-    ],
-    attachmentPoints: [
-      { x:  0, y: -1 }, // north straight side
-      { x: -1, y:  0 }, // west straight side
-    ],
-  },
-
-  // Right-angle triangle hull — 2 cols × 1 row (32×16 px).
-  // RA at NW; north leg 2 cells, west leg 1 cell; hyp faces SE → blocked east + south.
-  TriHull2x1: {
-    type: 'TriHull2x1',
-    width: GRID_SIZE * 2,
-    height: GRID_SIZE,
-    gridCols: 2,
-    gridRows: 1,
-    mass: 600,
-    defaultHealth: 120,
-    color: '#778899',
-    blockedSidesBase: ['east', 'south'],
-    canAttachTo: [
-      'Cockpit', 'Engine', 'Gun', 'Hull', 'RectHull', 'Hull1x3', 'Hull1x4', 'Hull2x2',
-      'TriHull', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2', 'PowerCell',
-      'Shield', 'LargeShield', 'Beam', 'MissileLauncher',
-    ],
-    attachmentPoints: [
-      { x:  0, y: -1 }, // north, col 0
-      { x:  1, y: -1 }, // north, col 1
-      { x: -1, y:  0 }, // west
-    ],
-  },
-
-  // Right-angle triangle hull — 3 cols × 1 row (48×16 px).
-  // RA at NW; north leg 3 cells, west leg 1 cell; hyp faces SE → blocked east + south.
-  TriHull3x1: {
-    type: 'TriHull3x1',
-    width: GRID_SIZE * 3,
-    height: GRID_SIZE,
-    gridCols: 3,
-    gridRows: 1,
-    mass: 900,
-    defaultHealth: 180,
-    color: '#778899',
-    blockedSidesBase: ['east', 'south'],
-    canAttachTo: [
-      'Cockpit', 'Engine', 'Gun', 'Hull', 'RectHull', 'Hull1x3', 'Hull1x4', 'Hull2x2',
-      'TriHull', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2', 'PowerCell',
-      'Shield', 'LargeShield', 'Beam', 'MissileLauncher',
-    ],
-    attachmentPoints: [
-      { x:  0, y: -1 }, // north, col 0
-      { x:  1, y: -1 }, // north, col 1
-      { x:  2, y: -1 }, // north, col 2
-      { x: -1, y:  0 }, // west
-    ],
-  },
-
-  // Right-angle triangle hull — 2 cols × 2 rows (32×32 px), isoceles right triangle.
-  // RA at NW; north leg 2 cells, west leg 2 cells; hyp faces SE → blocked east + south.
-  TriHull2x2: {
-    type: 'TriHull2x2',
-    width: GRID_SIZE * 2,
-    height: GRID_SIZE * 2,
-    gridCols: 2,
-    gridRows: 2,
-    mass: 1200,
-    defaultHealth: 240,
-    color: '#778899',
-    blockedSidesBase: ['east', 'south'],
-    canAttachTo: [
-      'Cockpit', 'Engine', 'Gun', 'Hull', 'RectHull', 'Hull1x3', 'Hull1x4', 'Hull2x2',
-      'TriHull', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2', 'PowerCell',
-      'Shield', 'LargeShield', 'Beam', 'MissileLauncher',
-      'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell',
-      'LargeMissileLauncher', 'LargeBeam',
-    ],
-    attachmentPoints: [
-      { x:  0, y: -1 }, // north, col 0
-      { x:  1, y: -1 }, // north, col 1
-      { x: -1, y:  0 }, // west, row 0
-      { x: -1, y:  1 }, // west, row 1
-    ],
-  },
+  // Structural hull blocks — generated by factory functions.
+  // Rectangular hulls connect on all 4 sides; triangle hulls only on straight sides.
+  // To add a new size: add type to EntityType union + STRUCTURAL_TYPES, then one line here.
+  RectHull:    createRectHullDef('RectHull', 2, 1),
+  Hull1x3:     createRectHullDef('Hull1x3', 3, 1),
+  Hull1x4:     createRectHullDef('Hull1x4', 4, 1),
+  Hull2x2:     createRectHullDef('Hull2x2', 2, 2),
+  Hull5x1:     createRectHullDef('Hull5x1', 5, 1),
+  Hull3x2:     createRectHullDef('Hull3x2', 3, 2),
+  Hull4x2:     createRectHullDef('Hull4x2', 4, 2),
+  Hull5x2:     createRectHullDef('Hull5x2', 5, 2),
+  Hull3x3:     createRectHullDef('Hull3x3', 3, 3),
+  Hull4x3:     createRectHullDef('Hull4x3', 4, 3),
+  Hull5x3:     createRectHullDef('Hull5x3', 5, 3),
+  Hull4x4:     createRectHullDef('Hull4x4', 4, 4),
+  Hull5x4:     createRectHullDef('Hull5x4', 5, 4),
+  Hull5x5:     createRectHullDef('Hull5x5', 5, 5),
+  TriHull:     createTriHullDef('TriHull', 1, 1),
+  TriHull2x1:  createTriHullDef('TriHull2x1', 2, 1),
+  TriHull3x1:  createTriHullDef('TriHull3x1', 3, 1),
+  TriHull2x2:  createTriHullDef('TriHull2x2', 2, 2),
+  TriHull4x1:  createTriHullDef('TriHull4x1', 4, 1),
+  TriHull5x1:  createTriHullDef('TriHull5x1', 5, 1),
+  TriHull3x2:  createTriHullDef('TriHull3x2', 3, 2),
+  TriHull4x2:  createTriHullDef('TriHull4x2', 4, 2),
+  TriHull5x2:  createTriHullDef('TriHull5x2', 5, 2),
+  TriHull3x3:  createTriHullDef('TriHull3x3', 3, 3),
+  TriHull4x3:  createTriHullDef('TriHull4x3', 4, 3),
+  TriHull5x3:  createTriHullDef('TriHull5x3', 5, 3),
+  TriHull4x4:  createTriHullDef('TriHull4x4', 4, 4),
+  TriHull5x4:  createTriHullDef('TriHull5x4', 5, 4),
+  TriHull5x5:  createTriHullDef('TriHull5x5', 5, 5),
 };
+
+/**
+ * Check if two entity types can connect to each other.
+ * Structural blocks can attach to anything; functional blocks use their canAttachTo lists.
+ * This replaces direct `def.canAttachTo.includes()` checks throughout the codebase.
+ */
+export function canTypesConnect(typeA: EntityType, typeB: EntityType): boolean {
+  // Structural blocks connect to everything
+  if (STRUCTURAL_TYPES.has(typeA) && STRUCTURAL_TYPES.has(typeB)) return true;
+  if (STRUCTURAL_TYPES.has(typeA)) {
+    // A is structural — check if B allows structural blocks (always yes)
+    return true;
+  }
+  if (STRUCTURAL_TYPES.has(typeB)) {
+    // B is structural — check if A allows structural blocks (always yes)
+    return true;
+  }
+  // Both functional — use mutual canAttachTo
+  const defA = ENTITY_DEFINITIONS[typeA];
+  const defB = ENTITY_DEFINITIONS[typeB];
+  return defA.canAttachTo.includes(typeB) && defB.canAttachTo.includes(typeA);
+}
+
+// ---------------------------------------------------------------------------
+// Populate canAttachTo for structural blocks.
+// Structural blocks can connect to every other block type in the game.
+// This is done after ENTITY_DEFINITIONS is built so we can enumerate all types.
+// ---------------------------------------------------------------------------
+{
+  const allTypes = Object.keys(ENTITY_DEFINITIONS) as EntityType[];
+  for (const sType of STRUCTURAL_TYPES) {
+    ENTITY_DEFINITIONS[sType].canAttachTo = [...allTypes];
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Multi-cell block helpers
@@ -726,8 +724,8 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
  * This places the bounding-box edges exactly on grid-cell borders for flush snapping.
  */
 export function getEntityBodyOffset(type: EntityType, rotation: number): Vector2 {
-  if (type === 'TriHull' || type === 'TriHull2x1' || type === 'TriHull3x1' || type === 'TriHull2x2') {
-    const def = ENTITY_DEFINITIONS[type];
+  const def = ENTITY_DEFINITIONS[type];
+  if (def.shape === 'triangle') {
     const W = (def.gridCols ?? 1) * GRID_SIZE;
     const H = (def.gridRows ?? 1) * GRID_SIZE;
     // Each 90° CW step rotates the RA corner: NW→NE→SE→SW.
@@ -741,7 +739,6 @@ export function getEntityBodyOffset(type: EntityType, rotation: number): Vector2
     }
   }
 
-  const def = ENTITY_DEFINITIONS[type];
   const gridCols = def.gridCols ?? 1;
   const gridRows = def.gridRows ?? 1;
   const swap = rotation === 90 || rotation === 270;

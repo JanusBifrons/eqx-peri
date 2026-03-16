@@ -1,6 +1,6 @@
 import * as Matter from 'matter-js';
 import { Entity } from './Entity';
-import { EntityConfig, Vector2, EntityType, ENTITY_DEFINITIONS, ShieldState, SHIELD_REGEN_DELAY_MS, SHIELD_REGEN_DURATION_MS, SHIELD_COLLAPSE_COOLDOWN_MS, getEntityOccupiedGridCells, getEntityBodyOffset, getBlockedConnectionDirs } from '../../types/GameTypes';
+import { EntityConfig, Vector2, EntityType, ENTITY_DEFINITIONS, ShieldState, SHIELD_REGEN_DELAY_MS, SHIELD_REGEN_DURATION_MS, SHIELD_COLLAPSE_COOLDOWN_MS, getEntityOccupiedGridCells, getEntityBodyOffset, getBlockedConnectionDirs, canTypesConnect } from '../../types/GameTypes';
 import { PowerSystem } from '../systems/PowerSystem';
 import { MissileType } from '../weapons/Missile';
 
@@ -1123,8 +1123,8 @@ export class Assembly {
     );
     if (blocks.length === 0) return { x: 0, y: 0 };
     return {
-      x: blocks.reduce((s, e) => s + e.localOffset.x, 0) / blocks.length,
-      y: blocks.reduce((s, e) => s + e.localOffset.y, 0) / blocks.length,
+      x: blocks.reduce((s, e) => s + e.localOffset.x + getEntityBodyOffset(e.type, e.rotation).x, 0) / blocks.length,
+      y: blocks.reduce((s, e) => s + e.localOffset.y + getEntityBodyOffset(e.type, e.rotation).y, 0) / blocks.length,
     };
   }
 
@@ -1562,13 +1562,7 @@ export class Assembly {
    * Check if two entities can connect based on their type compatibility
    */
   private canEntitiesConnect(entity1: Entity, entity2: Entity): boolean {
-    const def1 = ENTITY_DEFINITIONS[entity1.type];
-    const def2 = ENTITY_DEFINITIONS[entity2.type];
-    
-    if (!def1 || !def2) return false;
-
-    // Check mutual compatibility
-    return def1.canAttachTo.includes(entity2.type) && def2.canAttachTo.includes(entity1.type);
+    return canTypesConnect(entity1.type, entity2.type);
   }
 
   /**

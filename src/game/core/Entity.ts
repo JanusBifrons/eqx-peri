@@ -1,6 +1,6 @@
 import * as Matter from 'matter-js';
 import * as PIXI from 'pixi.js';
-import { EntityConfig, EntityType, ENTITY_DEFINITIONS, Vector2, GRID_SIZE, AttachmentConnection, getEntityBodyOffset, getTriHullVertices } from '../../types/GameTypes';
+import { EntityConfig, EntityType, ENTITY_DEFINITIONS, Vector2, GRID_SIZE, AttachmentConnection, getEntityBodyOffset, getTriHullVertices, isStructuralBlock } from '../../types/GameTypes';
 import { Viewport } from '../rendering/Viewport';
 
 export class Entity {
@@ -73,7 +73,7 @@ export class Entity {
       strokeStyle: this.getHullStrokeColor(this.type),
       lineWidth: 3,
     };
-    if (this.type === 'TriHull' || this.type === 'TriHull2x1' || this.type === 'TriHull3x1' || this.type === 'TriHull2x2') {
+    if (definition.shape === 'triangle') {
       const verts = getTriHullVertices(this.type, this.rotation);
       this.body = Matter.Bodies.fromVertices(
         bodyX,
@@ -105,8 +105,7 @@ export class Entity {
     this.body.entity = this;
 
     // Triangle hulls skip rotation — it is already baked into the vertex positions.
-    const isTriangle = this.type === 'TriHull' || this.type === 'TriHull2x1' || this.type === 'TriHull3x1' || this.type === 'TriHull2x2';
-    if (this.rotation !== 0 && !isTriangle) {
+    if (this.rotation !== 0 && definition.shape !== 'triangle') {
       Matter.Body.rotate(this.body, (this.rotation * Math.PI) / 180);
     }
   }
@@ -316,8 +315,9 @@ export class Entity {
 
 
   private getSolidHullColor(entityType: EntityType): string {
+    // Structural blocks (Hull, RectHull, TriHull, etc.) share the same neutral grey
+    if (isStructuralBlock(entityType)) return '#5e5e5e';
     switch (entityType) {
-      case 'Hull':
       case 'HeavyHull':
       case 'MegaHull':
         return '#5e5e5e'; // Neutral grey — structural
@@ -353,8 +353,9 @@ export class Entity {
   }
 
   private getHullStrokeColor(entityType: EntityType): string {
+    // Structural blocks (Hull, RectHull, TriHull, etc.) share the same dark stroke
+    if (isStructuralBlock(entityType)) return '#303030';
     switch (entityType) {
-      case 'Hull':
       case 'HeavyHull':
       case 'MegaHull':
         return '#303030';

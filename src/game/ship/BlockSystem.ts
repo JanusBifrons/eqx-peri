@@ -11,7 +11,7 @@
  * - Dependency Inversion: Depends on abstractions, not concrete implementations
  */
 
-import { EntityType, ENTITY_DEFINITIONS, GRID_SIZE } from '../../types/GameTypes';
+import { EntityType, ENTITY_DEFINITIONS, GRID_SIZE, canTypesConnect } from '../../types/GameTypes';
 
 // Base unit for all positioning and sizing
 export const BLOCK_SIZE = 16;
@@ -183,8 +183,8 @@ export class ShipValidator {
 
     if (!def1 || !def2) return false;
 
-    // Check mutual compatibility using the existing canAttachTo system
-    if (!def1.canAttachTo.includes(block2.type) || !def2.canAttachTo.includes(block1.type)) {
+    // Check mutual compatibility
+    if (!canTypesConnect(block1.type, block2.type)) {
       return false;
     }
 
@@ -551,7 +551,7 @@ export class ConnectionDetector {
     }
 
     // Check if the entities can actually connect to each other (mutual compatibility)
-    if (!def1.canAttachTo.includes(entity2.type) || !def2.canAttachTo.includes(entity1.type)) {
+    if (!canTypesConnect(entity1.type as EntityType, entity2.type as EntityType)) {
       return false;
     }
 

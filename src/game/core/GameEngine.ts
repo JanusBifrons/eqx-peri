@@ -2,7 +2,7 @@ import * as Matter from 'matter-js';
 import Stats from 'stats.js';
 import { Assembly } from './Assembly';
 import { Entity } from './Entity';
-import { EntityConfig, GRID_SIZE, ENTITY_DEFINITIONS, EntityType, ScenarioConfig, SCENARIOS, SHIP_SPAWN_SPACING, Vector2, PerformanceMetrics } from '../../types/GameTypes';
+import { EntityConfig, GRID_SIZE, ENTITY_DEFINITIONS, EntityType, ScenarioConfig, SCENARIOS, SHIP_SPAWN_SPACING, Vector2, PerformanceMetrics, isStructuralBlock } from '../../types/GameTypes';
 import shipsData from '../../data/ships.json';
 import { ControllerManager } from '../ai/ControllerManager';
 import { FlightController } from '../ai/FlightController';
@@ -1812,26 +1812,22 @@ export class GameEngine {
   }
 
   private spawnSandboxScenario(): void {
+    // All structural hull types (auto-populated from ENTITY_DEFINITIONS) + functional blocks
+    const allTypes = Object.keys(ENTITY_DEFINITIONS) as EntityType[];
     const SANDBOX_BLOCK_TYPES: EntityType[] = [
       'Cockpit', 'Cockpit',
-      'TriHull', 'TriHull', 'TriHull', 'TriHull',
-      'TriHull2x1', 'TriHull2x1', 'TriHull3x1', 'TriHull2x2',
-      'Hull2x2', 'Hull2x2',
-      'Hull1x3', 'Hull1x4',
-      'RectHull', 'RectHull', 'RectHull',
-      'Beam', 'Beam', 'LargeBeam',
-      'Gun', 'Gun', 'Gun',
-      'Engine', 'Engine', 'Engine', 'Engine',
+      ...allTypes.filter(t => isStructuralBlock(t)),
+      'Beam', 'LargeBeam',
+      'Gun', 'Gun',
+      'Engine', 'Engine', 'Engine',
       'LargeEngine',
-      'Shield', 'Shield', 'LargeShield',
-      'Hull', 'Hull', 'Hull', 'Hull',
+      'Shield', 'LargeShield',
       'PowerCell', 'PowerCell',
       'MissileLauncher',
     ];
 
-    // Scatter loose blocks around the origin (including cockpits which become team-0 AI ships)
-    const count = 12 + Math.floor(Math.random() * 5); // 12–16 blocks
-    for (let i = 0; i < count && i < SANDBOX_BLOCK_TYPES.length; i++) {
+    // Scatter ALL blocks — no count limit; this lets us test every hull size
+    for (let i = 0; i < SANDBOX_BLOCK_TYPES.length; i++) {
       const angle = Math.random() * Math.PI * 2;
       const distance = 150 + Math.random() * 350; // 150–500 units from origin
       const x = Math.cos(angle) * distance;

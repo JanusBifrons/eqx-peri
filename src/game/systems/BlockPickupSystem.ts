@@ -2,7 +2,7 @@ import * as Matter from 'matter-js';
 import * as PIXI from 'pixi.js';
 import { Assembly } from '../core/Assembly';
 import { Entity } from '../core/Entity';
-import { Vector2, GRID_SIZE, ENTITY_DEFINITIONS, getEntityOccupiedGridCells, getEntityBodyOffset, getBlockedConnectionDirs } from '../../types/GameTypes';
+import { Vector2, GRID_SIZE, ENTITY_DEFINITIONS, getEntityOccupiedGridCells, getEntityBodyOffset, getBlockedConnectionDirs, canTypesConnect } from '../../types/GameTypes';
 import { Viewport } from '../rendering/Viewport';
 
 interface SnapCandidate {
@@ -450,10 +450,8 @@ export class BlockPickupSystem {
           const slotLocalOffset: Vector2 = { x: slotGrid.x * GRID_SIZE, y: slotGrid.y * GRID_SIZE };
 
           for (const heldEntity of heldAssembly.entities) {
-            const heldDef = ENTITY_DEFINITIONS[heldEntity.type];
-            if (!heldDef) continue;
-            if (!heldDef.canAttachTo.includes(targetEntity.type)) continue;
-            if (!targetDef.canAttachTo.includes(heldEntity.type)) continue;
+            if (!ENTITY_DEFINITIONS[heldEntity.type]) continue;
+            if (!canTypesConnect(heldEntity.type, targetEntity.type)) continue;
 
             // Effective rotation of held entity after pendingRotationSteps
             const effectiveRot = ((heldEntity.rotation + this.pendingRotationSteps * 90) % 360 + 360) % 360;
@@ -476,6 +474,13 @@ export class BlockPickupSystem {
                 // (direction from held cell toward target is the reverse of localDir)
                 const heldBlocked = getBlockedConnectionDirs(heldEntity.type, effectiveRot);
                 if (heldBlocked.some(b => b.x === -localDir.x && b.y === -localDir.y)) continue;
+
+                // Skip if this held cell is an interior cell on the touching face — i.e.
+                // another held cell already exists between it and the target.
+                // Without this check, a 2×2 block can snap with its interior cell at the
+                // slot, overlapping the target block by one row/column.
+                const innerPos = { x: heldCell.x - localDir.x, y: heldCell.y - localDir.y };
+                if (heldCells.some(c => c.x === innerPos.x && c.y === innerPos.y)) continue;
 
                 // Adjust candidateLocalOffset so THIS cell lands at slotLocalOffset.
                 const heldCellOffX = heldCell.x * GRID_SIZE - heldEntity.localOffset.x;
@@ -759,10 +764,8 @@ export class BlockPickupSystem {
         let found = false;
 
         for (const targetEntity of playerAssembly.entities) {
-          const targetDef = ENTITY_DEFINITIONS[targetEntity.type];
-          if (!targetDef) continue;
-          if (!anchorDef.canAttachTo.includes(targetEntity.type)) continue;
-          if (!targetDef.canAttachTo.includes(heldEntity.type)) continue;
+          if (!ENTITY_DEFINITIONS[targetEntity.type]) continue;
+          if (!canTypesConnect(heldEntity.type, targetEntity.type)) continue;
 
           const tBodyOff = getEntityBodyOffset(targetEntity.type, targetEntity.rotation);
           const tCells = getEntityOccupiedGridCells(targetEntity.localOffset, targetEntity.type, targetEntity.rotation);
