@@ -55,6 +55,21 @@ export class Assembly {
   public primaryTarget: Assembly | null = null;
   public cursorPosition: Vector2 | null = null;
 
+  /**
+   * Enemy assemblies available for per-weapon independent targeting.
+   * Set each frame by ControllerManager for AI-controlled ships.
+   * When non-empty, each weapon independently selects the best entity body
+   * to aim at rather than all weapons sharing the primaryTarget COM.
+   */
+  public availableTargets: Assembly[] = [];
+
+  /**
+   * Per-weapon target positions computed each frame by updateWeaponAiming().
+   * Keyed by weapon entity ID. Used by AIController to check fire readiness
+   * without relying on a single shared target position.
+   */
+  public weaponTargetPositions: Map<string, Vector2> = new Map();
+
   // Kill tracking properties
   public lastHitByPlayer: boolean = false;
   public lastHitByAssemblyId: string | null = null;
@@ -1679,24 +1694,95 @@ export class Assembly {
     return this.fireWeapons();
   }
 
+  /**
+   * Per-weapon independent target selection.
+   *
+   * Searches all available enemy assemblies for the entity body that falls
+   * within this weapon's aiming arc AND is closest in angle to the weapon's
+   * natural facing direction.  Weapons with different natural angles will
+   * naturally lock onto different parts/targets, spreading fire across the enemy.
+   *
+   * Falls back to the nearest enemy's root-body position when nothing lies
+   * within arc, so the weapon still tracks toward the threat.
+   */
+  private findBestWeaponTarget(weapon: Entity): Vector2 | null {
+    if (this.availableTargets.length === 0) return null;
+
+    const weaponPos = weapon.body.position;
+    const weaponNaturalAngle = this.rootBody.angle + (weapon.rotation * Math.PI / 180);
+    const aimingArc = this.getWeaponAimingArc(weapon.type);
+    const maxAngleDiff = aimingArc / 2;
+
+    // Best entity body within the aiming arc
+    let bestInArc: Vector2 | null = null;
+    let bestInArcAngularDist = Infinity;
+
+    // Nearest enemy root-body as fallback when nothing is in-arc
+    let closestFallback: Vector2 | null = null;
+    let closestFallbackDistSq = Infinity;
+
+    for (const target of this.availableTargets) {
+      if (target.destroyed || target.team === this.team) continue;
+
+      // Check each entity body on the target as a potential aim point
+      for (const entity of target.entities) {
+        if (entity.destroyed) continue;
+        const pos = entity.body.position;
+        const angleToEntity = Math.atan2(pos.y - weaponPos.y, pos.x - weaponPos.x);
+        let angleDiff = angleToEntity - weaponNaturalAngle;
+        while (angleDiff >  Math.PI) angleDiff -= 2 * Math.PI;
+        while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+
+        if (Math.abs(angleDiff) <= maxAngleDiff && Math.abs(angleDiff) < bestInArcAngularDist) {
+          bestInArcAngularDist = Math.abs(angleDiff);
+          bestInArc = pos;
+        }
+      }
+
+      // Track closest target by distance as fallback
+      const rp = target.rootBody.position;
+      const dx = rp.x - weaponPos.x;
+      const dy = rp.y - weaponPos.y;
+      const distSq = dx * dx + dy * dy;
+      if (distSq < closestFallbackDistSq) {
+        closestFallbackDistSq = distSq;
+        closestFallback = rp;
+      }
+    }
+
+    return bestInArc ?? closestFallback;
+  }
+
   // Update weapon aiming continuously (called every frame)
   public updateWeaponAiming(): void {
     if (this.destroyed) return;
 
-    const weapons = this.entities.filter(e => e.canFire()); weapons.forEach(weapon => {
+    this.weaponTargetPositions.clear();
+
+    const weapons = this.entities.filter(e => e.canFire());
+    weapons.forEach(weapon => {
       // Weapon targeting priority order:
-      // 1. Primary target assembly (highest priority)
-      // 2. Mouse cursor position (fallback)
+      // 1. Per-weapon independent targeting from availableTargets (AI ships)
+      // 2. Primary target assembly COM (single-target fallback)
+      // 3. Mouse cursor position (player control)
       let aimingTarget: Vector2 | null = null;
 
-      if (this.primaryTarget && !this.primaryTarget.destroyed) {
+      if (this.availableTargets.length > 0) {
+        aimingTarget = this.findBestWeaponTarget(weapon);
+      }
+
+      if (!aimingTarget && this.primaryTarget && !this.primaryTarget.destroyed) {
         aimingTarget = this.primaryTarget.rootBody.position;
-      } else if (this.cursorPosition) {
+      }
+
+      if (!aimingTarget && this.cursorPosition) {
         aimingTarget = this.cursorPosition;
       }
 
       // Calculate desired aiming angle and set it as the weapon's target
       if (aimingTarget) {
+        this.weaponTargetPositions.set(weapon.id, aimingTarget);
+
         const desiredAngle = this.calculateWeaponAimAngle(weapon, aimingTarget);
         const weaponNaturalAngle = this.rootBody.angle + (weapon.rotation * Math.PI / 180);
 
@@ -1705,12 +1791,11 @@ export class Assembly {
         while (desiredRelativeAngle > Math.PI) desiredRelativeAngle -= 2 * Math.PI;
         while (desiredRelativeAngle < -Math.PI) desiredRelativeAngle += 2 * Math.PI;
 
-        // Simple clamping to weapon's aiming arc
+        // Clamp to weapon's aiming arc
         const aimingArc = this.getWeaponAimingArc(weapon.type);
         const maxAngle = aimingArc / 2;
         desiredRelativeAngle = Math.max(-maxAngle, Math.min(maxAngle, desiredRelativeAngle));
 
-        // Set the weapon's target aim angle
         weapon.setTargetAimAngle(desiredRelativeAngle);
       } else {
         // No target, return to natural position

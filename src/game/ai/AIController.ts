@@ -345,29 +345,24 @@ export class AIController extends Controller {
 
         // Inertial dampening — applied every frame in all states except RETREAT.
         //
-        // Root cause of orbiting: the ship rotates while thrusting every frame.
-        // Even with forward-only thrust the "forward" direction sweeps a curve,
-        // accumulating lateral (sideways) velocity that never decays in zero-friction
-        // space — classic orbital mechanics.
+        // When holdingPosition the ship should stop and rotate in place rather
+        // than orbit.  Full omnidirectional dampening (both forward and lateral)
+        // kills residual velocity so the ship decelerates to near-zero within a
+        // second and can then aim and fire without drifting.
         //
-        // Fix: axis-decomposed dampening.  Lateral velocity (perpendicular to the
-        // ship's current nose) is killed aggressively each frame while forward speed
-        // is left untouched so closing/retreat speed is not penalised.
-        //
-        //   lateralDampenFactor 0.80 when holding — kills 20%/frame; at 60 Hz lateral
-        //       speed is <0.001× original in under 0.5 s.  Ship stops drifting fast.
-        //   lateralDampenFactor 0.88 when approaching — softer so the ship can still
-        //       steer, but aggressive enough to prevent orbit build-up over seconds.
-        //   dampenFactor = 1.0  — forward speed untouched in both tiers.
+        //   holding:    dampenFactor 0.82 + lateralDampenFactor 0.82 — kills all
+        //               velocity uniformly; at 60 Hz speed is <0.001× in ~0.5 s.
+        //   approaching: dampenFactor 1.0 + lateralDampenFactor 0.86 — forward
+        //               speed preserved for closing; lateral drift suppressed.
         //   No dampening during RETREAT — every m/s of escape speed matters.
         const dampen = this.combatState !== CombatState.RETREAT;
-        const dampenFactor       = 1.0;
-        const lateralDampenFactor = holdingPosition ? 0.80 : 0.88;
+        const dampenFactor        = holdingPosition ? 0.82 : 1.0;
+        const lateralDampenFactor = holdingPosition ? 0.82 : 0.86;
 
         // Suppress fire during the sizing-up window — let the ships approach and
         // let weapon tracking settle before the fight begins.
         const fire = this.combatState !== CombatState.SIZING_UP
-            && this.hasWeaponsReadyToFire(targetPos, distance);
+            && this.hasWeaponsReadyToFire(distance);
 
         return { thrust, torque: this.calculateRotation(heading), fire, dampen, dampenFactor, lateralDampenFactor, targetAngle: heading };
     }
@@ -481,7 +476,7 @@ export class AIController extends Controller {
      * so the ship doesn't accumulate new orbital velocity while holding position.
      */
     private engagementThrust(distance: number, preferredRange: number): Vector2 {
-        const DEAD_BAND = 60;
+        const DEAD_BAND = 120; // wider band gives more "stop zone" at preferred range
         const distError = distance - preferredRange;
         if (Math.abs(distError) < DEAD_BAND) return { x: 0, y: 0 };
 
@@ -509,10 +504,24 @@ export class AIController extends Controller {
 
     // ── Fire readiness ─────────────────────────────────────────────────────
 
-    private hasWeaponsReadyToFire(targetPos: Vector2, distance: number): boolean {
-        if (distance > FIRING_RANGE) return false;
+    /**
+     * Returns true when at least one weapon has a target in range and its
+     * turret is tracked to within AIM_READY_THRESHOLD of that target.
+     *
+     * With per-weapon independent targeting each weapon may be aimed at a
+     * different entity body, so readiness is checked against the per-weapon
+     * target stored in assembly.weaponTargetPositions rather than the shared
+     * primary-target COM.
+     */
+    private hasWeaponsReadyToFire(distanceToTarget: number): boolean {
+        if (distanceToTarget > FIRING_RANGE) return false;
         const weapons = this.assembly.entities.filter(e => e.canFire() && !e.destroyed);
         return weapons.some(w => {
+            // Use the per-weapon target position when available; fall back to
+            // the primary target COM so the old single-target path still works.
+            const targetPos = this.assembly.weaponTargetPositions.get(w.id)
+                ?? this.target?.rootBody.position;
+            if (!targetPos) return false;
             if (!this.assembly.canWeaponAimAtTarget(w, targetPos)) return false;
             let err = w.targetAimAngle - w.currentAimAngle;
             while (err >  Math.PI) err -= 2 * Math.PI;

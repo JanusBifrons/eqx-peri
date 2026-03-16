@@ -162,6 +162,12 @@ export class ControllerManager {    private controllers: Map<string, IController
                     // Give AI all other assemblies as potential targets
                     const otherAssemblies = activeAssemblies.filter(a => a.id !== assemblyId);
                     controller.setAvailableTargets(otherAssemblies);
+
+                    // Populate per-weapon independent targeting pool: enemy assemblies
+                    // with a control center only (no loose debris).
+                    assembly.availableTargets = otherAssemblies.filter(
+                        a => a.team !== assembly.team && a.hasControlCenter()
+                    );
                 }
             }
         }
