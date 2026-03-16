@@ -111,11 +111,14 @@ export class ControllerManager {    private controllers: Map<string, IController
             }
         }
 
-        // Apply thrust (always call to ensure thrust levels are updated, even when 0)
-        assembly.applyThrust(input.thrust);
+        // Apply thrust. For player-controlled ships with dedicated engines, rotation is
+        // achieved by selectively firing engines on the appropriate side; applyThrust
+        // returns true in that case so we skip the direct-angular-velocity applyTorque.
+        const rotationHandledByEngines = assembly.applyThrust(input.thrust, input.torque);
 
-        // Apply torque
-        if (Math.abs(input.torque) > 0.1) {
+        // Apply torque via direct angular-velocity manipulation only when engine-based
+        // rotation was not used (cockpit-only ships, AI ships, or no qualifying engines).
+        if (!rotationHandledByEngines && Math.abs(input.torque) > 0.1) {
             assembly.applyTorque(input.torque);
         }        // Fire weapons
         if (input.fire) {

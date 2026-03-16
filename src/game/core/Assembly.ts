@@ -142,8 +142,33 @@ export class Assembly {
     if (this.isPlayerControlled && !hasControlCenter) {
       this.isPlayerControlled = false;
     }
-  } public applyThrust(thrustInput: Vector2): void {
-    if (this.destroyed) return;
+  }
+
+  /**
+   * Returns true if this assembly has at least one dedicated engine block (Engine, LargeEngine,
+   * CapitalEngine). Used to determine whether rotation should be achieved via engine selection
+   * or via direct angular velocity (applyTorque) for cockpit-only ships.
+   */
+  public hasDedicatedEngines(): boolean {
+    return this.entities.some(
+      e => (e.type === 'Engine' || e.type === 'LargeEngine' || e.type === 'CapitalEngine') && !e.destroyed
+    );
+  }
+
+  /**
+   * Apply thrust to the assembly. When rotationInput is provided AND this is a player-controlled
+   * ship with dedicated engines, only the engines on the side that produces the desired rotation
+   * direction are fired (engine-based rotation). Returns true if rotation was handled by engine
+   * selection (caller should skip applyTorque); false otherwise.
+   *
+   * Physics: torque from an engine at ship-local Y position ey = -F * ey.
+   *   ey > 0 (bottom wing, Y+) → negative torque → CCW → left (A key, rotationInput < 0)
+   *   ey < 0 (top wing, Y-)   → positive torque → CW  → right (D key, rotationInput > 0)
+   *
+   * Special case: cockpit-only ships (no dedicated engines) always use applyTorque (returns false).
+   */
+  public applyThrust(thrustInput: Vector2, rotationInput: number = 0): boolean {
+    if (this.destroyed) return false;
 
     // Check if this is the player assembly and if engines have power
     if (this.isPlayerControlled) {
@@ -152,54 +177,99 @@ export class Assembly {
         // No engine power - disable all thrust
         const engines = this.entities.filter(e => e.canProvideThrust());
         engines.forEach(engine => engine.setThrustLevel(0));
-        return;
+        return false;
       }
     }
 
     const engines = this.entities.filter(e => e.canProvideThrust());
-    if (engines.length === 0) return;// Calculate thrust magnitude for visual effects
+    if (engines.length === 0) return false;
+
     const thrustMagnitude = Math.sqrt(thrustInput.x * thrustInput.x + thrustInput.y * thrustInput.y);
 
-    // Debug logging disabled to reduce spam
-    // if (thrustMagnitude > 0) {
-    //   console.log(`🚀 Thrust Input: x = ${ thrustInput.x.toFixed(2) }, y = ${ thrustInput.y.toFixed(2) }, engines = ${ engines.length } `);
-    // }    // SIMPLIFIED: Apply thrust directly in ship-local coordinates
+    // Engine-based rotation: only applies to player-controlled ships with dedicated engines
+    // when a rotation direction is requested.
+    const isRotating = this.isPlayerControlled && Math.abs(rotationInput) > 0.1 && this.hasDedicatedEngines();
+
+    if (isRotating) {
+      // Compute each engine's ship-local Y relative to the assembly COM by unrotating
+      // the world-space offset. This gives the actual torque arm length.
+      const com = this.rootBody.position;
+      const angle = this.rootBody.angle;
+      const cosA = Math.cos(angle);
+      const sinA = Math.sin(angle);
+      // Minimum offset (pixels) for an engine to be considered "off-centre" enough to
+      // contribute meaningfully to rotation. Engines within this band are skipped.
+      const OFF_CENTRE_THRESHOLD = 8; // half a grid unit (GRID_SIZE = 16)
+
+      const correctSideEngines = engines.filter(engine => {
+        const dx = engine.body.position.x - com.x;
+        const dy = engine.body.position.y - com.y;
+        // Ship-local Y = rotate world-offset by -shipAngle: local_y = -dx*sinA + dy*cosA
+        const localY = -dx * sinA + dy * cosA;
+        if (rotationInput < 0) {
+          // CCW / left (A key): fire engines with positive local Y (bottom wing → Y+)
+          return localY > OFF_CENTRE_THRESHOLD;
+        } else {
+          // CW / right (D key): fire engines with negative local Y (top wing → Y-)
+          return localY < -OFF_CENTRE_THRESHOLD;
+        }
+      });
+
+      if (correctSideEngines.length > 0) {
+        // When only rotating (no forward thrust requested), still fire at rotation magnitude
+        // so the ship actually turns. This creates a realistic arc — the ship rotates AND
+        // drifts forward slightly (a deliberate tradeoff).
+        const effectiveMagnitude = Math.max(thrustMagnitude, Math.abs(rotationInput));
+        const shipAngle = this.rootBody.angle;
+
+        engines.forEach(engine => {
+          const isCorrectSide = correctSideEngines.includes(engine);
+          if (isCorrectSide) {
+            let engineThrust = this.getEngineThrust(engine.type);
+            if (this.isPlayerControlled) {
+              engineThrust *= PowerSystem.getInstance().getEngineEfficiency();
+            }
+            // Always thrust in the ship-forward direction; the positional offset
+            // generates torque automatically via Matter.js.
+            const worldForce = {
+              x: effectiveMagnitude * engineThrust * Math.cos(shipAngle),
+              y: effectiveMagnitude * engineThrust * Math.sin(shipAngle)
+            };
+            engine.setThrustLevel(effectiveMagnitude);
+            Matter.Body.applyForce(this.rootBody, engine.body.position, worldForce);
+          } else {
+            // Opposite-side engines are silent while rotating
+            engine.setThrustLevel(0);
+          }
+        });
+
+        return true; // rotation handled — caller should skip applyTorque
+      }
+      // No engines on the correct side: fall through to normal thrust + let caller use applyTorque
+    }
+
+    // Normal thrust path: all engines fire proportionally
     engines.forEach((engine) => {
-      // Get engine thrust values
       let engineThrust = this.getEngineThrust(engine.type);
 
-      // Apply power efficiency for player ships
       if (this.isPlayerControlled) {
         const powerSystem = PowerSystem.getInstance();
-        const efficiency = powerSystem.getEngineEfficiency();
-        engineThrust *= efficiency;
+        engineThrust *= powerSystem.getEngineEfficiency();
       }
 
-      // Set visual thrust level for this engine
       engine.setThrustLevel(thrustMagnitude);
 
-      // SIMPLE LOGIC: All engines contribute to movement in the requested direction
-      // The physics engine will handle the realistic movement behavior
-      const thrustContribution = { x: 0, y: 0 };
-
-      // If requesting any thrust, all engines contribute proportionally
       if (thrustMagnitude > 0) {
-        thrustContribution.x = thrustInput.x * engineThrust;
-        thrustContribution.y = thrustInput.y * engineThrust;
-      }
-
-      if (thrustContribution.x !== 0 || thrustContribution.y !== 0) {
-        // Convert ship-local thrust to world coordinates
         const shipAngle = this.rootBody.angle;
         const worldForce = {
-          x: thrustContribution.x * Math.cos(shipAngle) - thrustContribution.y * Math.sin(shipAngle),
-          y: thrustContribution.x * Math.sin(shipAngle) + thrustContribution.y * Math.cos(shipAngle)
+          x: (thrustInput.x * engineThrust) * Math.cos(shipAngle) - (thrustInput.y * engineThrust) * Math.sin(shipAngle),
+          y: (thrustInput.x * engineThrust) * Math.sin(shipAngle) + (thrustInput.y * engineThrust) * Math.cos(shipAngle)
         };
-
-        // Apply force at the engine's world position — off-center engines create torque
         Matter.Body.applyForce(this.rootBody, engine.body.position, worldForce);
       }
     });
+
+    return false;
   } private getEngineThrust(engineType: string): number {
     // Get thrust from engine part definition
     const definition = ENTITY_DEFINITIONS[engineType as EntityType];
