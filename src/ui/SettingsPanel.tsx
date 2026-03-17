@@ -11,6 +11,7 @@ import {
   IconButton,
   Slider,
   Stack,
+  Switch,
   Tab,
   Tabs,
   Typography,
@@ -78,6 +79,9 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ gameEngine, onPerfBarChan
   const [origAudio, setOrigAudio] = useState<AudioSettings>({
     masterVolume: 0.5, musicVolume: 0.3, sfxVolume: 0.7, musicEnabled: true,
   });
+
+  // Debug tab — ship spawner
+  const [spawnAsEnemy, setSpawnAsEnemy] = useState(true);
 
   // ── Apply persisted settings whenever a (new) GameEngine is available ──────
   useEffect(() => {
@@ -382,6 +386,35 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ gameEngine, onPerfBarChan
                   Spawn 5 Enemies
                 </Button>
               </Stack>
+            </Stack>
+
+            <Typography variant="subtitle2" color="text.secondary" sx={{ mt: 3, mb: 1.5 }}>
+              Spawn specific ship
+            </Typography>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={spawnAsEnemy}
+                  onChange={(e) => setSpawnAsEnemy(e.target.checked)}
+                  color="error"
+                />
+              }
+              label={spawnAsEnemy ? 'Enemy (Team 1)' : 'Friendly (Team 0)'}
+              sx={{ mb: 1 }}
+            />
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              {(gameEngine?.getShipList() ?? []).map((s) => (
+                <Button
+                  key={s.index}
+                  variant="contained"
+                  size="small"
+                  color={spawnAsEnemy ? 'error' : 'primary'}
+                  onClick={() => gameEngine?.debugSpawnShip(s.index, spawnAsEnemy ? 1 : 0)}
+                  disabled={!gameEngine}
+                >
+                  {s.name}
+                </Button>
+              ))}
             </Stack>
           </Box>
 

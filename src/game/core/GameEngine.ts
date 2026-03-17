@@ -1818,6 +1818,32 @@ export class GameEngine {
     }
   }
 
+  /** Returns { index, name } for every ship in ships.json. */
+  public getShipList(): { index: number; name: string }[] {
+    return shipsData.ships.map((s, i) => ({ index: i, name: s.name }));
+  }
+
+  /** Spawn a specific ship design near camera centre on the given team. */
+  public debugSpawnShip(shipIndex: number, team: number): void {
+    const ships = shipsData.ships;
+    if (shipIndex < 0 || shipIndex >= ships.length) return;
+    const shipDef = ships[shipIndex];
+    const c     = this.getCameraCenter();
+    const angle = Math.random() * Math.PI * 2;
+    const dist  = 300 + Math.random() * 300;
+    const x     = c.x + Math.cos(angle) * dist;
+    const y     = c.y + Math.sin(angle) * dist;
+    const assembly = new Assembly(shipDef.parts as EntityConfig[], { x, y });
+    assembly.setShipName(shipDef.name);
+    assembly.setTeam(team);
+    this.assemblies.push(assembly);
+    Matter.World.add(this.world, assembly.rootBody);
+    if (assembly.hasControlCenter()) {
+      const ai = this.controllerManager.createAIController(assembly);
+      ai.setAggressionLevel(0.8 + Math.random() * 0.4);
+    }
+  }
+
   /** Returns the world-space centre of the current camera viewport. */
   private getCameraCenter(): { x: number; y: number } {
     const b = this.render.bounds;
