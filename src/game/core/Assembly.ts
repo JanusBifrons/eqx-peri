@@ -37,6 +37,23 @@ const ROTATION_TORQUE_BLEND = 0.6;
 // Half a grid cell (GRID_SIZE = 16).
 const BALANCE_MIN_TORQUE_ARM = 8;
 
+// Minimum dot product between an engine's ship-local thrust direction and the requested
+// thrust input for the engine to fire.  Engines perpendicular or opposed are silenced.
+const ENGINE_ALIGNMENT_THRESHOLD = 0.01;
+
+/**
+ * Compute an engine's ship-local thrust direction from its construction-time rotation.
+ * An engine "faces" the direction given by its rotation; its thrust is opposite that.
+ *   rotation 180 (faces west / backward)  → thrust east  (forward)  = ( 1,  0)
+ *   rotation 0   (faces east / forward)   → thrust west  (backward) = (-1,  0)
+ *   rotation 90  (faces south)            → thrust north            = ( 0, -1)
+ *   rotation 270 (faces north)            → thrust south            = ( 0,  1)
+ */
+function getEngineLocalThrustDir(engineRotationDeg: number): Vector2 {
+  const rad = (engineRotationDeg * Math.PI) / 180;
+  return { x: -Math.cos(rad), y: -Math.sin(rad) };
+}
+
 export class Assembly {
   public id: string;
   public rootBody: Matter.Body;
@@ -234,6 +251,12 @@ export class Assembly {
       const OFF_CENTRE_THRESHOLD = 8; // half a grid unit (GRID_SIZE = 16)
 
       const correctSideEngines = engines.filter(engine => {
+        // Only consider forward-facing engines for pure rotation (their positional
+        // offset from the COM creates the torque).  Retro-thrusters pointing backward
+        // would push the ship the wrong way.
+        const thrustDir = getEngineLocalThrustDir(engine.rotation);
+        if (thrustDir.x < ENGINE_ALIGNMENT_THRESHOLD) return false;
+
         const dx = engine.body.position.x - com.x;
         const dy = engine.body.position.y - com.y;
         // Ship-local Y = rotate world-offset by -shipAngle: local_y = -dx*sinA + dy*cosA
@@ -286,16 +309,35 @@ export class Assembly {
       return false;
     }
 
+    // ── Filter engines by facing direction ────────────────────────────────
+    // Only engines whose thrust direction has a component aligned with the
+    // requested thrustInput should fire.  Retro-thrusters, lateral thrusters,
+    // etc. stay silent when their thrust opposes the movement direction.
+    const alignedEngines = engines.filter(engine => {
+      const dir = getEngineLocalThrustDir(engine.rotation);
+      const dot = dir.x * thrustInput.x + dir.y * thrustInput.y;
+      return dot > ENGINE_ALIGNMENT_THRESHOLD;
+    });
+
+    // Silence non-aligned engines (important for particle emission)
+    engines.forEach(engine => {
+      if (!alignedEngines.includes(engine)) {
+        engine.setThrustLevel(0);
+      }
+    });
+
+    if (alignedEngines.length === 0) return false;
+
     // Player ships with dedicated engines: dynamic torque-balanced thrust.
-    // All engines start at BASE_THRUST_LEVEL (50 %); individual engines are boosted
+    // Aligned engines start at BASE_THRUST_LEVEL (50 %); individual engines are boosted
     // up to 100 % to cancel natural torque imbalance and to add intentional turning bias.
     if (this.isPlayerControlled && this.hasDedicatedEngines()) {
       const powerEfficiency = PowerSystem.getInstance().getEngineEfficiency();
-      return this.applyBalancedThrust(engines, thrustInput, thrustMagnitude, rotationInput, powerEfficiency);
+      return this.applyBalancedThrust(alignedEngines, thrustInput, thrustMagnitude, rotationInput, powerEfficiency);
     }
 
     // Uniform thrust for AI ships and cockpit-only ships (original algorithm).
-    engines.forEach((engine) => {
+    alignedEngines.forEach((engine) => {
       let engineThrust = this.getEngineThrust(engine.type);
 
       if (this.isPlayerControlled) {

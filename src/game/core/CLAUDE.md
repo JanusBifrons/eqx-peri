@@ -22,6 +22,8 @@ So a "7-long × 3-wide" ship spans `x: -48..+48` (7 grid units along the spine) 
 
 **Positional thrust**: `applyThrust` applies each engine's force at that engine's world position (`engine.body.position`), not at the assembly's center of mass. Off-center engines naturally create torque via Matter.js, so a ship with engines only on one side will spin. Symmetric engine placement produces balanced thrust with no net torque.
 
+**Engine facing & directional thrust**: each engine's `entity.rotation` (degrees, set at construction from `ships.json`) determines which direction it faces. Thrust is produced **opposite** the facing direction. `getEngineLocalThrustDir(rotationDeg)` computes the ship-local thrust vector as `(-cos(rad), -sin(rad))`. `applyThrust` filters engines by `dot(engineThrustDir, thrustInput) > 0` — only engines whose thrust aligns with the requested direction fire; the rest have `thrustLevel` set to 0. Standard rear engines: `rotation: 180` → thrust forward `(1,0)`. Retro-thrusters: `rotation: 0` → thrust backward `(-1,0)`. Lateral: `rotation: 90/270`. This filtering applies to all three code paths (pure-rotation, balanced, and uniform). `ParticleRenderer` computes per-engine exhaust direction from `entity.rotation + shipAngle`.
+
 ## Compound Body Lifecycle
 
 Matter.js compound bodies are created via `Matter.Body.create({ parts: [...] })`. When added to the world with `Matter.World.add`, **each part body is also added individually** to `world.bodies` (not just the compound root). This means:

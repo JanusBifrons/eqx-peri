@@ -50,8 +50,6 @@ export class ParticleRenderer implements IRenderer {
       if (assembly.destroyed) continue;
 
       const shipAngle = assembly.rootBody.angle;
-      const exhaustDirX = -Math.cos(shipAngle);
-      const exhaustDirY = -Math.sin(shipAngle);
 
       // Matter.js velocity is world units per physics tick; scale to ~world units/ms
       const vel = assembly.rootBody.velocity;
@@ -71,6 +69,13 @@ export class ParticleRenderer implements IRenderer {
           ey < bounds.min.y - THRUST_CULL_MARGIN ||
           ey > bounds.max.y + THRUST_CULL_MARGIN
         ) continue;
+
+        // Per-engine exhaust direction: the engine faces `entity.rotation` degrees
+        // in ship-local space; exhaust goes in the facing direction (opposite of thrust).
+        // Rotate by shipAngle to get the world-space exhaust direction.
+        const engineFacingRad = (entity.rotation * Math.PI) / 180 + shipAngle;
+        const exhaustDirX = Math.cos(engineFacingRad);
+        const exhaustDirY = Math.sin(engineFacingRad);
 
         // Probabilistic rate: THRUST_RATE × thrustLevel calls/ms, each emitting 3 particles
         const expected = THRUST_RATE * entity.thrustLevel * deltaMs;
