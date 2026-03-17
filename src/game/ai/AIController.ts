@@ -11,6 +11,26 @@ const AIM_READY_THRESHOLD = 0.25; // rad (~14°) — weapon considered on-target
 // How long (ms) the AI keeps a recent attacker as priority target.
 const ATTACKER_PRIORITY_MS = 8000;
 
+// ─── Formation & coordination constants ─────────────────────────────────────
+
+/** Minimum distance between friendly ships before separation steering kicks in. */
+const SEPARATION_RADIUS = 150;
+/** Strength of the separation steering force (0–1 scale, applied as thrust). */
+const SEPARATION_STRENGTH = 0.4;
+
+/**
+ * Angular spacing (radians) between friendly ships orbiting the same target.
+ * Ships are assigned evenly-spaced formation slots around the target.
+ */
+const FORMATION_ARC_SPACING = Math.PI / 3; // 60° between ships
+
+/**
+ * Team power balance threshold: a ship only retreats individually when the
+ * team-level power ratio is also below this value.  Prevents one damaged ship
+ * from fleeing while the team is winning.
+ */
+const TEAM_RETREAT_THRESHOLD = 0.85;
+
 // ─── Combat state machine ──────────────────────────────────────────────────
 
 /**
@@ -79,6 +99,16 @@ export class AIController extends Controller {
     private lastStateUpdateTime = 0;
     private readonly stateUpdateInterval = 350; // ms between state evaluations
 
+    // ── Formation & team coordination ────────────────────────────────────
+    /** Friendly ships on the same team (updated each frame by ControllerManager). */
+    private friendlies: Assembly[] = [];
+    /** This ship's formation slot index among friendlies sharing the same target. */
+    private formationSlotIndex = 0;
+    /** Total number of friendlies sharing this ship's current target. */
+    private formationSlotCount = 1;
+    /** Team-level power ratio (ownTeamPower / enemyTeamPower), set by ControllerManager. */
+    private teamPowerRatio = 1.0;
+
     constructor(assembly: Assembly) {
         super(assembly);
     }
@@ -89,6 +119,27 @@ export class AIController extends Controller {
 
     setAggressionLevel(level: number): void {
         this.aggressionLevel = Math.max(0.1, Math.min(2.0, level));
+    }
+
+    /** Called by ControllerManager each frame with same-team assemblies. */
+    setFriendlies(friendlies: Assembly[]): void {
+        this.friendlies = friendlies;
+    }
+
+    /** Called by ControllerManager each frame with the overall team power balance. */
+    setTeamPowerRatio(ratio: number): void {
+        this.teamPowerRatio = ratio;
+    }
+
+    /** Called by ControllerManager each frame with this ship's formation slot. */
+    setFormationSlot(index: number, total: number): void {
+        this.formationSlotIndex = index;
+        this.formationSlotCount = total;
+    }
+
+    /** Expose the current target for formation slot computation. */
+    getTarget(): Assembly | undefined {
+        return this.target;
     }
 
     /** Human-readable label for the current combat state, used by the renderer. */
@@ -228,35 +279,50 @@ export class AIController extends Controller {
         const ownHealth  = this.getOwnHealthRatio();
         const powerRatio = this.computePowerRatio();
 
-        // Always retreat immediately if critically damaged.
+        // Team-aware retreat: a ship should only retreat if BOTH its individual
+        // matchup is bad AND the team overall is not winning.  This prevents
+        // one damaged ship from fleeing while its allies are dominating.
+        const shouldRetreat = (condition: boolean): boolean => {
+            if (!condition) return false;
+            // Always retreat if nearly dead regardless of team status
+            if (ownHealth < RETREAT_HEALTH_THRESHOLD * 0.5) return true;
+            // If the team is winning overall, stay and fight (unless critically low HP)
+            if (this.teamPowerRatio >= TEAM_RETREAT_THRESHOLD) return false;
+            return true;
+        };
+
+        // Retreat immediately if critically damaged AND team isn't dominating.
         if (ownHealth < RETREAT_HEALTH_THRESHOLD && this.combatState !== CombatState.RETREAT) {
-            this.setCombatState(CombatState.RETREAT);
-            return;
+            if (shouldRetreat(true)) {
+                this.setCombatState(CombatState.RETREAT);
+                return;
+            }
         }
 
         switch (this.combatState) {
             case CombatState.SIZING_UP: {
                 if (Date.now() - this.sizingUpStartTime >= SIZING_UP_DURATION_MS) {
                     if      (powerRatio >= POWER_RATIO_PURSUE)  this.setCombatState(CombatState.PURSUE);
-                    else if (powerRatio <= POWER_RATIO_RETREAT) this.setCombatState(CombatState.RETREAT);
+                    else if (shouldRetreat(powerRatio <= POWER_RATIO_RETREAT)) this.setCombatState(CombatState.RETREAT);
                     else                                         this.setCombatState(CombatState.ENGAGE);
                 }
                 break;
             }
             case CombatState.ENGAGE: {
                 if      (powerRatio >= POWER_RATIO_PURSUE)  this.setCombatState(CombatState.PURSUE);
-                else if (powerRatio <= POWER_RATIO_RETREAT) this.setCombatState(CombatState.RETREAT);
+                else if (shouldRetreat(powerRatio <= POWER_RATIO_RETREAT)) this.setCombatState(CombatState.RETREAT);
                 break;
             }
             case CombatState.PURSUE: {
-                if      (powerRatio <= POWER_RATIO_RETREAT)  this.setCombatState(CombatState.RETREAT);
+                if      (shouldRetreat(powerRatio <= POWER_RATIO_RETREAT))  this.setCombatState(CombatState.RETREAT);
                 else if (powerRatio <  POWER_RATIO_PURSUE)   this.setCombatState(CombatState.ENGAGE);
                 break;
             }
             case CombatState.RETREAT: {
-                // Only re-engage once the balance has tipped strongly in our favour
-                // (enemy crippled by our fire while we fled).
-                if (powerRatio >= POWER_RATIO_PURSUE && ownHealth > RETREAT_HEALTH_THRESHOLD) {
+                // Re-engage if the individual or team balance tips in our favour.
+                const teamWinning = this.teamPowerRatio >= POWER_RATIO_PURSUE;
+                const individualWinning = powerRatio >= POWER_RATIO_PURSUE && ownHealth > RETREAT_HEALTH_THRESHOLD;
+                if (individualWinning || (teamWinning && ownHealth > RETREAT_HEALTH_THRESHOLD)) {
                     this.setCombatState(CombatState.SIZING_UP);
                 }
                 break;
@@ -424,8 +490,10 @@ export class AIController extends Controller {
     /**
      * Long-range arrive steering.  Approaches the preferred standoff distance at
      * up to MAX_SPEED × aggressionLevel × speedMult, braking within ARRIVAL_RADIUS.
-     * Also used for retreat (large preferredRange pushes the desired position behind
-     * the ship, so steering naturally thrusts away once the nose faces rearward).
+     *
+     * When multiple friendlies share the same target, each ship is assigned a
+     * formation slot — an angular offset around the target — so they spread out
+     * instead of stacking on top of each other.
      */
     private approachThrust(preferredRange: number, speedMult = 1.0): Vector2 {
         const myPos = this.assembly.rootBody.position;
@@ -433,10 +501,16 @@ export class AIController extends Controller {
         const myVel = this.assembly.rootBody.velocity;
 
         const sep    = { x: myPos.x - tgPos.x, y: myPos.y - tgPos.y };
-        const sepMag = Math.sqrt(sep.x * sep.x + sep.y * sep.y) || 1;
+
+        // Formation offset: rotate the desired standoff position around the
+        // target so that friendlies spread evenly.  Slot 0 takes the direct
+        // approach angle; subsequent slots fan out symmetrically.
+        const baseAngle = Math.atan2(sep.y, sep.x);
+        const formationAngle = baseAngle + this.getFormationAngleOffset();
+
         const desired = {
-            x: tgPos.x + (sep.x / sepMag) * preferredRange,
-            y: tgPos.y + (sep.y / sepMag) * preferredRange,
+            x: tgPos.x + Math.cos(formationAngle) * preferredRange,
+            y: tgPos.y + Math.sin(formationAngle) * preferredRange,
         };
 
         const toDes = { x: desired.x - myPos.x, y: desired.y - myPos.y };
@@ -447,7 +521,13 @@ export class AIController extends Controller {
         const norm      = dist > 0.1 ? { x: toDes.x / dist, y: toDes.y / dist } : { x: 0, y: 0 };
         const desVel    = { x: norm.x * spTarget, y: norm.y * spTarget };
 
-        const steering = { x: desVel.x - myVel.x, y: desVel.y - myVel.y };
+        // Blend in separation steering to avoid friendly collisions.
+        const sepSteer = this.computeSeparationSteering();
+
+        const steering = {
+            x: desVel.x - myVel.x + sepSteer.x,
+            y: desVel.y - myVel.y + sepSteer.y,
+        };
         const stMag    = Math.sqrt(steering.x * steering.x + steering.y * steering.y);
         if (stMag < 0.001) return { x: 0, y: 0 };
 
@@ -484,10 +564,21 @@ export class AIController extends Controller {
         const tgPos = this.target!.rootBody.position;
         const myVel = this.assembly.rootBody.velocity;
 
+        // Separation force from nearby friendlies — always active during engagement.
+        const sepSteer = this.computeSeparationSteering();
+        const sepMag = Math.sqrt(sepSteer.x * sepSteer.x + sepSteer.y * sepSteer.y);
+
         // Inside dead-band: apply braking thrust against current velocity so the
         // ship decelerates using its engines (physics-correct) rather than
         // having velocity zeroed out by dampening.
         if (Math.abs(distError) < DEAD_BAND) {
+            // If separation force is active, prioritise it over braking.
+            if (sepMag > 0.01) {
+                const nose = this.assembly.rootBody.angle;
+                const fwd = Math.max(0, sepSteer.x * Math.cos(nose) + sepSteer.y * Math.sin(nose));
+                return { x: Math.min(0.5, fwd), y: 0 };
+            }
+
             const speed = Math.sqrt(myVel.x * myVel.x + myVel.y * myVel.y);
             if (speed < 0.5) return { x: 0, y: 0 }; // already near-stationary
 
@@ -502,21 +593,84 @@ export class AIController extends Controller {
         }
 
         const sep    = { x: myPos.x - tgPos.x, y: myPos.y - tgPos.y };
-        const sepMag = Math.sqrt(sep.x * sep.x + sep.y * sep.y) || 1;
-        const radial = { x: sep.x / sepMag, y: sep.y / sepMag };
+        const sepMagR = Math.sqrt(sep.x * sep.x + sep.y * sep.y) || 1;
+        const radial = { x: sep.x / sepMagR, y: sep.y / sepMagR };
+
+        // Blend radial correction with formation offset — nudge tangentially
+        // toward this ship's assigned formation slot.
+        const formationOffset = this.getFormationAngleOffset();
+        const currentAngle = Math.atan2(sep.y, sep.x);
+        const desiredAngle = currentAngle + formationOffset;
+        // Tangential direction toward the formation slot
+        const tangent = { x: -Math.sin(desiredAngle), y: Math.cos(desiredAngle) };
+        const angleDiff = this.wrapAngle(desiredAngle - currentAngle);
+        const tangentStrength = Math.min(0.3, Math.abs(angleDiff)) * Math.sign(angleDiff);
 
         const radialVel    = myVel.x * radial.x + myVel.y * radial.y;
         const CORR_SPEED   = MAX_SPEED * 0.35;
         const desRadialVel = distError > 0 ? -CORR_SPEED : +CORR_SPEED;
         const correction   = desRadialVel - radialVel;
-        if (Math.abs(correction) < 0.05) return { x: 0, y: 0 };
 
-        const sign  = correction > 0 ? 1 : -1;
-        const tMag  = Math.min(0.35, Math.abs(correction) / MAX_SPEED);
-        const wDir  = { x: radial.x * sign, y: radial.y * sign };
+        // Combine radial correction + tangential formation drift + separation
+        const wDir = {
+            x: radial.x * (correction > 0 ? 1 : -1) + tangent.x * tangentStrength + sepSteer.x,
+            y: radial.y * (correction > 0 ? 1 : -1) + tangent.y * tangentStrength + sepSteer.y,
+        };
+        const wDirMag = Math.sqrt(wDir.x * wDir.x + wDir.y * wDir.y) || 1;
+
+        const tMag  = Math.min(0.45, (Math.abs(correction) / MAX_SPEED) + Math.abs(tangentStrength) + sepMag * 0.5);
+        if (tMag < 0.02) return { x: 0, y: 0 };
+
         const nose  = this.assembly.rootBody.angle;
-        const fwd   = Math.max(0, wDir.x * Math.cos(nose) + wDir.y * Math.sin(nose));
+        const fwd   = Math.max(0, (wDir.x / wDirMag) * Math.cos(nose) + (wDir.y / wDirMag) * Math.sin(nose));
         return { x: fwd * tMag, y: 0 };
+    }
+
+    // ── Formation & separation ─────────────────────────────────────────────
+
+    /**
+     * Computes an angular offset for this ship's formation slot.  Ships sharing
+     * the same target are spaced symmetrically: slot 0 at the base angle,
+     * subsequent slots fan out alternating left/right.
+     */
+    private getFormationAngleOffset(): number {
+        if (this.formationSlotCount <= 1) return 0;
+        // Center the formation: slots fan out symmetrically from the middle.
+        // E.g. 3 ships → offsets: -60°, 0°, +60°
+        const centeredIndex = this.formationSlotIndex - (this.formationSlotCount - 1) / 2;
+        return centeredIndex * FORMATION_ARC_SPACING;
+    }
+
+    /**
+     * Separation steering: produces a world-space force vector pushing this
+     * ship away from any friendly that is within SEPARATION_RADIUS.  Strength
+     * increases as ships get closer (inverse-linear falloff).
+     */
+    private computeSeparationSteering(): Vector2 {
+        const myPos = this.assembly.rootBody.position;
+        let fx = 0, fy = 0;
+
+        for (const ally of this.friendlies) {
+            if (ally.id === this.assembly.id || ally.destroyed) continue;
+            const dx = myPos.x - ally.rootBody.position.x;
+            const dy = myPos.y - ally.rootBody.position.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < SEPARATION_RADIUS && dist > 1) {
+                // Inverse-linear: full strength at dist=0, zero at SEPARATION_RADIUS
+                const strength = SEPARATION_STRENGTH * (1 - dist / SEPARATION_RADIUS);
+                fx += (dx / dist) * strength;
+                fy += (dy / dist) * strength;
+            }
+        }
+
+        return { x: fx, y: fy };
+    }
+
+    /** Wrap an angle to [-π, π]. */
+    private wrapAngle(a: number): number {
+        while (a >  Math.PI) a -= 2 * Math.PI;
+        while (a < -Math.PI) a += 2 * Math.PI;
+        return a;
     }
 
     // ── Fire readiness ─────────────────────────────────────────────────────

@@ -152,9 +152,28 @@ export class ControllerManager {    private controllers: Map<string, IController
         return lasers;
     }
 
-    // Update AI controllers with available targets
+    // Update AI controllers with available targets, team power, and formation slots
     private updateAITargets(assemblies: Assembly[]): void {
         const activeAssemblies = assemblies.filter(a => !a.destroyed);
+
+        // ── Compute team-level power totals for retreat coordination ──────
+        const teamPower = new Map<number, number>();
+        for (const a of activeAssemblies) {
+            if (!a.hasControlCenter()) continue;
+            const power = this.computeAssemblyCombatPower(a);
+            teamPower.set(a.team, (teamPower.get(a.team) ?? 0) + power);
+        }
+
+        // ── Group friendly assemblies by team ────────────────────────────
+        const teamMembers = new Map<number, Assembly[]>();
+        for (const a of activeAssemblies) {
+            if (!a.hasControlCenter()) continue;
+            const list = teamMembers.get(a.team);
+            if (list) list.push(a); else teamMembers.set(a.team, [a]);
+        }
+
+        // ── Collect all AI controllers and their targets for formation slots
+        const aiEntries: { controller: AIController; assembly: Assembly }[] = [];
 
         for (const [assemblyId, controller] of this.controllers) {
             if (controller instanceof AIController) {
@@ -169,9 +188,71 @@ export class ControllerManager {    private controllers: Map<string, IController
                     assembly.availableTargets = otherAssemblies.filter(
                         a => a.team !== assembly.team && a.hasControlCenter()
                     );
+
+                    // Pass friendly ships for separation steering
+                    controller.setFriendlies(teamMembers.get(assembly.team) ?? []);
+
+                    // Compute and pass team power ratio
+                    const ownTeamPower = teamPower.get(assembly.team) ?? 0;
+                    let enemyTeamPower = 0;
+                    for (const [team, power] of teamPower) {
+                        if (team !== assembly.team) enemyTeamPower += power;
+                    }
+                    const teamRatio = enemyTeamPower > 0 ? ownTeamPower / enemyTeamPower : 99;
+                    controller.setTeamPowerRatio(teamRatio);
+
+                    aiEntries.push({ controller, assembly });
                 }
             }
         }
+
+        // ── Assign formation slots: group friendlies by shared target ────
+        // Ships targeting the same enemy get evenly-spaced slots around it.
+        const targetGroups = new Map<string, { controller: AIController; assembly: Assembly }[]>();
+        for (const entry of aiEntries) {
+            const target = entry.controller.getTarget();
+            if (target) {
+                const key = target.id;
+                const group = targetGroups.get(key);
+                if (group) group.push(entry); else targetGroups.set(key, [entry]);
+            }
+        }
+        for (const group of targetGroups.values()) {
+            // Sort by assembly ID for stable slot assignment across frames
+            group.sort((a, b) => a.assembly.id.localeCompare(b.assembly.id));
+            for (let i = 0; i < group.length; i++) {
+                group[i].controller.setFormationSlot(i, group.length);
+            }
+        }
+    }
+
+    /**
+     * Estimates an assembly's combat power for team-level balance computation.
+     * Mirrors the per-ship logic in AIController.computeCombatPower.
+     */
+    private computeAssemblyCombatPower(a: Assembly): number {
+        let power = 0;
+        for (const e of a.entities) {
+            if (e.destroyed) continue;
+            switch (e.type) {
+                case 'Gun':                    power += 1.0; break;
+                case 'LargeGun':               power += 2.5; break;
+                case 'CapitalWeapon':          power += 5.0; break;
+                case 'MissileLauncher':        power += 1.5; break;
+                case 'LargeMissileLauncher':   power += 3.5; break;
+                case 'CapitalMissileLauncher': power += 7.0; break;
+                case 'Beam':                   power += 1.5; break;
+                case 'LargeBeam':              power += 4.0; break;
+                case 'Cockpit':                power += 0.5; break;
+                case 'LargeCockpit':           power += 1.0; break;
+                case 'CapitalCore':            power += 2.0; break;
+                default: break;
+            }
+        }
+        const cur = a.entities.reduce((s, e) => s + e.health, 0);
+        const max = a.entities.reduce((s, e) => s + e.maxHealth, 0);
+        const healthRatio = max > 0 ? cur / max : 0;
+        return power * healthRatio;
     }
 
     // Get the player controller (for input handling)

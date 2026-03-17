@@ -68,6 +68,20 @@ Do **not** compute thrust as a direction-toward-target without subtracting curre
 
 **Dead-band with active braking**: `engagementThrust()` uses a ±120-unit dead-band around `preferredRange`. Inside the band, active retro-thrust is applied opposing the ship's current velocity — the ship uses its engines to decelerate (physics-correct) rather than having velocity artificially zeroed. Braking magnitude scales with speed (up to 60% thrust), tapering to zero as the ship slows. Outside the band, small radial corrections (capped at 35% of max thrust) push toward the preferred range.
 
+## Team Coordination & Formation
+
+**Formation slots**: `ControllerManager.updateAITargets()` groups AI controllers by shared combat target. Ships targeting the same enemy are assigned evenly-spaced angular slots (`FORMATION_ARC_SPACING = 60°`) around the target. `approachThrust()` and `engagementThrust()` offset the desired standoff position by the ship's formation angle, preventing stacking.
+
+**Separation steering**: `computeSeparationSteering()` produces a repulsive force pushing the ship away from any friendly within `SEPARATION_RADIUS` (150 units). Strength is inverse-linear (full at contact, zero at radius edge). Applied in both `approachThrust()` and `engagementThrust()`. Constant `SEPARATION_STRENGTH = 0.4`.
+
+**Team-level retreat**: `ControllerManager` computes total combat power per team each frame and passes the `teamPowerRatio` to each `AIController`. Retreat decisions in `updateCombatState()` check both the individual power ratio AND the team ratio:
+- A ship only retreats if its individual matchup is bad AND the team overall is not winning (`teamPowerRatio < TEAM_RETREAT_THRESHOLD = 0.85`).
+- Exception: ships below 15% HP always retreat regardless of team status.
+- Ships can re-engage from RETREAT if either their individual ratio improves OR the team starts dominating.
+- This prevents one damaged ship from fleeing while its allies are winning the overall battle.
+
+**Data flow**: `ControllerManager` → `AIController.setFriendlies(sameTeamAssemblies)`, `setTeamPowerRatio(ratio)`, `setFormationSlot(index, total)`. Formation slots are sorted by assembly ID for frame-to-frame stability.
+
 ---
 
 MAINTENANCE MANDATE: If you establish a new pattern, change a library, or fix a systemic bug within the scope of this directory, you must update this CLAUDE.md file to reflect the new standard before concluding your task.
