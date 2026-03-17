@@ -1987,6 +1987,8 @@ export class GameEngine {
       x: entity.localOffset.x,
       y: entity.localOffset.y,
       rotation: entity.rotation,
+      health: entity.health,
+      maxHealth: entity.maxHealth,
     }));
     return JSON.stringify({ name: 'My Ship', parts }, null, 2);
   }
@@ -1997,7 +1999,6 @@ export class GameEngine {
 
   private spawnTeamLine(team: number, cfg: ScenarioConfig): void {
     const ships = shipsData.ships;
-    const selectedShip = ships[cfg.shipIndex] ?? ships[0];
     const isBlue = team === 0;
     const spawnX = isBlue ? -cfg.spawnX : cfg.spawnX;
 
@@ -2014,6 +2015,7 @@ export class GameEngine {
         y =          Math.sin(angle) * 200 + (Math.random() - 0.5) * 150;
       }
 
+      const selectedShip = ships[Math.floor(Math.random() * ships.length)];
       const assembly = new Assembly(selectedShip.parts as EntityConfig[], { x, y });
       assembly.setShipName(selectedShip.name);
       assembly.setTeam(team);

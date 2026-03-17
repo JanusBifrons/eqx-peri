@@ -44,6 +44,58 @@
         { "type": "Hull",      "x":  16, "y":  32, "rotation": 0,   "health": 120, "maxHealth": 120 },
         { "type": "Beam",      "x":  32, "y":  32, "rotation": 0,   "health": 60,  "maxHealth": 60  }
       ]
+    },
+    {
+      "name": "My Ship",
+      "parts": [
+        { "type": "Cockpit",        "x":    0, "y":    0, "rotation":   0, "health": 1000, "maxHealth": 1000 },
+
+        { "type": "Hull5x5",        "x":  -64, "y":  -80, "rotation":   0, "health": 3000, "maxHealth": 3000 },
+        { "type": "Hull5x5",        "x":  -64, "y":   16, "rotation":   0, "health": 3000, "maxHealth": 3000 },
+
+        { "type": "PowerCell",      "x":  -16, "y":    0, "rotation":   0, "health":   40, "maxHealth":   40 },
+        { "type": "PowerCell",      "x":  -32, "y":    0, "rotation":   0, "health":   40, "maxHealth":   40 },
+        { "type": "PowerCell",      "x":  -48, "y":    0, "rotation":   0, "health":   40, "maxHealth":   40 },
+        { "type": "PowerCell",      "x":  -64, "y":    0, "rotation":   0, "health":   40, "maxHealth":   40 },
+
+        { "type": "LargePowerCell", "x":  -96, "y":  -32, "rotation":   0, "health":  100, "maxHealth":  100 },
+        { "type": "LargePowerCell", "x":  -96, "y":   16, "rotation":   0, "health":  100, "maxHealth":  100 },
+
+        { "type": "Shield",         "x":  -80, "y":    0, "rotation":   0, "health":  200, "maxHealth":  200 },
+        { "type": "Shield",         "x":  -96, "y":    0, "rotation":   0, "health":  200, "maxHealth":  200 },
+
+        { "type": "Hull5x1",        "x": -144, "y":   48, "rotation":   0, "health":  600, "maxHealth":  600 },
+        { "type": "Hull5x1",        "x": -144, "y":  -48, "rotation":   0, "health":  600, "maxHealth":  600 },
+        { "type": "RectHull",       "x": -144, "y":  -32, "rotation":  90, "health":  240, "maxHealth":  240 },
+        { "type": "RectHull",       "x": -144, "y":   16, "rotation":  90, "health":  240, "maxHealth":  240 },
+
+        { "type": "Engine",         "x": -128, "y":  -32, "rotation":   0, "health":   80, "maxHealth":   80 },
+        { "type": "Engine",         "x": -128, "y":  -16, "rotation":   0, "health":   80, "maxHealth":   80 },
+        { "type": "Engine",         "x": -128, "y":   16, "rotation":   0, "health":   80, "maxHealth":   80 },
+        { "type": "Engine",         "x": -128, "y":   32, "rotation":   0, "health":   80, "maxHealth":   80 },
+        { "type": "Engine",         "x": -160, "y":   32, "rotation": 180, "health":   80, "maxHealth":   80 },
+        { "type": "Engine",         "x": -160, "y":  -32, "rotation": 180, "health":   80, "maxHealth":   80 },
+        { "type": "Engine",         "x": -160, "y":  -16, "rotation": 180, "health":   80, "maxHealth":   80 },
+        { "type": "Engine",         "x": -160, "y":   16, "rotation": 180, "health":   80, "maxHealth":   80 },
+
+        { "type": "Hull5x1",        "x": -224, "y":  -48, "rotation":   0, "health":  600, "maxHealth":  600 },
+        { "type": "Hull5x1",        "x": -224, "y":   48, "rotation":   0, "health":  600, "maxHealth":  600 },
+        { "type": "RectHull",       "x": -224, "y":   16, "rotation":  90, "health":  240, "maxHealth":  240 },
+        { "type": "RectHull",       "x": -224, "y":  -32, "rotation":  90, "health":  240, "maxHealth":  240 },
+
+        { "type": "LargeEngine",    "x": -208, "y":  -32, "rotation":   0, "health":  200, "maxHealth":  200 },
+        { "type": "LargeEngine",    "x": -208, "y":   16, "rotation":   0, "health":  200, "maxHealth":  200 },
+        { "type": "LargeEngine",    "x": -256, "y":  -32, "rotation": 180, "health":  200, "maxHealth":  200 },
+        { "type": "LargeEngine",    "x": -256, "y":   16, "rotation": 180, "health":  200, "maxHealth":  200 },
+
+        { "type": "TriHull2x2",     "x":  -16, "y":   96, "rotation":   0, "health":  240, "maxHealth":  240 },
+        { "type": "TriHull2x2",     "x":  -16, "y": -112, "rotation": 270, "health":  240, "maxHealth":  240 },
+
+        { "type": "Beam",           "x":   16, "y":  -80, "rotation":   0, "health":   60, "maxHealth":   60 },
+        { "type": "Beam",           "x":   16, "y":   80, "rotation":   0, "health":   60, "maxHealth":   60 },
+        { "type": "Beam",           "x":   16, "y":   16, "rotation":   0, "health":   60, "maxHealth":   60 },
+        { "type": "Beam",           "x":   16, "y":  -16, "rotation":   0, "health":   60, "maxHealth":   60 }
+      ]
     }
   ]
 }
