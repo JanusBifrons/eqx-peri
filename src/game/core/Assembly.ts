@@ -10,6 +10,7 @@ export interface MissileLaunchRequest {
   angle: number;
   missileType: MissileType;
   sourceAssemblyId: string;
+  sourceTeam: number;
   targetAssembly?: Assembly;
 }
 
@@ -671,6 +672,7 @@ export class Assembly {
         angle: currentFiringAngle,
         missileType,
         sourceAssemblyId: this.id,
+        sourceTeam: this.team,
         targetAssembly
       });
     });    // Update missile fire time if we have requests

@@ -107,12 +107,15 @@ src/
 - **Per-generator fixed-radius bubbles**: each shield block has a fixed `shieldRadius` in its definition (Shield=80, LargeShield=130 world units). The bubble is centred on the shield entity's world position and does NOT scale with assembly size. Multiple shield blocks on one assembly produce multiple independent bubbles. Physics compound body includes one circle part per shield entity.
 - `Assembly.getShieldBubbles()` returns `{ x, y, radius }[]` for rendering; `Assembly.getBoundingRadius()` returns the assembly's geometric bounding radius (used by highlights/icons, not shields).
 - Shield state is tracked in `Assembly.shieldState: ShieldState | null` (initialized/refreshed by `initializeShieldState()`). All shield blocks on an assembly share one HP pool.
-- Damage interception is **game-logic only** — no Matter.js physics filter changes. `Assembly.damageShield(damage, now)` returns `true` if the shield absorbed the hit; callers must early-return and skip entity damage when it returns `true`.
+- **Friendly pass-through**: same-team ships and weapons pass through allied shields with no interaction. Physics: `pair.isActive = false` in `collisionStart`/`collisionActive` prevents the solver from applying impulse on friendly shield pairs. Game logic: team checks in `setupLaserRaycast`, `handleLaserHitShield`, `handleLaserHit`, `handleMissileHitShield`, `handleEntityHitShield`, `handleEntityCollision`, `BeamSystem.processBeamFire`, and `MissileSystem.handleMissileHit`.
+- **Shield absorption (60/40 split)**: enemy impacts on shields are physically real, but 60% of the impulse is absorbed. Pre-solver velocity is recorded in `collisionStart`/`collisionActive`; `afterUpdate` restores 60% of the velocity change on the shielded assembly. The absorbed energy is converted to shield HP damage via `damageShield()`.
+- Damage interception is **game-logic only**. `Assembly.damageShield(damage, now)` returns `true` if the shield absorbed the hit; callers must early-return and skip entity damage when it returns `true`.
 - Shield wear mechanic: each hit reduces both `currentHp` **and** `maxHp` (max HP degrades permanently per hit, within a session).
 - Regen: after `SHIELD_REGEN_DELAY_MS` with no hits, shield regenerates to current `maxHp` over `SHIELD_REGEN_DURATION_MS`.
 - Collapse: when `currentHp` reaches 0, `isActive = false` and `cooldownUntil = now + SHIELD_COLLAPSE_COOLDOWN_MS` (8 s).
 - All three constants (`SHIELD_REGEN_DELAY_MS`, `SHIELD_REGEN_DURATION_MS`, `SHIELD_COLLAPSE_COOLDOWN_MS`) live in `GameTypes.ts`.
-- Interception is wired in three places: `GameEngine.handleBulletHit` (lasers), `GameEngine.handleEntityCollision` (collisions), `MissileSystem.handleMissileHit` (missiles).
+- Interception is wired in: `GameEngine.handleLaserHit`/`handleLaserHitShield` (lasers), `GameEngine.handleEntityCollision`/`handleEntityHitShield` (collisions), `MissileSystem.handleMissileHit` + `GameEngine.handleMissileHitShield` (missiles), `BeamSystem.processBeamFire` (beams).
+- `Missile` class has `sourceTeam: number` field (set at construction) so `MissileSystem` can perform friendly-fire checks without needing the assemblies list.
 - Rendering: `ShieldRenderer` (priority 40) in `src/game/rendering/` draws one translucent blue gradient circle per shield entity each frame.
 
 **Observer mode + Pilot system (`GameEngine`):**

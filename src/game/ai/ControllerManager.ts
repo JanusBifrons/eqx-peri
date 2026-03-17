@@ -134,6 +134,7 @@ export class ControllerManager {    private controllers: Map<string, IController
                         request.angle,
                         request.missileType,
                         request.sourceAssemblyId,
+                        request.sourceTeam,
                         request.targetAssembly
                     );
                 });

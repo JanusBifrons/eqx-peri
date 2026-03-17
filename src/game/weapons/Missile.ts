@@ -55,6 +55,7 @@ export class Missile {
     public body: Matter.Body;
     public config: MissileConfig;
     public sourceAssemblyId: string;
+    public sourceTeam: number;
     public targetAssembly: Assembly | null = null;
     public fuelRemaining: number; 
     public age: number = 0;
@@ -74,10 +75,12 @@ export class Missile {
         initialAngle: number,
         missileType: MissileType,
         sourceAssemblyId: string,
+        sourceTeam: number,
         targetAssembly?: Assembly
     ) {
         this.config = { ...MISSILE_CONFIGS[missileType] };
         this.sourceAssemblyId = sourceAssemblyId;
+        this.sourceTeam = sourceTeam;
         this.targetAssembly = targetAssembly || null;
         this.fuelRemaining = this.config.fuel;        // Create missile body with no friction for realistic space physics
         const size = this.getMissileSize();

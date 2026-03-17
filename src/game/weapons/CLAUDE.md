@@ -15,6 +15,13 @@ Missiles use Matter.js for collision detection:
 1. **Matter.js CCD**: Bodies are created with `bullet: true` for continuous collision detection to prevent tunneling.
 2. **Matter.js collision events**: `collisionStart` events trigger `MissileSystem.handleMissileHit()`.
 
+## Friendly Shield Pass-Through
+
+- `Missile` stores `sourceTeam: number` (set at construction from `MissileLaunchRequest.sourceTeam`).
+- `MissileSystem.handleMissileHit()` skips `damageShield` interception when `targetAssembly.getTeam() === missile.sourceTeam`.
+- `GameEngine.handleMissileHitShield()` also checks team — same-team missiles pass through allied shield circles.
+- `BeamSystem.processBeamFire()` excludes same-team shield circle parts from the raycast candidate list and skips `damageShield` for friendly beam-entity hits.
+
 ---
 
 MAINTENANCE MANDATE: If you establish a new pattern, change a library, or fix a systemic bug within the scope of this directory, you must update this CLAUDE.md file to reflect the new standard before concluding your task.

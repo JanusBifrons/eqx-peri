@@ -47,7 +47,8 @@ Matter.js compound bodies are created via `Matter.Body.create({ parts: [...] })`
 - **`hasActiveShield()`** / **`getShieldRadius()`** / **`getBoundingRadius()`**: utility accessors. `getShieldRadius` returns the largest fixed `shieldRadius` from shield entity definitions (does NOT scale with assembly size). `getBoundingRadius` returns the assembly's geometric bounding radius (for highlights/icons).
 - **`getShieldBubbles()`**: returns `{ x, y, radius }[]` — one entry per active shield entity in world space. Used by `ShieldRenderer` to draw per-generator bubbles at fixed radii. Each shield block type defines `shieldRadius` in its `EntityTypeDefinition` (Shield=80, LargeShield=130).
 - Shield state is refreshed (via `initializeShieldState()`) at the end of `createFreshBody()` to account for destroyed shield blocks reducing max capacity.
-- Physics optimization (inner parts opt-out of collision) was evaluated and **not implemented** — Matter.js cannot change compound-body part collision filters without a full rebuild, and adding a separate shield body with constraint has force-transfer accuracy issues. The shield is purely game-logic interception.
+- **Friendly shield pass-through**: Matter.js collision events fire BEFORE the solver. `GameEngine.tryDisableFriendlyShieldPair()` sets `pair.isActive = false` on same-team shield pairs in both `collisionStart` and `collisionActive`, preventing the solver from applying any impulse. Game-logic team checks in all damage handlers provide a second layer of safety. `Missile` class stores `sourceTeam` for this purpose.
+- **Shield absorption (60/40)**: enemy shield impacts are physically real, but 60% of the impulse on the shielded ship is undone. `recordShieldImpactVelocity()` captures pre-solver velocity in collision events; an `afterUpdate` handler restores 60% of the delta (`newVel = preVel + 0.4 * (postVel - preVel)`).
 
 ## Rendering Architecture
 

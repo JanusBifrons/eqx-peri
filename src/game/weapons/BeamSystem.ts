@@ -93,6 +93,8 @@ export class BeamSystem {
 
     // Build the set of bodies to test: entity block bodies + shield circle parts,
     // excluding the source assembly (no self-hits) and already-destroyed entities.
+    const sourceAssembly = assemblies.find(a => a.id === spec.sourceAssemblyId);
+    const sourceTeam = sourceAssembly?.getTeam() ?? -1;
     const testBodies: Matter.Body[] = [];
     for (const assembly of assemblies) {
       if (assembly.destroyed || assembly.id === spec.sourceAssemblyId) continue;
@@ -105,7 +107,8 @@ export class BeamSystem {
       // An inactive (collapsed/cooldown) shield must not block the beam — the circle
       // part persists in the compound body even when the shield is down, so we gate
       // on hasActiveShield() to prevent the beam from silently hitting an invisible shield.
-      if (assembly.hasActiveShield()) {
+      // Friendly shields are skipped — same-team beams pass through allied shield fields.
+      if (assembly.hasActiveShield() && (sourceTeam < 0 || assembly.getTeam() !== sourceTeam)) {
         for (const part of assembly.rootBody.parts) {
           if ((part as any).isShieldPart) testBodies.push(part);
         }
@@ -197,8 +200,10 @@ export class BeamSystem {
           hitAssembly.lastHitByAssemblyId = spec.sourceAssemblyId;
           hitAssembly.lastHitByPlayer = sourceAssembly?.isPlayerControlled ?? false;
 
-          // Shield interception check — mirrors handleLaserHit logic
-          if (hitAssembly.damageShield(damage, Date.now())) {
+          // Shield interception check — mirrors handleLaserHit logic.
+          // Friendly beams bypass allied shields (same team).
+          const isFriendlyBeam = sourceTeam >= 0 && hitAssembly.getTeam() === sourceTeam;
+          if (!isFriendlyBeam && hitAssembly.damageShield(damage, Date.now())) {
             hitAssembly.entities
               .filter(e => (e.type === 'Shield' || e.type === 'LargeShield') && !e.destroyed)
               .forEach(e => e.triggerCollisionFlash());

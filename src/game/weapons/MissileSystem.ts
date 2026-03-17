@@ -17,9 +17,10 @@ export class MissileSystem {
         angle: number,
         missileType: MissileType,
         sourceAssemblyId: string,
+        sourceTeam: number,
         targetAssembly?: Assembly
     ): Missile {
-        const missile = new Missile(position, angle, missileType, sourceAssemblyId, targetAssembly);
+        const missile = new Missile(position, angle, missileType, sourceAssemblyId, sourceTeam, targetAssembly);
         this.missiles.push(missile);
         Matter.World.add(this.world, missile.body);
 
@@ -62,8 +63,10 @@ export class MissileSystem {
         SoundSystem.getInstance().playMissileExplosion();
 
         // Shield interception — if the target assembly has an active shield it absorbs the hit.
+        // Friendly weapons bypass allied shields (same team).
         const targetAssembly = (targetEntity.body as any)?.assembly;
-        if (targetAssembly && typeof targetAssembly.damageShield === 'function') {
+        const isFriendlyFire = missile.sourceTeam >= 0 && targetAssembly && targetAssembly.getTeam() === missile.sourceTeam;
+        if (!isFriendlyFire && targetAssembly && typeof targetAssembly.damageShield === 'function') {
             if (targetAssembly.damageShield(missile.getDamage(), Date.now())) {
                 missile.destroy();
                 return true; // shield absorbed — still counts as a hit

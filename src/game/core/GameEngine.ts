@@ -80,6 +80,10 @@ export class GameEngine {
   private perfFpsWindowStart: number = 0;      // timestamp when current window began
   private perfDisplayFps: number = 0;          // last committed FPS value
   private perfLastTickMs: number = 0;
+  // Tracks pre-solver velocities of shielded assemblies hit this frame.
+  // Used by afterUpdate to undo 60% of the impulse (shield absorption).
+  private shieldImpactVelocities: Map<string, { x: number; y: number }> = new Map();
+
   private perfCollisionEventsInWindow: number = 0;
   private perfCollisionWindowStart: number = 0;
   private perfCollisionsPerSecond: number = 0;
@@ -354,8 +358,53 @@ export class GameEngine {
       this.render.canvas.width = newWidth;
       this.render.canvas.height = newHeight;
     });
-  } private setupCollisionDetection(): void {
-    Matter.Events.on(this.engine, 'collisionStart', (event: { pairs: { bodyA: Matter.Body; bodyB: Matter.Body }[] }) => {
+  } /**
+   * Check if a shield collision pair is friendly (same team).  If so, disable
+   * the pair so the solver skips it — the bodies pass through each other.
+   * Returns true if the pair was disabled (caller should skip further handling).
+   */
+  private tryDisableFriendlyShieldPair(
+    pair: { isActive?: boolean },
+    shieldAssembly: Assembly,
+    otherBody: Matter.Body,
+  ): boolean {
+    const shieldTeam = shieldAssembly.getTeam();
+    // Team -1 is neutral/debris — never counts as "friendly".
+    if (shieldTeam < 0) return false;
+
+    if ((otherBody as any).entity) {
+      const otherAssembly = this.assemblies.find(a => a.entities.includes((otherBody as any).entity));
+      if (otherAssembly && otherAssembly.getTeam() === shieldTeam) {
+        pair.isActive = false;
+        return true;
+      }
+    } else if ((otherBody as any).isMissile) {
+      if ((otherBody as any).missile.sourceTeam === shieldTeam) {
+        pair.isActive = false;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * For an enemy shield collision, record the shielded assembly's pre-solver
+   * velocity so afterUpdate can undo 60% of the impulse (shield absorption).
+   */
+  private recordShieldImpactVelocity(shieldAssembly: Assembly): void {
+    if (!this.shieldImpactVelocities.has(shieldAssembly.id)) {
+      this.shieldImpactVelocities.set(shieldAssembly.id, {
+        x: shieldAssembly.rootBody.velocity.x,
+        y: shieldAssembly.rootBody.velocity.y,
+      });
+    }
+  }
+
+  private setupCollisionDetection(): void {
+    // Matter.js event order: collisionStart/Active fire BEFORE the solver,
+    // so setting pair.isActive = false prevents the impulse from being applied.
+
+    Matter.Events.on(this.engine, 'collisionStart', (event: { pairs: { bodyA: Matter.Body; bodyB: Matter.Body; isActive?: boolean }[] }) => {
       this.perfCollisionEventsInWindow += event.pairs.length;
       event.pairs.forEach(pair => {
         const { bodyA, bodyB } = pair;
@@ -366,6 +415,22 @@ export class GameEngine {
           return;
         }
 
+        // --- Shield pair handling: friendly pass-through + absorption tracking ---
+        const aIsShield = (bodyA as any).isShieldPart;
+        const bIsShield = (bodyB as any).isShieldPart;
+        if (aIsShield || bIsShield) {
+          const shieldBody = aIsShield ? bodyA : bodyB;
+          const otherBody = aIsShield ? bodyB : bodyA;
+          const shieldAssembly = (shieldBody as any).parentAssembly as Assembly;
+
+          if (this.tryDisableFriendlyShieldPair(pair, shieldAssembly, otherBody)) {
+            return; // friendly — solver will skip this pair
+          }
+          // Enemy shield collision — record pre-solver velocity for 60% absorption.
+          this.recordShieldImpactVelocity(shieldAssembly);
+        }
+
+        // --- Normal collision dispatch ---
         // Check for missile collisions
         if ((bodyA as any).isMissile && bodyB.entity) {
           this.handleMissileHit((bodyA as any).missile, bodyB.entity);
@@ -387,8 +452,46 @@ export class GameEngine {
       });
     });
 
-    // NOTE: No collisionActive handler — re-triggering the flash every frame for sustained
-    // contact caused a permanent white glow.  collisionStart is sufficient for impact feedback.
+    // collisionActive: disable friendly shield pairs every frame so the solver
+    // never pushes same-team bodies apart.  No damage/flash here — that is
+    // collisionStart-only to avoid the permanent-white-glow bug.
+    Matter.Events.on(this.engine, 'collisionActive', (event: { pairs: { bodyA: Matter.Body; bodyB: Matter.Body; isActive?: boolean }[] }) => {
+      for (const pair of event.pairs) {
+        const { bodyA, bodyB } = pair;
+        const aIsShield = (bodyA as any).isShieldPart;
+        const bIsShield = (bodyB as any).isShieldPart;
+        if (!aIsShield && !bIsShield) continue;
+
+        const shieldBody = aIsShield ? bodyA : bodyB;
+        const otherBody = aIsShield ? bodyB : bodyA;
+        const shieldAssembly = (shieldBody as any).parentAssembly as Assembly;
+
+        if (!this.tryDisableFriendlyShieldPair(pair, shieldAssembly, otherBody)) {
+          // Enemy sustained contact — keep recording for absorption correction.
+          this.recordShieldImpactVelocity(shieldAssembly);
+        }
+      }
+    });
+
+    // afterUpdate: the solver has now applied impulses.  For shielded assemblies
+    // that took a shield hit this frame, undo 60% of the velocity change so
+    // only 40% of the impact is felt.
+    Matter.Events.on(this.engine, 'afterUpdate', () => {
+      for (const [assemblyId, preVel] of this.shieldImpactVelocities) {
+        const assembly = this.assemblies.find(a => a.id === assemblyId);
+        if (!assembly) continue;
+        const body = assembly.rootBody;
+        const deltaX = body.velocity.x - preVel.x;
+        const deltaY = body.velocity.y - preVel.y;
+        if (Math.abs(deltaX) > 0.001 || Math.abs(deltaY) > 0.001) {
+          Matter.Body.setVelocity(body, {
+            x: preVel.x + deltaX * 0.4,
+            y: preVel.y + deltaY * 0.4,
+          });
+        }
+      }
+      this.shieldImpactVelocities.clear();
+    });
 
     this.setupLaserRaycast();
   }
@@ -464,6 +567,15 @@ export class GameEngine {
           const sourceId = (laser as any).sourceAssemblyId;
           if (sourceId && body.assembly?.id === sourceId) continue;
 
+          // Skip friendly shields — same-team weapons pass through allied shield fields.
+          if ((body as any).isShieldPart) {
+            const shieldOwner = (body as any).parentAssembly as Assembly | undefined;
+            if (shieldOwner && sourceId) {
+              const sourceAssembly = this.assemblies.find(a => a.id === sourceId);
+              if (sourceAssembly && sourceAssembly.getTeam() >= 0 && sourceAssembly.getTeam() === shieldOwner.getTeam()) continue;
+            }
+          }
+
           // Ray-edge intersection (Cramer's rule) against the body polygon
           const verts = body.vertices;
           for (let i = 0; i < verts.length; i++) {
@@ -534,14 +646,15 @@ export class GameEngine {
         const now = Date.now();
 
         // Shield interception: route collision damage through the shield field
-        // when active. Matter.js still applies the physical impulse normally.
+        // when active. Friendly collisions (same team) bypass shields entirely.
         const assemblyA = this.assemblies.find(a => a.entities.includes(entityA));
         const assemblyB = this.assemblies.find(a => a.entities.includes(entityB));
+        const sameTeam = assemblyA && assemblyB && assemblyA.getTeam() >= 0 && assemblyA.getTeam() === assemblyB.getTeam();
 
-        if (damageA > 0 && !(assemblyA?.damageShield(damageA, now))) {
+        if (damageA > 0 && !((!sameTeam) && assemblyA?.damageShield(damageA, now))) {
           entityA.takeDamage(damageA);
         }
-        if (damageB > 0 && !(assemblyB?.damageShield(damageB, now))) {
+        if (damageB > 0 && !((!sameTeam) && assemblyB?.damageShield(damageB, now))) {
           entityB.takeDamage(damageB);
         }
       }
@@ -568,7 +681,10 @@ export class GameEngine {
     SoundSystem.getInstance().playLaserImpact();
 
     // Shield interception — if active the field absorbs the hit entirely.
-    if (hitAssembly?.damageShield(LASER_DAMAGE, Date.now())) {
+    // Friendly weapons bypass allied shields (same team).
+    const laserSourceAssembly = sourceAssemblyId ? this.assemblies.find(a => a.id === sourceAssemblyId) : undefined;
+    const isFriendlyFire = laserSourceAssembly && hitAssembly && laserSourceAssembly.getTeam() >= 0 && laserSourceAssembly.getTeam() === hitAssembly.getTeam();
+    if (!isFriendlyFire && hitAssembly?.damageShield(LASER_DAMAGE, Date.now())) {
       hitAssembly.entities
         .filter(e => (e.type === 'Shield' || e.type === 'LargeShield') && !e.destroyed)
         .forEach(e => e.triggerCollisionFlash());
@@ -705,8 +821,10 @@ export class GameEngine {
     // Self-hit prevention — don't let a ship's own lasers hit its own shield.
     if (sourceAssemblyId && shieldAssembly.id === sourceAssemblyId) return;
 
+    // Friendly fire prevention — same-team weapons pass through allied shields.
     if (sourceAssemblyId) {
       const sourceAssembly = this.assemblies.find(a => a.id === sourceAssemblyId);
+      if (sourceAssembly && sourceAssembly.getTeam() >= 0 && sourceAssembly.getTeam() === shieldAssembly.getTeam()) return;
       shieldAssembly.lastHitByAssemblyId = sourceAssemblyId;
       shieldAssembly.lastHitByPlayer = sourceAssembly?.isPlayerControlled || false;
     }
@@ -744,6 +862,10 @@ export class GameEngine {
     // Self-hit prevention.
     if (missile.sourceAssemblyId === shieldAssembly.id) return;
 
+    // Friendly fire prevention — same-team missiles pass through allied shields.
+    const sourceAssembly = this.assemblies.find(a => a.id === missile.sourceAssemblyId);
+    if (sourceAssembly && sourceAssembly.getTeam() >= 0 && sourceAssembly.getTeam() === shieldAssembly.getTeam()) return;
+
     SoundSystem.getInstance().playMissileExplosion();
     shieldAssembly.damageShield(missile.getDamage(), Date.now());
     shieldAssembly.entities
@@ -766,13 +888,18 @@ export class GameEngine {
     // Skip same-assembly (cannot happen with compound parts but guard anyway).
     if (entityAssembly?.id === shieldAssembly.id) return;
 
+    // Friendly ships pass through allied shields with no interaction.
+    // Team -1 (neutral/debris) is never "friendly".
+    if (entityAssembly && entityAssembly.getTeam() >= 0 && entityAssembly.getTeam() === shieldAssembly.getTeam()) return;
+
     // Flash shield blocks on impact.
     shieldAssembly.entities
       .filter(e => (e.type === 'Shield' || e.type === 'LargeShield') && !e.destroyed)
       .forEach(e => { if (!e.isFlashing) e.triggerCollisionFlash(); });
     if (!entity.isFlashing) entity.triggerCollisionFlash();
 
-    // Collision damage — same formula as handleEntityCollision.
+    // Collision damage — the impact energy is absorbed by the shield as damage.
+    // The shielded ship is unaffected (shield parts are sensors, no physical impulse).
     const entityVel = Matter.Vector.magnitude(entity.body.velocity);
     const shieldVel = Matter.Vector.magnitude(shieldAssembly.rootBody.velocity);
     const relativeVelocity = Math.abs(entityVel - shieldVel);
