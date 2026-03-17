@@ -205,7 +205,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     color: '#00ff00',
     shape: 'rect',
     thrust: 0.5, // Emergency RCS only — engines are the primary propulsion source
-    canAttachTo: ['Engine', 'Gun', 'PowerCell', 'Shield', 'LargeShield', 'Beam'],
+    canAttachTo: ['Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam'],
     attachmentPoints: [
       { x: 0, y: -1 }, // top
       { x: 1, y: 0 },  // right
@@ -222,7 +222,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     color: '#ff6600',
     shape: 'rect',
     thrust: 2.0, // Primary propulsion block; ~4× better efficiency per mass than Cockpit
-    canAttachTo: ['Cockpit', 'PowerCell', 'Shield', 'LargeShield'],
+    canAttachTo: ['Cockpit', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam'],
     attachmentPoints: [
       { x: 0, y: -1 }, // top (exhaust is bottom)
       { x: 1, y: 0 },  // right
@@ -237,7 +237,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     defaultHealth: 60,
     color: '#ff0000',
     shape: 'rect',
-    canAttachTo: ['Cockpit', 'PowerCell', 'Shield', 'LargeShield', 'Beam'],
+    canAttachTo: ['Cockpit', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam'],
     attachmentPoints: [
       { x: 1, y: 0 },  // right
       { x: 0, y: 1 },  // bottom
@@ -253,7 +253,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     defaultHealth: 40,
     color: '#ffff00',
     shape: 'rect',
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'Shield', 'LargeShield', 'Beam'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam'],
     attachmentPoints: [
       { x: 0, y: -1 }, // top
       { x: 1, y: 0 },  // right
@@ -274,7 +274,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     color: '#00aa00',
     shape: 'rect',
     thrust: 2.0, // Emergency RCS (same efficiency as Cockpit — 0.001 thrust/mass)
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield', 'Beam', 'LargeBeam'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher'],
     attachmentPoints: [
       { x: 0, y: -2 }, // top center
       { x: 1, y: -1 }, // top right
@@ -297,7 +297,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     color: '#cc4400',
     shape: 'rect',
     thrust: 8.0, // Primary propulsion (0.00267 thrust/mass — consistent with Engine)
-    canAttachTo: ['Cockpit', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher'],
     attachmentPoints: [
       { x: 0, y: -2 }, // top center
       { x: 1, y: -1 }, // top right
@@ -317,7 +317,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     defaultHealth: 150,
     color: '#cc0000',
     shape: 'rect',
-    canAttachTo: ['Cockpit', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield', 'LargeBeam'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher'],
     attachmentPoints: [
       { x: 1, y: 1 },  // bottom right
       { x: 0, y: 2 },  // bottom center
@@ -337,7 +337,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     defaultHealth: 300,
     color: '#666666',
     shape: 'rect',
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield', 'Beam', 'LargeBeam'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher'],
     attachmentPoints: [
       { x: 0, y: -2 }, // top center
       { x: 1, y: -1 }, // top right
@@ -359,7 +359,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     defaultHealth: 100,
     color: '#dddd00',
     shape: 'rect',
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'Shield', 'LargeShield', 'Beam', 'LargeBeam'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher'],
     attachmentPoints: [
       { x: 0, y: -2 }, // top center
       { x: 1, y: -1 }, // top right
@@ -384,7 +384,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     color: '#0066ff',
     shape: 'rect',
     thrust: 8.0, // Emergency RCS (0.001 thrust/mass — consistent with Cockpit tier)
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher'],
     attachmentPoints: [
       { x: 0, y: -4 }, // top center
       { x: 2, y: -2 }, // top right
@@ -407,7 +407,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     color: '#ff3300',
     shape: 'rect',
     thrust: 32.0, // Primary propulsion (0.00267 thrust/mass — consistent with Engine tier)
-    canAttachTo: ['Cockpit', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher'],
     attachmentPoints: [
       { x: 0, y: -4 }, // top center
       { x: 2, y: -2 }, // top right
@@ -427,7 +427,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     defaultHealth: 600,
     color: '#aa0000',
     shape: 'rect',
-    canAttachTo: ['Cockpit', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher'],
     attachmentPoints: [
       { x: 2, y: 2 },  // bottom right
       { x: 0, y: 4 },  // bottom center
@@ -491,7 +491,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     defaultHealth: 70,
     color: '#ff9900', // Orange color for missiles
     shape: 'rect',
-    canAttachTo: ['Cockpit', 'PowerCell', 'Shield', 'LargeShield'],
+    canAttachTo: ['Cockpit', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam'],
     attachmentPoints: [
       { x: 1, y: 0 },  // right
       { x: 0, y: 1 },  // bottom
@@ -508,7 +508,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     defaultHealth: 180,
     color: '#ff7700', // Darker orange for large launchers
     shape: 'rect',
-    canAttachTo: ['Cockpit', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'CapitalMissileLauncher'],
     attachmentPoints: [
       { x: 1, y: 1 },  // bottom right
       { x: 0, y: 2 },  // bottom center
@@ -527,7 +527,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     defaultHealth: 720,
     color: '#ff5500', // Even darker orange for capital launchers
     shape: 'rect',
-    canAttachTo: ['Cockpit', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher'],
     attachmentPoints: [
       { x: 2, y: 2 },  // bottom right
       { x: 0, y: 4 },  // bottom center
@@ -605,7 +605,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     shape: 'rect',
     beamRange: BEAM_SMALL_RANGE,
     beamDps: BEAM_SMALL_DPS,
-    canAttachTo: ['Cockpit', 'PowerCell', 'Shield', 'LargeShield'],
+    canAttachTo: ['Cockpit', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'LargeBeam'],
     attachmentPoints: [
       { x: 1, y: 0 },  // right
       { x: 0, y: 1 },  // bottom
@@ -625,7 +625,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     shape: 'rect',
     beamRange: BEAM_LARGE_RANGE,
     beamDps: BEAM_LARGE_DPS,
-    canAttachTo: ['Cockpit', 'PowerCell', 'LargeCockpit', 'HeavyHull', 'LargePowerCell', 'Shield', 'LargeShield'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam'],
     attachmentPoints: [
       { x: 1, y: 1 },  // bottom right
       { x: 0, y: 2 },  // bottom center
@@ -675,21 +675,11 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
  * Structural blocks can attach to anything; functional blocks use their canAttachTo lists.
  * This replaces direct `def.canAttachTo.includes()` checks throughout the codebase.
  */
-export function canTypesConnect(typeA: EntityType, typeB: EntityType): boolean {
-  // Structural blocks connect to everything
-  if (STRUCTURAL_TYPES.has(typeA) && STRUCTURAL_TYPES.has(typeB)) return true;
-  if (STRUCTURAL_TYPES.has(typeA)) {
-    // A is structural — check if B allows structural blocks (always yes)
-    return true;
-  }
-  if (STRUCTURAL_TYPES.has(typeB)) {
-    // B is structural — check if A allows structural blocks (always yes)
-    return true;
-  }
-  // Both functional — use mutual canAttachTo
-  const defA = ENTITY_DEFINITIONS[typeA];
-  const defB = ENTITY_DEFINITIONS[typeB];
-  return defA.canAttachTo.includes(typeB) && defB.canAttachTo.includes(typeA);
+export function canTypesConnect(_typeA: EntityType, _typeB: EntityType): boolean {
+  // All block types can connect to all other block types.
+  // Connection restrictions are enforced solely by attachment points
+  // (blocked sides like weapon fronts, thruster exhausts, triangle hypotenuses).
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -833,7 +823,7 @@ export function getEntityOccupiedGridCells(
   return cells;
 }
 
-export type ScenarioId = 'debug' | 'duel' | 'small-battle' | 'medium-battle' | 'huge' | 'sandbox' | 'open-world';
+export type ScenarioId = 'debug' | 'duel' | 'small-battle' | 'medium-battle' | 'huge' | 'sandbox' | 'open-world' | 'ship-builder';
 
 export interface ScenarioConfig {
   id: ScenarioId;
@@ -847,6 +837,7 @@ export interface ScenarioConfig {
   debrisCount: number;
   sandboxMode: boolean;   // true = start as bare cockpit, scavenge blocks to build
   spawnAsteroids: boolean; // true = stream procedural asteroid chunks around camera
+  shipBuilderMode: boolean; // true = static cockpit at origin, palette-driven block placement
 }
 
 export const SHIP_SPAWN_SPACING = 300;
@@ -854,13 +845,14 @@ export const DUEL_SPAWN_X = 1200;
 export const BATTLE_SPAWN_X = 2000;
 
 export const SCENARIOS: Readonly<Record<ScenarioId, ScenarioConfig>> = {
-  debug:           { id: 'debug',          label: 'Debug',         description: '1v1 sandbox with debris.',          teamSize: 1,   spawnX: DUEL_SPAWN_X,   shipIndex: 5, lineFormation: false, spawnDebris: true,  debrisCount: 12, sandboxMode: false, spawnAsteroids: false },
-  duel:            { id: 'duel',           label: 'Duel',          description: '1v1, clean space, ships face off.', teamSize: 1,   spawnX: DUEL_SPAWN_X,   shipIndex: 5, lineFormation: true,  spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false },
-  'small-battle':  { id: 'small-battle',   label: 'Small Battle',  description: '5v5 — two squads engage.',          teamSize: 5,   spawnX: BATTLE_SPAWN_X, shipIndex: 0, lineFormation: true,  spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false },
-  'medium-battle': { id: 'medium-battle',  label: 'Medium Battle', description: '10v10 — fleet engagement.',         teamSize: 10,  spawnX: BATTLE_SPAWN_X, shipIndex: 0, lineFormation: true,  spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false },
-  huge:            { id: 'huge',           label: 'Huge',          description: '100v100 — maximum chaos.',          teamSize: 100, spawnX: BATTLE_SPAWN_X, shipIndex: 0, lineFormation: true,  spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false },
-  sandbox:         { id: 'sandbox',        label: 'Sandbox',       description: 'Start as a bare cockpit. Scavenge blocks to build your ship.', teamSize: 0, spawnX: 0, shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0, sandboxMode: true,  spawnAsteroids: false },
-  'open-world':    { id: 'open-world',     label: 'Open World',    description: 'Build your ship and explore a procedural asteroid field.',        teamSize: 0, spawnX: 0, shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0, sandboxMode: true,  spawnAsteroids: true  },
+  'ship-builder':  { id: 'ship-builder',   label: 'Ship Builder',  description: 'Design your ship from scratch using a block palette.', teamSize: 0, spawnX: 0, shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0, sandboxMode: false, spawnAsteroids: false, shipBuilderMode: true  },
+  debug:           { id: 'debug',          label: 'Debug',         description: '1v1 sandbox with debris.',          teamSize: 1,   spawnX: DUEL_SPAWN_X,   shipIndex: 5, lineFormation: false, spawnDebris: true,  debrisCount: 12, sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false },
+  duel:            { id: 'duel',           label: 'Duel',          description: '1v1, clean space, ships face off.', teamSize: 1,   spawnX: DUEL_SPAWN_X,   shipIndex: 5, lineFormation: true,  spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false },
+  'small-battle':  { id: 'small-battle',   label: 'Small Battle',  description: '5v5 — two squads engage.',          teamSize: 5,   spawnX: BATTLE_SPAWN_X, shipIndex: 0, lineFormation: true,  spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false },
+  'medium-battle': { id: 'medium-battle',  label: 'Medium Battle', description: '10v10 — fleet engagement.',         teamSize: 10,  spawnX: BATTLE_SPAWN_X, shipIndex: 0, lineFormation: true,  spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false },
+  huge:            { id: 'huge',           label: 'Huge',          description: '100v100 — maximum chaos.',          teamSize: 100, spawnX: BATTLE_SPAWN_X, shipIndex: 0, lineFormation: true,  spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false },
+  sandbox:         { id: 'sandbox',        label: 'Sandbox',       description: 'Start as a bare cockpit. Scavenge blocks to build your ship.', teamSize: 0, spawnX: 0, shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0, sandboxMode: true,  spawnAsteroids: false, shipBuilderMode: false },
+  'open-world':    { id: 'open-world',     label: 'Open World',    description: 'Build your ship and explore a procedural asteroid field.',        teamSize: 0, spawnX: 0, shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0, sandboxMode: true,  spawnAsteroids: true,  shipBuilderMode: false },
 } as const;
 
-export const SCENARIO_ORDER: ScenarioId[] = ['sandbox', 'open-world', 'debug', 'duel', 'small-battle', 'medium-battle', 'huge'];
+export const SCENARIO_ORDER: ScenarioId[] = ['ship-builder', 'sandbox', 'open-world', 'debug', 'duel', 'small-battle', 'medium-battle', 'huge'];

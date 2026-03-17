@@ -89,6 +89,10 @@ export class GameEngine {
 
   private scenarioConfig: ScenarioConfig = SCENARIOS['debug'];
 
+  // Ship builder mode state
+  private shipBuilderMode: boolean = false;
+  private shipBuilderAssembly: Assembly | null = null;
+
   // Toast system for game events
   private toastSystem: ToastSystem;
 
@@ -149,6 +153,12 @@ export class GameEngine {
         if (Math.abs(body.angularVelocity) > 0.1) {
           Matter.Body.setAngularVelocity(body, body.angularVelocity * 0.98);
         }
+      }
+      // Keep the builder assembly frozen at its current position (no drift from impulses)
+      if (this.shipBuilderMode && this.shipBuilderAssembly && !this.shipBuilderAssembly.destroyed) {
+        const body = this.shipBuilderAssembly.rootBody;
+        Matter.Body.setVelocity(body, { x: 0, y: 0 });
+        Matter.Body.setAngularVelocity(body, 0);
       }
     });
 
@@ -305,8 +315,8 @@ export class GameEngine {
         case 'r':
           if (this.blockPickupSystem.isHolding()) {
             this.blockPickupSystem.rotateHeld(); // Rotate held block 90° CCW relative to player
-          } else {
-            this.initializeBattle(); // Restart battle
+          } else if (!this.shipBuilderMode) {
+            this.initializeBattle(); // Restart battle (disabled in ship builder)
           }
           break;
         case 'g':
@@ -1735,6 +1745,7 @@ export class GameEngine {
     this.assemblies.forEach(a => this.removeBodyWithParts(a.rootBody));
     this.assemblies = [];
     this.playerAssembly = null;
+    this.shipBuilderAssembly = null;
 
     // Drop any held block before clearing the scene
     if (this.blockPickupSystem.isHolding()) {
@@ -1755,7 +1766,9 @@ export class GameEngine {
       );
     }
 
-    if (cfg.sandboxMode) {
+    if (cfg.shipBuilderMode) {
+      this.spawnShipBuilderScenario();
+    } else if (cfg.sandboxMode) {
       this.spawnSandboxScenario();
     } else {
       this.spawnTeamLine(0, cfg);
@@ -1927,6 +1940,59 @@ export class GameEngine {
     }
 
     this.toastSystem.showGameEvent('Sandbox — Select a friendly ship and click Pilot!');
+  }
+
+  private spawnShipBuilderScenario(): void {
+    // Single cockpit at origin — team 0 with a control center so getBlockSnapTarget() finds it
+    const cockpit = new Assembly(
+      [{ type: 'Cockpit', x: 0, y: 0, rotation: 0 }],
+      { x: 0, y: 0 },
+    );
+    cockpit.setTeam(0);
+    cockpit.setShipName('Builder Ship');
+    this.shipBuilderAssembly = cockpit;
+    this.assemblies.push(cockpit);
+    Matter.World.add(this.world, cockpit.rootBody);
+    this.toastSystem.showGameEvent('Ship Builder — Click blocks in the palette to place them');
+  }
+
+  /**
+   * Spawn a single block of the given type near the builder assembly for the user to drag.
+   * No-op when not in ship builder mode.
+   */
+  public spawnBlockForBuilder(type: EntityType): void {
+    if (!this.shipBuilderMode) return;
+    // Scatter in a small arc to the right of the builder assembly so blocks are easy to grab
+    const angle = (Math.random() - 0.5) * Math.PI * 0.75; // ±67° from east
+    const distance = 110 + Math.random() * 60;             // 110–170 world units out
+    const x = Math.cos(angle) * distance;
+    const y = Math.sin(angle) * distance;
+    const assembly = new Assembly([{ type, x: 0, y: 0, rotation: 0 }], { x, y });
+    assembly.setTeam(-1);
+    assembly.setShipName(`${type} Block`);
+    this.assemblies.push(assembly);
+    Matter.World.add(this.world, assembly.rootBody);
+  }
+
+  /**
+   * Serialize the current builder assembly to ships.json-compatible JSON.
+   * Returns null when not in ship builder mode or the assembly is destroyed.
+   */
+  public exportShipAsJson(): string | null {
+    if (!this.shipBuilderMode || !this.shipBuilderAssembly || this.shipBuilderAssembly.destroyed) {
+      return null;
+    }
+    const parts = this.shipBuilderAssembly.entities.map(entity => ({
+      type: entity.type,
+      x: entity.localOffset.x,
+      y: entity.localOffset.y,
+      rotation: entity.rotation,
+    }));
+    return JSON.stringify({ name: 'My Ship', parts }, null, 2);
+  }
+
+  public isShipBuilderMode(): boolean {
+    return this.shipBuilderMode;
   }
 
   private spawnTeamLine(team: number, cfg: ScenarioConfig): void {
@@ -2492,6 +2558,7 @@ export class GameEngine {
 
   public setScenario(config: ScenarioConfig): void {
     this.scenarioConfig = config;
+    this.shipBuilderMode = config.shipBuilderMode;
   }
 
   public spawnPlayerShip(shipIndex: number): void {

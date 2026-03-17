@@ -7,6 +7,7 @@ import FlightControls from './ui/FlightControls';
 import MainMenu from './ui/MainMenu';
 import SettingsPanel from './ui/SettingsPanel';
 import ShipActionPanel from './ui/ShipActionPanel';
+import ShipBuilderPanel from './ui/ShipBuilderPanel';
 import ConfirmDialog from './ui/ConfirmDialog';
 import PerformanceBar from './ui/PerformanceBar';
 import {
@@ -62,6 +63,7 @@ const App: React.FC = () => {
   const [screen, setScreen] = useState<AppScreen>('main-menu');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [showPerfBar, setShowPerfBar] = useState(false);
+  const [isShipBuilder, setIsShipBuilder] = useState(false);
 
   const handlePerfBarChange = (visible: boolean): void => {
     setShowPerfBar(visible);
@@ -73,6 +75,7 @@ const App: React.FC = () => {
       gameEngineRef.current = null;
     }
     setGameEngine(null);
+    setIsShipBuilder(false);
     setConfirmOpen(false);
     setScreen('main-menu');
   };
@@ -84,6 +87,7 @@ const App: React.FC = () => {
     setGameEngine(engine);
     engine.setScenario(scenario);
     engine.start();
+    setIsShipBuilder(scenario.shipBuilderMode);
     setScreen('playing');
   };
 
@@ -149,32 +153,42 @@ const App: React.FC = () => {
           </Button>
         )}
 
-        {/* Right-side UI Container */}
-        <Box
-          sx={{
-            position: 'absolute',
-            top: showPerfBar ? PERF_BAR_HEIGHT + 10 : 10,
-            right: 10,
-            display: 'flex',
-            flexDirection: 'row',
-            gap: 1,
-            alignItems: 'flex-start',
-            zIndex: 1000,
-            pointerEvents: 'none'
-          }}
-        >
-          <LockedTargets gameEngine={gameEngine} />
-          <Radar gameEngine={gameEngine} />
-        </Box>
+        {/* Ship builder palette — shown only in ship builder mode */}
+        {screen === 'playing' && isShipBuilder && (
+          <ShipBuilderPanel gameEngine={gameEngine} />
+        )}
 
-        {/* Power Management - Always visible at bottom */}
-        <PowerManagement gameEngine={gameEngine} />
+        {/* Combat HUD — hidden in ship builder mode */}
+        {screen === 'playing' && !isShipBuilder && (
+          <>
+            {/* Right-side UI Container */}
+            <Box
+              sx={{
+                position: 'absolute',
+                top: showPerfBar ? PERF_BAR_HEIGHT + 10 : 10,
+                right: 10,
+                display: 'flex',
+                flexDirection: 'row',
+                gap: 1,
+                alignItems: 'flex-start',
+                zIndex: 1000,
+                pointerEvents: 'none'
+              }}
+            >
+              <LockedTargets gameEngine={gameEngine} />
+              <Radar gameEngine={gameEngine} />
+            </Box>
 
-        {/* Ship action panel - bottom center, shown when a ship is selected */}
-        <ShipActionPanel gameEngine={gameEngine} />
+            {/* Power Management - bottom */}
+            <PowerManagement gameEngine={gameEngine} />
 
-        {/* Flight Controls - bottom right (exit pilot + inertial dampening + eject) */}
-        <FlightControls gameEngine={gameEngine} />
+            {/* Ship action panel - bottom center */}
+            <ShipActionPanel gameEngine={gameEngine} />
+
+            {/* Flight Controls - bottom right */}
+            <FlightControls gameEngine={gameEngine} />
+          </>
+        )}
 
         {/* Settings panel - bottom left */}
         <SettingsPanel gameEngine={gameEngine} onPerfBarChange={handlePerfBarChange} />

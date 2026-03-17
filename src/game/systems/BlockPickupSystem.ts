@@ -36,8 +36,10 @@ interface ActiveDragState {
 }
 
 // World pixels: enter snap zone / exit snap zone (hysteresis)
-const SNAP_RADIUS = 48;
-const DETACH_RADIUS = 64;
+// These are BASE values for 1×1 blocks; larger blocks get an increased radius
+// proportional to the entity body offset so the effective snap area scales with block size.
+const SNAP_RADIUS_BASE = 48;
+const DETACH_RADIUS_BASE = 64;
 
 // Physics-drag constants
 const DETACH_PULL_THRESHOLD = 40;  // px — how far to pull before block pops off
@@ -45,10 +47,16 @@ const DETACH_PULL_THRESHOLD = 40;  // px — how far to pull before block pops o
 // Floating-block pickup thresholds — drag only starts after one of these is exceeded
 const DRAG_HOLD_MS = 400;        // hold mousedown this long to start drag
 const DRAG_MIN_SCREEN_PX = 6;    // or move this many screen pixels while held
-const SPRING_STIFFNESS = 0.04;
+const SPRING_STIFFNESS_BASE = 0.04;
+const SPRING_STIFFNESS_REF_MASS = 600; // 1×1 hull mass — spring feels "normal" at this mass
+const SPRING_STIFFNESS_MAX = 0.25;      // cap to prevent physics instability
 const SPRING_DAMPING = 0.1;
 const SPRING_LENGTH = 0;
 const CURSOR_BODY_RADIUS = 4;
+// Distance penalty (px) added to non-current snap candidates to prevent flip-flopping
+// between two equally-distant slots. The current snap target gets no penalty,
+// so it wins ties and near-ties.
+const SNAP_STABILITY_BIAS = 5;
 
 export class BlockPickupSystem {
   private pendingPickupState: PendingPickupState | null = null;
@@ -320,10 +328,16 @@ export class BlockPickupSystem {
       }
     );
 
+    // Scale spring stiffness with body mass so heavier blocks respond as snappily
+    // as light ones — without this, a 2×2 hull (mass 2400) lags 4× more than a 1×1 (600).
+    const scaledStiffness = Math.min(
+      SPRING_STIFFNESS_BASE * (body.mass / SPRING_STIFFNESS_REF_MASS),
+      SPRING_STIFFNESS_MAX,
+    );
     const spring = Matter.Constraint.create({
       bodyA: body,
       bodyB: cursorBody,
-      stiffness: SPRING_STIFFNESS,
+      stiffness: scaledStiffness,
       damping: SPRING_DAMPING,
       length: SPRING_LENGTH,
       render: { visible: false },
@@ -386,7 +400,6 @@ export class BlockPickupSystem {
 
   private findBestSnap(heldAssembly: Assembly, playerAssembly: Assembly): SnapCandidate | null {
     const playerAngle = playerAssembly.rootBody.angle;
-    const heldAngle   = heldAssembly.rootBody.angle;
     const relativeAngle = this.pendingRotationSteps * (Math.PI / 2);
 
     const localDirs: Vector2[] = [
@@ -402,11 +415,9 @@ export class BlockPickupSystem {
       });
     });
 
-    const threshold = this.activeSnap ? DETACH_RADIUS : SNAP_RADIUS;
+    const baseThreshold = this.activeSnap ? DETACH_RADIUS_BASE : SNAP_RADIUS_BASE;
     const cosP = Math.cos(playerAngle);
     const sinP = Math.sin(playerAngle);
-    const cosH = Math.cos(heldAngle);
-    const sinH = Math.sin(heldAngle);
 
     type Pair = {
       heldEntity: Entity;
@@ -456,15 +467,22 @@ export class BlockPickupSystem {
             // Effective rotation of held entity after pendingRotationSteps
             const effectiveRot = ((heldEntity.rotation + this.pendingRotationSteps * 90) % 360 + 360) % 360;
             const heldBodyOffset = getEntityBodyOffset(heldEntity.type, effectiveRot);
+            // Scale snap threshold by the held entity's body offset — for larger blocks,
+            // cells are further from the body center (≈ cursor), so the user needs a
+            // larger detection radius to get the same "snap feel" as a 1×1 block.
+            const bodyOffsetMag = Math.sqrt(heldBodyOffset.x * heldBodyOffset.x + heldBodyOffset.y * heldBodyOffset.y);
+            const threshold = baseThreshold + bodyOffsetMag;
             const heldCells = getEntityOccupiedGridCells(heldEntity.localOffset, heldEntity.type, effectiveRot);
             const heldBodyWorldPos = this.getHeldEntityWorldPosFromBody(heldEntity, heldAssembly);
 
             for (const heldCell of heldCells) {
               // World position of this specific cell of the held entity.
+              // effectiveRot cells are in player-local space, so rotate by playerAngle (not
+              // bodyAngle which includes pendingRotationSteps — that would double-count).
               const hcRelX = heldCell.x * GRID_SIZE - (heldEntity.localOffset.x + heldBodyOffset.x);
               const hcRelY = heldCell.y * GRID_SIZE - (heldEntity.localOffset.y + heldBodyOffset.y);
-              const heldCellWorldX = heldBodyWorldPos.x + hcRelX * cosH - hcRelY * sinH;
-              const heldCellWorldY = heldBodyWorldPos.y + hcRelX * sinH + hcRelY * cosH;
+              const heldCellWorldX = heldBodyWorldPos.x + hcRelX * cosP - hcRelY * sinP;
+              const heldCellWorldY = heldBodyWorldPos.y + hcRelX * sinP + hcRelY * cosP;
 
               const dx = heldCellWorldX - slotWorldX;
               const dy = heldCellWorldY - slotWorldY;
@@ -497,7 +515,16 @@ export class BlockPickupSystem {
       }
     }
 
-    pairs.sort((a, b) => a.dist - b.dist);
+    // Stability bias: if there's a current snap, penalise candidates targeting a
+    // different slot so the display doesn't flip-flop between two near-equal options.
+    const currentSlot = this.activeSnap?.snapSlotLocalOffset;
+    const biasedDist = (p: Pair): number => {
+      if (currentSlot && (p.slotLocalOffset.x !== currentSlot.x || p.slotLocalOffset.y !== currentSlot.y)) {
+        return p.dist + SNAP_STABILITY_BIAS;
+      }
+      return p.dist;
+    };
+    pairs.sort((a, b) => biasedDist(a) - biasedDist(b));
 
     for (const pair of pairs) {
       const preview = this.computePreviewOffsets(
@@ -708,7 +735,7 @@ export class BlockPickupSystem {
     const localDirs = [
       { x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 },
     ];
-    const HINT_RANGE = DETACH_RADIUS * 2.5;
+    const HINT_RANGE = DETACH_RADIUS_BASE * 2.5;
 
     for (const heldEntity of heldEntities) {
       const heldWorldPos = this.getHeldEntityWorldPosFromBody(heldEntity, heldAssembly);
@@ -720,20 +747,15 @@ export class BlockPickupSystem {
         const anchorSnapData = this.activeSnap.previewLocalOffsets.get(heldEntity.id);
         if (anchorSnapData) {
           // Compute world position of the specific held cell that triggered the snap.
-          // heldWorldPos = cm + localOffset rotated (grid anchor, not body center).
-          // Snap cell world pos uses the same hcRelX/Y formula as findBestSnap.
-          const heldAngle = heldAssembly.rootBody.angle;
-          const cosH = Math.cos(heldAngle);
-          const sinH = Math.sin(heldAngle);
+          // effectiveRot cells are in player-local space; rotate by playerAngle only
+          // (bodyAngle includes pendingRotationSteps which effectiveRot already accounts for).
           const effectiveRot = ((heldEntity.rotation + this.pendingRotationSteps * 90) % 360 + 360) % 360;
           const heldBodyOff = getEntityBodyOffset(heldEntity.type, effectiveRot);
           const snapCell = this.activeSnap.snapHeldCell;
-          // heldWorldPos = cm + localOffset*R (grid anchor in world space)
-          // cell world pos = heldWorldPos + (cell*GRID_SIZE - localOffset - bodyOffset)*R
           const hcRelX = snapCell.x * GRID_SIZE - (heldEntity.localOffset.x + heldBodyOff.x);
           const hcRelY = snapCell.y * GRID_SIZE - (heldEntity.localOffset.y + heldBodyOff.y);
-          const snapCellWorldX = heldWorldPos.x + hcRelX * cosH - hcRelY * sinH;
-          const snapCellWorldY = heldWorldPos.y + hcRelX * sinH + hcRelY * cosH;
+          const snapCellWorldX = heldWorldPos.x + hcRelX * cosP - hcRelY * sinP;
+          const snapCellWorldY = heldWorldPos.y + hcRelX * sinP + hcRelY * cosP;
 
           // Compute world position of where the snapping cell will land on the player assembly.
           // snapSlotLocalOffset is the player-local pixel offset of the attachment slot.
@@ -754,13 +776,21 @@ export class BlockPickupSystem {
           gfx.endFill();
         }
       } else {
-        // Faint hint: find nearest compatible open slot for this entity
+        // Faint hint: find nearest compatible open slot for this entity using
+        // per-cell distances (not entity body center) so hints scale correctly
+        // for multi-cell blocks.
         const anchorDef = ENTITY_DEFINITIONS[heldEntity.type];
         if (!anchorDef) continue;
+
+        const effectiveRotH = ((heldEntity.rotation + this.pendingRotationSteps * 90) % 360 + 360) % 360;
+        const heldBodyOffH = getEntityBodyOffset(heldEntity.type, effectiveRotH);
+        const heldCellsH = getEntityOccupiedGridCells(heldEntity.localOffset, heldEntity.type, effectiveRotH);
 
         let nearestDist = HINT_RANGE;
         let nearestSlotX = 0;
         let nearestSlotY = 0;
+        let nearestCellWX = ghostX;
+        let nearestCellWY = ghostY;
         let found = false;
 
         for (const targetEntity of playerAssembly.entities) {
@@ -785,14 +815,24 @@ export class BlockPickupSystem {
             const slotWX = tCellWX + (dir.x * cosP - dir.y * sinP) * GRID_SIZE;
             const slotWY = tCellWY + (dir.x * sinP + dir.y * cosP) * GRID_SIZE;
 
-            const ddx = ghostX - slotWX;
-            const ddy = ghostY - slotWY;
-            const d = Math.sqrt(ddx * ddx + ddy * ddy);
-            if (d < nearestDist) {
-              nearestDist = d;
-              nearestSlotX = slotWX;
-              nearestSlotY = slotWY;
-              found = true;
+            // Check distance from each held cell to this slot (not entity center).
+            // effectiveRot cells are in player-local space; rotate by playerAngle.
+            for (const hc of heldCellsH) {
+              const hcRX = hc.x * GRID_SIZE - (heldEntity.localOffset.x + heldBodyOffH.x);
+              const hcRY = hc.y * GRID_SIZE - (heldEntity.localOffset.y + heldBodyOffH.y);
+              const hcWX = ghostX + hcRX * cosP - hcRY * sinP;
+              const hcWY = ghostY + hcRX * sinP + hcRY * cosP;
+              const ddx = hcWX - slotWX;
+              const ddy = hcWY - slotWY;
+              const d = Math.sqrt(ddx * ddx + ddy * ddy);
+              if (d < nearestDist) {
+                nearestDist = d;
+                nearestSlotX = slotWX;
+                nearestSlotY = slotWY;
+                nearestCellWX = hcWX;
+                nearestCellWY = hcWY;
+                found = true;
+              }
             }
           }
           } // end tCell loop
@@ -801,7 +841,7 @@ export class BlockPickupSystem {
         if (found) {
           const hintAlpha = 0.25 * Math.max(0, 1 - nearestDist / HINT_RANGE);
           gfx.lineStyle(1, 0x00ff88, hintAlpha);
-          gfx.moveTo(toX(ghostX), toY(ghostY));
+          gfx.moveTo(toX(nearestCellWX), toY(nearestCellWY));
           gfx.lineTo(toX(nearestSlotX), toY(nearestSlotY));
         }
       }
