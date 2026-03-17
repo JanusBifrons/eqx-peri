@@ -6,7 +6,7 @@
 
 - `Controller` is the abstract base; `PlayerController` and `AIController` extend it.
 - `FlightController` handles player-assist movement (orbit/follow modes for spectating). Combat AI logic lives directly in `AIController`.
-- Target acquisition updates every 500 ms; engagement range is 400 units (`FIRING_RANGE`).
+- Target acquisition updates every 500 ms; engagement range uses per-weapon `weaponRange` from `EntityTypeDefinition` (falls back to `FIRING_RANGE` constant).
 - Import paths from files in this directory: `../core/Assembly`, `../../types/GameTypes`
 
 ## Target Selection (`AIController`)
@@ -46,7 +46,7 @@ Ships cycle through four states. Transitions are evaluated every 350 ms.
 
 - **Lock-on sync**: `AIController.syncTargetLock()` sets `assembly.primaryTarget` directly whenever the combat target changes. This hooks into `Assembly.updateWeaponAiming()` which is already called every frame for all assemblies — no extra calls needed. Set directly (not via `setPrimaryTarget`) to avoid triggering player-UI toast/lock side-effects.
 - **Optimal heading**: `AIController.computeOptimalHeading()` computes the circular mean of all weapon natural directions (ship-local angles). The result is the ship heading that minimises average arc usage across the whole battery. For all-forward ships this equals `angleToTarget`; asymmetric designs split optimally between weapon axes.
-- **Per-weapon fire readiness**: `AIController.hasWeaponsReadyToFire()` replaces the old ship-nose-angle cone check. It returns `true` when at least one weapon (a) has the target inside its aiming arc (`Assembly.canWeaponAimAtTarget`) **and** (b) has its turret tracked to within `AIM_READY_THRESHOLD` (0.25 rad ≈ 14°) of its `targetAimAngle`. This means AI waits for lock-on before firing, just as a player would.
+- **Per-weapon fire readiness**: `AIController.hasWeaponsReadyToFire()` replaces the old ship-nose-angle cone check. It returns `true` when at least one weapon (a) is within its `weaponRange` of its target, (b) has the target inside its aiming arc (`Assembly.canWeaponAimAtTarget`), **and** (c) has its turret tracked to within `AIM_READY_THRESHOLD` (0.25 rad ≈ 14°) of its `targetAimAngle`. Each weapon checks range individually using `ENTITY_DEFINITIONS[type].weaponRange`.
 - **Turret rotation speed**: `Entity.aimRotationSpeed` is now set per weapon type in the `Entity` constructor via `defaultAimRotationSpeed()`. Small guns: 2.5 rad/s; Large guns: 1.8; Capital: 1.2; Beams: 3.0. The old hard-coded `0.005` (effectively immobile) is removed.
 
 ## AI Movement: Arrive Steering with Dead Reckoning

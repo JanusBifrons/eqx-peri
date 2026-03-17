@@ -853,8 +853,13 @@ export class Assembly {
     Matter.Body.setVelocity(laser, velocity);
 
     // Mark as laser for collision detection and store the source assembly ID
+    // TTL derived from weapon range: range / speed gives ticks, × 1000/60 converts to ms.
+    // Add 20% buffer so the bolt travels slightly past its effective range.
+    const def = ENTITY_DEFINITIONS[weapon.type];
+    const effectiveRange = def.weaponRange ?? 500;
+    const ttlMs = (effectiveRange / laserSpeed) * (1000 / 60) * 1.2;
     laser.isLaser = true;
-    laser.timeToLive = Date.now() + 8000; // 8 seconds TTL
+    laser.timeToLive = Date.now() + ttlMs;
     (laser as any).sourceAssemblyId = this.id; // Store which assembly fired this laser
 
     return laser;
@@ -1776,12 +1781,14 @@ export class Assembly {
     const weaponNaturalAngle = this.rootBody.angle + (weapon.rotation * Math.PI / 180);
     const aimingArc = this.getWeaponAimingArc(weapon.type);
     const maxAngleDiff = aimingArc / 2;
+    const weaponRange = ENTITY_DEFINITIONS[weapon.type].weaponRange;
+    const rangeSq = weaponRange ? weaponRange * weaponRange : Infinity;
 
-    // Best entity body within the aiming arc
+    // Best entity body within the aiming arc AND range
     let bestInArc: Vector2 | null = null;
     let bestInArcAngularDist = Infinity;
 
-    // Nearest enemy root-body as fallback when nothing is in-arc
+    // Nearest enemy root-body within range as fallback when nothing is in-arc
     let closestFallback: Vector2 | null = null;
     let closestFallbackDistSq = Infinity;
 
@@ -1792,7 +1799,14 @@ export class Assembly {
       for (const entity of target.entities) {
         if (entity.destroyed) continue;
         const pos = entity.body.position;
-        const angleToEntity = Math.atan2(pos.y - weaponPos.y, pos.x - weaponPos.x);
+        const dx = pos.x - weaponPos.x;
+        const dy = pos.y - weaponPos.y;
+        const distSq = dx * dx + dy * dy;
+
+        // Skip entities outside weapon range
+        if (distSq > rangeSq) continue;
+
+        const angleToEntity = Math.atan2(dy, dx);
         let angleDiff = angleToEntity - weaponNaturalAngle;
         while (angleDiff >  Math.PI) angleDiff -= 2 * Math.PI;
         while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
@@ -1803,12 +1817,12 @@ export class Assembly {
         }
       }
 
-      // Track closest target by distance as fallback
+      // Track closest target within range by distance as fallback
       const rp = target.rootBody.position;
       const dx = rp.x - weaponPos.x;
       const dy = rp.y - weaponPos.y;
       const distSq = dx * dx + dy * dy;
-      if (distSq < closestFallbackDistSq) {
+      if (distSq < closestFallbackDistSq && distSq <= rangeSq) {
         closestFallbackDistSq = distSq;
         closestFallback = rp;
       }

@@ -1,6 +1,6 @@
 import { Assembly } from '../core/Assembly';
 import { Controller, ControlInput } from './Controller';
-import { Vector2 } from '../../types/GameTypes';
+import { Vector2, ENTITY_DEFINITIONS } from '../../types/GameTypes';
 
 // ─── Steering constants ────────────────────────────────────────────────────
 const MAX_SPEED    = 3.0;  // world units / physics frame (base)
@@ -531,14 +531,22 @@ export class AIController extends Controller {
      * primary-target COM.
      */
     private hasWeaponsReadyToFire(distanceToTarget: number): boolean {
-        if (distanceToTarget > FIRING_RANGE) return false;
+        // Quick reject: if target is beyond the longest weapon's range, skip per-weapon checks
+        if (distanceToTarget > FIRING_RANGE * 2) return false;
         const weapons = this.assembly.entities.filter(e => e.canFire() && !e.destroyed);
         return weapons.some(w => {
-            // Use the per-weapon target position when available; fall back to
-            // the primary target COM so the old single-target path still works.
+            // Per-weapon range check — use the weapon's defined range, fall back to FIRING_RANGE
+            const weaponRange = ENTITY_DEFINITIONS[w.type].weaponRange ?? FIRING_RANGE;
             const targetPos = this.assembly.weaponTargetPositions.get(w.id)
                 ?? this.target?.rootBody.position;
             if (!targetPos) return false;
+
+            // Check distance from this weapon to its target
+            const dx = targetPos.x - w.body.position.x;
+            const dy = targetPos.y - w.body.position.y;
+            const distToTarget = Math.sqrt(dx * dx + dy * dy);
+            if (distToTarget > weaponRange) return false;
+
             if (!this.assembly.canWeaponAimAtTarget(w, targetPos)) return false;
             let err = w.targetAimAngle - w.currentAimAngle;
             while (err >  Math.PI) err -= 2 * Math.PI;

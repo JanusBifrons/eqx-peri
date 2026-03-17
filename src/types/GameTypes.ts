@@ -46,6 +46,7 @@ export interface EntityTypeDefinition {
   thrust?: number;    // Optional thrust value for engine parts
   shieldHp?: number;  // Max shield field HP for shield-type blocks
   shieldRadius?: number; // Fixed shield bubble radius in world units (shield blocks only)
+  weaponRange?: number; // Max effective range in world units (all weapon types)
   beamRange?: number; // Max beam length in world units (beam weapons only)
   beamDps?: number;   // Damage per second (beam weapons only)
   /** Sides (at rotation 0) where this block has no physical face — used for TriHull. */
@@ -67,6 +68,11 @@ export interface ShieldState {
 export const SHIELD_REGEN_DELAY_MS = 3000;      // Time after last hit before regen begins
 export const SHIELD_REGEN_DURATION_MS = 1000;   // Full regen from 0→max in this many ms
 export const SHIELD_COLLAPSE_COOLDOWN_MS = 8000; // Post-collapse lockout before reactivation
+
+// Weapon range constants (world units)
+export const GUN_RANGE = 500;            // Small gun effective range
+export const LARGE_GUN_RANGE = 600;      // Large gun effective range
+export const CAPITAL_WEAPON_RANGE = 800; // Capital weapon effective range
 
 // Beam weapon constants
 export const BEAM_SMALL_RANGE = 400;     // Max range in world units for Beam
@@ -238,6 +244,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     defaultHealth: 60,
     color: '#ff0000',
     shape: 'rect',
+    weaponRange: GUN_RANGE,
     canAttachTo: ['Cockpit', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam'],
     attachmentPoints: [
       { x: 1, y: 0 },  // right
@@ -318,6 +325,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     defaultHealth: 150,
     color: '#cc0000',
     shape: 'rect',
+    weaponRange: LARGE_GUN_RANGE,
     canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher'],
     attachmentPoints: [
       { x: 1, y: 1 },  // bottom right
@@ -428,6 +436,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     defaultHealth: 600,
     color: '#aa0000',
     shape: 'rect',
+    weaponRange: CAPITAL_WEAPON_RANGE,
     canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher'],
     attachmentPoints: [
       { x: 2, y: 2 },  // bottom right
@@ -606,6 +615,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     defaultHealth: 60,
     color: '#00ccff',
     shape: 'rect',
+    weaponRange: BEAM_SMALL_RANGE,
     beamRange: BEAM_SMALL_RANGE,
     beamDps: BEAM_SMALL_DPS,
     canAttachTo: ['Cockpit', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'LargeBeam'],
@@ -626,6 +636,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     defaultHealth: 150,
     color: '#0066cc',
     shape: 'rect',
+    weaponRange: BEAM_LARGE_RANGE,
     beamRange: BEAM_LARGE_RANGE,
     beamDps: BEAM_LARGE_DPS,
     canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam'],
