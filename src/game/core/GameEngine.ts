@@ -2045,6 +2045,12 @@ export class GameEngine {
       const assembly = new Assembly(selectedShip.parts as EntityConfig[], { x, y });
       assembly.setShipName(selectedShip.name);
       assembly.setTeam(team);
+
+      // Rotate team 1 (right side) ships to face left so both teams start facing each other
+      if (!isBlue) {
+        Matter.Body.rotate(assembly.rootBody, Math.PI);
+      }
+
       this.assemblies.push(assembly);
       Matter.World.add(this.world, assembly.rootBody);
 
