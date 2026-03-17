@@ -110,20 +110,27 @@ export class Assembly {
     // Calculate expected total mass
     const expectedTotalMass = this.entities.reduce((sum, e) => sum + e.body.mass, 0);
 
-    // Build parts list — include shield circle when field is active.
+    // Build parts list — include one shield circle per active shield entity.
     const constructorParts: Matter.Body[] = this.entities.map(e => e.body);
     if (this.hasActiveShield()) {
-      const center = this.getShieldCenterLocal();
-      const shieldCircle = Matter.Bodies.circle(center.x, center.y, this.getShieldRadius(), {
-        density: 0.000001,
-        restitution: 0.3,
-        frictionAir: 0,
-        friction: 0,
-        render: { visible: false },
-      });
-      (shieldCircle as any).isShieldPart = true;
-      (shieldCircle as any).parentAssembly = this;
-      constructorParts.push(shieldCircle);
+      for (const entity of this.entities) {
+        if ((entity.type !== 'Shield' && entity.type !== 'LargeShield') || entity.destroyed) continue;
+        const def = ENTITY_DEFINITIONS[entity.type];
+        const radius = def.shieldRadius ?? 80;
+        const offset = getEntityBodyOffset(entity.type, entity.rotation);
+        const cx = entity.localOffset.x + offset.x;
+        const cy = entity.localOffset.y + offset.y;
+        const shieldCircle = Matter.Bodies.circle(cx, cy, radius, {
+          density: 0.000001,
+          restitution: 0.3,
+          frictionAir: 0,
+          friction: 0,
+          render: { visible: false },
+        });
+        (shieldCircle as any).isShieldPart = true;
+        (shieldCircle as any).parentAssembly = this;
+        constructorParts.push(shieldCircle);
+      }
     }
 
     // Create root body with realistic physics settings
@@ -981,22 +988,28 @@ export class Assembly {
     // when we decide whether to include the physical shield circle in the compound.
     this.shieldState = this.initializeShieldState();
 
-    // Build the parts list. When the shield field is active, add a low-mass circle body
-    // centred on the shield block's local position. render.visible=false so Matter.js
-    // doesn't draw it — the visual overlay in renderShields() handles the appearance.
+    // Build the parts list. When the shield field is active, add one low-mass circle body
+    // per shield entity at fixed radius. render.visible=false — ShieldRenderer handles visuals.
     const parts: Matter.Body[] = this.entities.map(e => e.body);
     if (this.hasActiveShield()) {
-      const center = this.getShieldCenterLocal();
-      const shieldCircle = Matter.Bodies.circle(center.x, center.y, this.getShieldRadius(), {
-        density: 0.000001,
-        restitution: 0.3,
-        frictionAir: 0,
-        friction: 0,
-        render: { visible: false },
-      });
-      (shieldCircle as any).isShieldPart = true;
-      (shieldCircle as any).parentAssembly = this;
-      parts.push(shieldCircle);
+      for (const entity of this.entities) {
+        if ((entity.type !== 'Shield' && entity.type !== 'LargeShield') || entity.destroyed) continue;
+        const def = ENTITY_DEFINITIONS[entity.type];
+        const radius = def.shieldRadius ?? 80;
+        const offset = getEntityBodyOffset(entity.type, entity.rotation);
+        const cx = entity.localOffset.x + offset.x;
+        const cy = entity.localOffset.y + offset.y;
+        const shieldCircle = Matter.Bodies.circle(cx, cy, radius, {
+          density: 0.000001,
+          restitution: 0.3,
+          frictionAir: 0,
+          friction: 0,
+          render: { visible: false },
+        });
+        (shieldCircle as any).isShieldPart = true;
+        (shieldCircle as any).parentAssembly = this;
+        parts.push(shieldCircle);
+      }
     }
 
     // Create the replacement compound body.
@@ -1392,42 +1405,51 @@ export class Assembly {
   }
 
   /**
-   * Local-space centroid of all active shield blocks.
-   * Used as the centre of both the physical circle part and the visual overlay.
+   * Returns world-space positions and radii of each active shield entity.
+   * Used by ShieldRenderer to draw one bubble per shield generator.
    */
-  public getShieldCenterLocal(): { x: number; y: number } {
-    const blocks = this.entities.filter(
-      e => (e.type === 'Shield' || e.type === 'LargeShield') && !e.destroyed
-    );
-    if (blocks.length === 0) return { x: 0, y: 0 };
-    return {
-      x: blocks.reduce((s, e) => s + e.localOffset.x + getEntityBodyOffset(e.type, e.rotation).x, 0) / blocks.length,
-      y: blocks.reduce((s, e) => s + e.localOffset.y + getEntityBodyOffset(e.type, e.rotation).y, 0) / blocks.length,
-    };
+  public getShieldBubbles(): { x: number; y: number; radius: number }[] {
+    const result: { x: number; y: number; radius: number }[] = [];
+    for (const entity of this.entities) {
+      if ((entity.type !== 'Shield' && entity.type !== 'LargeShield') || entity.destroyed) continue;
+      const def = ENTITY_DEFINITIONS[entity.type];
+      const radius = def.shieldRadius ?? 80;
+      // Use the entity's physics body position (already in world space)
+      result.push({ x: entity.body.position.x, y: entity.body.position.y, radius });
+    }
+    return result;
   }
 
-  /**
-   * Radius of the shield circle in local-space pixels.
-   * Measured from the shield block centroid to the farthest corner of any entity.
-   */
+  /** Returns the largest shield radius among active shield entities. */
   public getShieldRadius(): number {
-    const PADDING = 28;
-    const center = this.getShieldCenterLocal();
+    let maxRadius = 0;
+    for (const entity of this.entities) {
+      if ((entity.type !== 'Shield' && entity.type !== 'LargeShield') || entity.destroyed) continue;
+      const def = ENTITY_DEFINITIONS[entity.type];
+      const r = def.shieldRadius ?? 80;
+      if (r > maxRadius) maxRadius = r;
+    }
+    return maxRadius;
+  }
+
+  /** Bounding radius from assembly COM to the farthest entity corner (for highlights/icons). */
+  public getBoundingRadius(): number {
+    const PADDING = 12;
     let maxDistSq = 0;
-    this.entities.forEach(entity => {
-      if (entity.destroyed) return;
+    for (const entity of this.entities) {
+      if (entity.destroyed) continue;
       const def = ENTITY_DEFINITIONS[entity.type];
       const halfW = def.width / 2;
       const halfH = def.height / 2;
-      const cx = entity.localOffset.x - center.x;
-      const cy = entity.localOffset.y - center.y;
+      const cx = entity.localOffset.x;
+      const cy = entity.localOffset.y;
       for (const dx of [-halfW, halfW]) {
         for (const dy of [-halfH, halfH]) {
           const distSq = (cx + dx) * (cx + dx) + (cy + dy) * (cy + dy);
           if (distSq > maxDistSq) maxDistSq = distSq;
         }
       }
-    });
+    }
     return Math.sqrt(maxDistSq) + PADDING;
   }
 

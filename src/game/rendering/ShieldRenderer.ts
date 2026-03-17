@@ -1,5 +1,4 @@
 import * as PIXI from 'pixi.js';
-import * as Matter from 'matter-js';
 import { IRenderer } from './IRenderer';
 import { Viewport } from './Viewport';
 import { Assembly } from '../core/Assembly';
@@ -31,54 +30,54 @@ export class ShieldRenderer implements IRenderer {
       const s = assembly.shieldState;
       if (!s) continue;
 
-      const shieldPart = assembly.rootBody.parts.find(
-        (p: Matter.Body) => (p as unknown as Record<string, unknown>)['isShieldPart'],
-      );
-      const pos = shieldPart ? shieldPart.position : assembly.rootBody.position;
+      const bubbles = assembly.getShieldBubbles();
+      if (bubbles.length === 0) continue;
 
-      if (
-        pos.x < bounds.min.x - 400 || pos.x > bounds.max.x + 400 ||
-        pos.y < bounds.min.y - 400 || pos.y > bounds.max.y + 400
-      ) continue;
+      for (const bubble of bubbles) {
+        if (
+          bubble.x < bounds.min.x - bubble.radius || bubble.x > bounds.max.x + bubble.radius ||
+          bubble.y < bounds.min.y - bubble.radius || bubble.y > bounds.max.y + bubble.radius
+        ) continue;
 
-      const screenX = sx(pos.x);
-      const screenY = sy(pos.y);
-      const radius = assembly.getShieldRadius() * scale;
+        const screenX = sx(bubble.x);
+        const screenY = sy(bubble.y);
+        const radius = bubble.radius * scale;
 
-      if (s.isActive && s.currentHp > 0) {
-        const hpRatio = s.currentHp / Math.max(1, s.maxHp);
-        const timeSinceHit = now - s.lastHitTime;
-        const hitFlash = Math.max(0, 1 - timeSinceHit / 300);
-        const isRegen = s.currentHp < s.maxHp && timeSinceHit >= 3000;
-        const regenPulse = isRegen ? (Math.sin(timestamp / 150) * 0.15 + 0.85) : 1;
-        const baseAlpha = hpRatio * 0.28 + 0.07;
-        const alpha = Math.min(1, (baseAlpha + hitFlash * 0.35) * regenPulse);
+        if (s.isActive && s.currentHp > 0) {
+          const hpRatio = s.currentHp / Math.max(1, s.maxHp);
+          const timeSinceHit = now - s.lastHitTime;
+          const hitFlash = Math.max(0, 1 - timeSinceHit / 300);
+          const isRegen = s.currentHp < s.maxHp && timeSinceHit >= 3000;
+          const regenPulse = isRegen ? (Math.sin(timestamp / 150) * 0.15 + 0.85) : 1;
+          const baseAlpha = hpRatio * 0.28 + 0.07;
+          const alpha = Math.min(1, (baseAlpha + hitFlash * 0.35) * regenPulse);
 
-        // Approximate radial gradient with concentric filled circles (outer→inner)
-        this.graphics.lineStyle(0);
-        this.graphics.beginFill(0x1e50dc, alpha * 0.6);
-        this.graphics.drawCircle(screenX, screenY, radius);
-        this.graphics.endFill();
-        this.graphics.beginFill(0x3c82ff, alpha * 0.25);
-        this.graphics.drawCircle(screenX, screenY, radius * 0.7);
-        this.graphics.endFill();
-        this.graphics.beginFill(0x64b4ff, alpha * 0.15);
-        this.graphics.drawCircle(screenX, screenY, radius * 0.4);
-        this.graphics.endFill();
-
-        // Rim
-        const rimAlpha = Math.min(1, 0.5 + hitFlash * 0.5);
-        const rimWidth = Math.max(1, scale * 2) * (1 + hitFlash * 0.5);
-        this.graphics.lineStyle(rimWidth, 0x78c8ff, rimAlpha);
-        this.graphics.drawCircle(screenX, screenY, radius);
-
-      } else if (!s.isActive) {
-        const timeLeft = s.cooldownUntil - now;
-        if (timeLeft > 0) {
-          const pulse = Math.sin(timestamp / 400) * 0.3 + 0.4;
-          // Approximated dashed ring as a solid ring at low alpha
-          this.graphics.lineStyle(Math.max(1, scale * 1.5), 0x3c50a0, pulse * 0.4);
+          // Approximate radial gradient with concentric filled circles (outer→inner)
+          this.graphics.lineStyle(0);
+          this.graphics.beginFill(0x1e50dc, alpha * 0.6);
           this.graphics.drawCircle(screenX, screenY, radius);
+          this.graphics.endFill();
+          this.graphics.beginFill(0x3c82ff, alpha * 0.25);
+          this.graphics.drawCircle(screenX, screenY, radius * 0.7);
+          this.graphics.endFill();
+          this.graphics.beginFill(0x64b4ff, alpha * 0.15);
+          this.graphics.drawCircle(screenX, screenY, radius * 0.4);
+          this.graphics.endFill();
+
+          // Rim
+          const rimAlpha = Math.min(1, 0.5 + hitFlash * 0.5);
+          const rimWidth = Math.max(1, scale * 2) * (1 + hitFlash * 0.5);
+          this.graphics.lineStyle(rimWidth, 0x78c8ff, rimAlpha);
+          this.graphics.drawCircle(screenX, screenY, radius);
+
+        } else if (!s.isActive) {
+          const timeLeft = s.cooldownUntil - now;
+          if (timeLeft > 0) {
+            const pulse = Math.sin(timestamp / 400) * 0.3 + 0.4;
+            // Approximated dashed ring as a solid ring at low alpha
+            this.graphics.lineStyle(Math.max(1, scale * 1.5), 0x3c50a0, pulse * 0.4);
+            this.graphics.drawCircle(screenX, screenY, radius);
+          }
         }
       }
     }

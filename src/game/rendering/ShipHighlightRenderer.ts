@@ -189,7 +189,7 @@ export class ShipHighlightRenderer implements IRenderer {
   // ---------------------------------------------------------------------------
 
   private halfSize(assembly: Assembly, screenScale: number): number {
-    return Math.max(MIN_HALF_SIZE, assembly.getShieldRadius() * screenScale) + SCREEN_PAD;
+    return Math.max(MIN_HALF_SIZE, assembly.getBoundingRadius() * screenScale) + SCREEN_PAD;
   }
 
   private centerOnScreen(

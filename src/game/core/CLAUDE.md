@@ -44,7 +44,8 @@ Matter.js compound bodies are created via `Matter.Body.create({ parts: [...] })`
 - **`initializeShieldState()`**: scans `this.entities` for shield blocks; sums their `shieldHp` values for `maxHp`. Preserves existing wear/cooldown state when called from `createFreshBody()` (after block destruction).
 - **`updateShield(deltaTimeMs)`**: called every frame from `Assembly.update()`. Handles regen timing and reactivation after cooldown.
 - **`damageShield(damage, now)`**: returns `true` if shield absorbed the hit (callers must skip entity damage). Reduces both `currentHp` and `maxHp` (wear). Triggers collapse (`isActive=false`, `cooldownUntil`) when HP hits 0.
-- **`hasActiveShield()`** / **`getShieldRadius()`**: utility accessors for rendering and interception checks.
+- **`hasActiveShield()`** / **`getShieldRadius()`** / **`getBoundingRadius()`**: utility accessors. `getShieldRadius` returns the largest fixed `shieldRadius` from shield entity definitions (does NOT scale with assembly size). `getBoundingRadius` returns the assembly's geometric bounding radius (for highlights/icons).
+- **`getShieldBubbles()`**: returns `{ x, y, radius }[]` — one entry per active shield entity in world space. Used by `ShieldRenderer` to draw per-generator bubbles at fixed radii. Each shield block type defines `shieldRadius` in its `EntityTypeDefinition` (Shield=80, LargeShield=130).
 - Shield state is refreshed (via `initializeShieldState()`) at the end of `createFreshBody()` to account for destroyed shield blocks reducing max capacity.
 - Physics optimization (inner parts opt-out of collision) was evaluated and **not implemented** — Matter.js cannot change compound-body part collision filters without a full rebuild, and adding a separate shield body with constraint has force-transfer accuracy issues. The shield is purely game-logic interception.
 

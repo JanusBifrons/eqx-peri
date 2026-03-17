@@ -119,7 +119,7 @@ export class StrategicIconRenderer implements IRenderer {
     for (const assembly of this.getAssemblies()) {
       if (assembly.destroyed || assembly.entities.length === 0) continue;
 
-      const worldR = Math.max(SHIP_MIN_WORLD_RADIUS, assembly.getShieldRadius());
+      const worldR = Math.max(SHIP_MIN_WORLD_RADIUS, assembly.getBoundingRadius());
       if (worldR * scale >= SHIP_ICON_THRESHOLD_PX) continue;  // still large enough — skip
 
       const pos = assembly.rootBody.position;

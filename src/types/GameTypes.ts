@@ -45,6 +45,7 @@ export interface EntityTypeDefinition {
   shape: 'rect' | 'triangle';
   thrust?: number;    // Optional thrust value for engine parts
   shieldHp?: number;  // Max shield field HP for shield-type blocks
+  shieldRadius?: number; // Fixed shield bubble radius in world units (shield blocks only)
   beamRange?: number; // Max beam length in world units (beam weapons only)
   beamDps?: number;   // Damage per second (beam weapons only)
   /** Sides (at rotation 0) where this block has no physical face — used for TriHull. */
@@ -549,6 +550,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     color: '#4488ff',
     shape: 'rect',
     shieldHp: 300,
+    shieldRadius: 80, // Fixed bubble radius (5 grid cells) — does NOT scale with assembly size
     canAttachTo: [
       'Cockpit', 'Engine', 'Gun', 'PowerCell',
       'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell',
@@ -574,6 +576,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     color: '#2255cc',
     shape: 'rect',
     shieldHp: 700,
+    shieldRadius: 130, // Fixed bubble radius (8 grid cells) — does NOT scale with assembly size
     canAttachTo: [
       'Cockpit', 'Engine', 'Gun', 'PowerCell',
       'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell',
