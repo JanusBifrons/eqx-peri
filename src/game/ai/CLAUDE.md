@@ -22,9 +22,9 @@ Ships cycle through four states. Transitions are evaluated every 350 ms.
 
 | State | Preferred range | Speed | Lateral damp | Fire | Heading |
 |-------|----------------|-------|--------------|------|---------|
-| `SIZING_UP` | 600 | 0.65× | 0.88 approach / 0.80 holding | **no** | weapons-optimal |
-| `ENGAGE` | 400 | 1.0× | 0.88 approach / 0.80 holding | yes | weapons-optimal |
-| `PURSUE` | 250 | 1.45× | 0.88 always | yes | weapons-optimal |
+| `SIZING_UP` | 600 | 0.65× | 0.96 approach / 0.98 holding | **no** | weapons-optimal |
+| `ENGAGE` | 400 | 1.0× | 0.96 approach / 0.98 holding | yes | weapons-optimal |
+| `PURSUE` | 250 | 1.45× | 0.96 always | yes | weapons-optimal |
 | `RETREAT` | 800 | 1.4× | **none** | yes (if arc) | nose away from target |
 
 **Assessment axes:**
@@ -64,9 +64,9 @@ Do **not** compute thrust as a direction-toward-target without subtracting curre
 
 **Why ships orbit with forward-only engines**: Even though thrust is always forward-only (`{x: mag, y: 0}` in ship-local), the ship rotates every frame to aim weapons. Over many frames the "forward" direction sweeps around, accumulating velocity in a curve. In zero-friction space that curve never decays → stable orbit. **Fix**: axis-decomposed inertial dampening (see below) + `engagementThrust()` dead-band.
 
-**Axis-decomposed inertial dampening** (`ControllerManager.applyInput`): when `ControlInput.lateralDampenFactor` is set, velocity is split into forward (along ship nose) and lateral (perpendicular) components. The lateral component is multiplied by `lateralDampenFactor` every physics frame; the forward component by `dampenFactor`. Two tiers: **holding position** — `dampenFactor=0.82, lateralDampenFactor=0.82` (uniform omnidirectional dampening so ships stop and rotate in place); **approaching** — `dampenFactor=1.0, lateralDampenFactor=0.86` (forward speed preserved for closing, lateral drift suppressed). Player inputs leave `lateralDampenFactor` unset, using the original uniform-factor path (backward compatible).
+**Axis-decomposed inertial dampening** (`ControllerManager.applyInput`): when `ControlInput.lateralDampenFactor` is set, velocity is split into forward (along ship nose) and lateral (perpendicular) components. The lateral component is multiplied by `lateralDampenFactor` every physics frame; the forward component by `dampenFactor`. Two tiers: **holding position** — `dampenFactor=0.99, lateralDampenFactor=0.98` (gentle drag simulating internal dampeners; ~0.55× speed after 1 s, ~0.30× after 2 s); **approaching** — `dampenFactor=1.0, lateralDampenFactor=0.96` (forward speed preserved for closing, lateral drift slowly suppressed). Player inputs leave `lateralDampenFactor` unset, using the original uniform-factor path (backward compatible). **Rule**: dampening must never be aggressive enough to stop a ship "on a dime" — deceleration should be visibly gradual. Active braking thrust (below) does the heavy lifting.
 
-**Dead-band**: `engagementThrust()` uses a ±120-unit dead-band around `preferredRange` where zero thrust is applied. Outside the band, only small radial corrections (capped at 35% of max thrust) are issued, preventing new lateral velocity generation when holding position.
+**Dead-band with active braking**: `engagementThrust()` uses a ±120-unit dead-band around `preferredRange`. Inside the band, active retro-thrust is applied opposing the ship's current velocity — the ship uses its engines to decelerate (physics-correct) rather than having velocity artificially zeroed. Braking magnitude scales with speed (up to 60% thrust), tapering to zero as the ship slows. Outside the band, small radial corrections (capped at 35% of max thrust) push toward the preferred range.
 
 ---
 

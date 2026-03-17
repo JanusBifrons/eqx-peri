@@ -345,19 +345,19 @@ export class AIController extends Controller {
 
         // Inertial dampening — applied every frame in all states except RETREAT.
         //
-        // When holdingPosition the ship should stop and rotate in place rather
-        // than orbit.  Full omnidirectional dampening (both forward and lateral)
-        // kills residual velocity so the ship decelerates to near-zero within a
-        // second and can then aim and fire without drifting.
+        // Gentle dampening simulates internal dampeners — ships decelerate
+        // noticeably over 1–2 seconds rather than stopping on a dime.
+        // Active braking thrust in engagementThrust() does the heavy lifting;
+        // dampening just prevents infinite drift from rounding errors.
         //
-        //   holding:    dampenFactor 0.82 + lateralDampenFactor 0.82 — kills all
-        //               velocity uniformly; at 60 Hz speed is <0.001× in ~0.5 s.
-        //   approaching: dampenFactor 1.0 + lateralDampenFactor 0.86 — forward
-        //               speed preserved for closing; lateral drift suppressed.
+        //   holding:     dampenFactor 0.99 + lateralDampenFactor 0.98 — gentle
+        //                drag; at 60 Hz speed is ~0.55× after 1 s, ~0.30× after 2 s.
+        //   approaching: dampenFactor 1.0  + lateralDampenFactor 0.96 — forward
+        //                speed preserved for closing; lateral drift slowly suppressed.
         //   No dampening during RETREAT — every m/s of escape speed matters.
         const dampen = this.combatState !== CombatState.RETREAT;
-        const dampenFactor        = holdingPosition ? 0.82 : 1.0;
-        const lateralDampenFactor = holdingPosition ? 0.82 : 0.86;
+        const dampenFactor        = holdingPosition ? 0.99 : 1.0;
+        const lateralDampenFactor = holdingPosition ? 0.98 : 0.96;
 
         // Suppress fire during the sizing-up window — let the ships approach and
         // let weapon tracking settle before the fight begins.
@@ -470,19 +470,36 @@ export class AIController extends Controller {
     }
 
     /**
-     * In-combat radial-only distance correction with a dead-band.
-     * Zero thrust within ±60 units of preferredRange; only small radial pushes
-     * outside that band.  Lateral drift is left to inertial dampening (dampen flag)
-     * so the ship doesn't accumulate new orbital velocity while holding position.
+     * In-combat distance correction with active braking.
+     * Inside the ±120-unit dead-band around preferredRange, the ship applies
+     * retro-thrust (thrust opposing current velocity) to decelerate naturally
+     * using its engines rather than relying on artificial dampening.
+     * Outside the band, small radial corrections push toward the preferred range.
      */
     private engagementThrust(distance: number, preferredRange: number): Vector2 {
-        const DEAD_BAND = 120; // wider band gives more "stop zone" at preferred range
+        const DEAD_BAND = 120;
         const distError = distance - preferredRange;
-        if (Math.abs(distError) < DEAD_BAND) return { x: 0, y: 0 };
 
         const myPos = this.assembly.rootBody.position;
         const tgPos = this.target!.rootBody.position;
         const myVel = this.assembly.rootBody.velocity;
+
+        // Inside dead-band: apply braking thrust against current velocity so the
+        // ship decelerates using its engines (physics-correct) rather than
+        // having velocity zeroed out by dampening.
+        if (Math.abs(distError) < DEAD_BAND) {
+            const speed = Math.sqrt(myVel.x * myVel.x + myVel.y * myVel.y);
+            if (speed < 0.5) return { x: 0, y: 0 }; // already near-stationary
+
+            // Desired direction: opposite to current velocity (retrograde)
+            const brakeDir = { x: -myVel.x / speed, y: -myVel.y / speed };
+            const nose     = this.assembly.rootBody.angle;
+            // Project retrograde onto ship's forward axis (can only thrust forward)
+            const fwd      = Math.max(0, brakeDir.x * Math.cos(nose) + brakeDir.y * Math.sin(nose));
+            // Scale by speed — stronger braking when faster, tapering to zero
+            const brakeMag = Math.min(0.6, speed / MAX_SPEED);
+            return { x: fwd * brakeMag, y: 0 };
+        }
 
         const sep    = { x: myPos.x - tgPos.x, y: myPos.y - tgPos.y };
         const sepMag = Math.sqrt(sep.x * sep.x + sep.y * sep.y) || 1;
