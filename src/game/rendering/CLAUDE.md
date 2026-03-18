@@ -29,7 +29,8 @@ interface IRenderer {
 |----------|----------|----------------|
 | 5  | `StarfieldRenderer` | Infinitely tiling parallax star field (4 depth layers) |
 | 10 | `GridRenderer` | Background grid lines |
-| 15 | `StructureRenderer` | Base-building structures (Core, future types) |
+| 13 | `ConnectionRenderer` | Network connection lines between structures (flash on transfer) |
+| 15 | `StructureRenderer` | Base-building structures (Core, Connector, future types) |
 | 20 | `BlockBodyRenderer` | Block bodies with glow; bullets/missiles without glow |
 | 21 | `StrategicIconRenderer` | Diamond/circle icons for objects too small to render at zoom; greedy group-badge clustering |
 | 22 | `ParticleRenderer` | Drives `ParticleSystem` thrust puffs per engine each frame |
@@ -40,6 +41,7 @@ interface IRenderer {
 | 50 | `ShipHighlightRenderer` | Hover/selected bounding boxes, lock-on brackets |
 | 60 | `AimingDebugRenderer` | Weapon arc, distance rings, aim line |
 | 70 | `BlockPickupRenderer` | Block pickup ghost and snap overlay |
+| 71 | `StructurePlacementRenderer` | Structure placement hologram + connection preview lines |
 
 ## Rules & Patterns
 

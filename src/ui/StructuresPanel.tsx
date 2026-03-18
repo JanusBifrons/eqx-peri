@@ -1,11 +1,11 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Box, Button, Tooltip, Typography } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import { STRUCTURE_DEFINITIONS, StructureType } from '../types/GameTypes';
+import { GameEngine } from '../game/core/GameEngine';
 
 interface Props {
-  // GameEngine ref will be used once placement logic is wired (Phase 1)
-  // For now the panel is a visual palette only
+  gameEngine: GameEngine | null;
 }
 
 interface StructureCategory {
@@ -14,12 +14,11 @@ interface StructureCategory {
 }
 
 const BUILD_CATEGORIES: StructureCategory[] = [
-  { label: 'Core', types: ['Core'] },
+  { label: 'Infrastructure', types: ['Core', 'Connector'] },
   // Future phases will add categories here:
   // { label: 'Production', types: ['Refinery', 'Manufacturer', 'Recycler', 'AssemblyYard'] },
   // { label: 'Defense',    types: ['SmallTurret', 'MediumTurret', 'LargeTurret'] },
   // { label: 'Power',      types: ['SolarPanel', 'PowerStation', 'Battery'] },
-  // { label: 'Network',    types: ['Connector'] },
   // { label: 'Shield',     types: ['ShieldFence'] },
 ];
 
@@ -78,14 +77,36 @@ const COMING_SOON = [
   'Solar Panel',
   'Power Station',
   'Battery',
-  'Connector',
   'Shield Fence',
 ];
 
-const StructuresPanel: React.FC<Props> = () => {
-  const handleBuildClick = (_type: StructureType): void => {
-    // Phase 1: attach blueprint to cursor for placement
-    // For now this is a no-op placeholder
+const StructuresPanel: React.FC<Props> = ({ gameEngine }) => {
+  const [activeType, setActiveType] = useState<StructureType | null>(null);
+
+  // Poll placement system to sync active button highlight
+  useEffect(() => {
+    if (!gameEngine) return;
+    const interval = setInterval(() => {
+      const ps = gameEngine.getStructurePlacementSystem();
+      if (ps) {
+        setActiveType(ps.getPlacingType());
+      } else {
+        setActiveType(null);
+      }
+    }, 100);
+    return () => clearInterval(interval);
+  }, [gameEngine]);
+
+  const handleBuildClick = (type: StructureType): void => {
+    if (!gameEngine) return;
+    if (activeType === type) {
+      // Clicking the same type again cancels placement
+      gameEngine.cancelStructurePlacement();
+      setActiveType(null);
+    } else {
+      gameEngine.enterStructurePlaceMode(type);
+      setActiveType(type);
+    }
   };
 
   return (
@@ -100,13 +121,19 @@ const StructuresPanel: React.FC<Props> = () => {
           <CategoryLabel>{cat.label}</CategoryLabel>
           {cat.types.map((type) => {
             const def = STRUCTURE_DEFINITIONS[type];
+            const isActive = activeType === type;
             return (
-              <Tooltip key={type} title={`${def.label} — HP: ${def.maxHealth}  Power: +${def.powerOutput}`} placement="right" arrow>
+              <Tooltip key={type} title={`${def.label} — HP: ${def.maxHealth}  Power: +${def.powerOutput}${def.constructionCost > 0 ? `  Cost: ${def.constructionCost}` : '  (Pre-built)'}`} placement="right" arrow>
                 <BuildButton
                   variant="outlined"
                   size="small"
                   fullWidth
                   onClick={() => handleBuildClick(type)}
+                  sx={isActive ? {
+                    borderColor: '#00ccff',
+                    color: '#00ccff',
+                    backgroundColor: 'rgba(0, 204, 255, 0.1)',
+                  } : undefined}
                 >
                   {def.label}
                 </BuildButton>

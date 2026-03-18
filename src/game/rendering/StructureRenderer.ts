@@ -6,6 +6,7 @@ import { StructureManager } from '../structures/StructureManager';
 import { GridPowerSummary } from '../../types/GameTypes';
 
 const CORE_ICON_FRACTION = 0.35;
+const CONSTRUCTION_BORDER_COLOR = 0xd4a843; // amber for scaffolding
 
 const READOUT_STYLE = new PIXI.TextStyle({
   fontFamily: 'monospace',
@@ -16,6 +17,13 @@ const READOUT_STYLE = new PIXI.TextStyle({
 const READOUT_LABEL_STYLE = new PIXI.TextStyle({
   fontFamily: 'monospace',
   fontSize: 9,
+  fill: '#d4a843',
+  fontWeight: 'bold',
+});
+
+const BUILDING_LABEL_STYLE = new PIXI.TextStyle({
+  fontFamily: 'monospace',
+  fontSize: 8,
   fill: '#d4a843',
   fontWeight: 'bold',
 });
@@ -63,35 +71,74 @@ export class StructureRenderer implements IRenderer {
       // Viewport culling
       if (cx + hw < 0 || cx - hw > canvas.width || cy + hh < 0 || cy - hh > canvas.height) continue;
 
+      const isBuilding = !structure.isConstructed;
+
       // Body fill
-      const fillColor = PIXI.utils.string2hex(structure.definition.color);
-      const borderColor = PIXI.utils.string2hex(structure.definition.borderColor);
+      const fillColor = isBuilding
+        ? 0x1a1a10  // dark amber tint for scaffolding
+        : PIXI.utils.string2hex(structure.definition.color);
+      const borderColor = isBuilding
+        ? CONSTRUCTION_BORDER_COLOR
+        : PIXI.utils.string2hex(structure.definition.borderColor);
+      const fillAlpha = isBuilding ? 0.35 : 0.9;
       const borderWidth = Math.max(1.5, 2 * scale);
 
-      this.graphics.lineStyle(borderWidth, borderColor, 1);
-      this.graphics.beginFill(fillColor, 0.9);
-      this.graphics.drawRect(cx - hw, cy - hh, hw * 2, hh * 2);
+      this.graphics.lineStyle(borderWidth, borderColor, isBuilding ? 0.6 : 1);
+      this.graphics.beginFill(fillColor, fillAlpha);
+      if (structure.definition.shape === 'hex') {
+        this.drawHexagon(cx, cy, hw);
+      } else {
+        this.graphics.drawRect(cx - hw, cy - hh, hw * 2, hh * 2);
+      }
       this.graphics.endFill();
 
-      // Health bar (only if damaged)
-      const hpFrac = structure.getHealthFraction();
-      if (hpFrac < 1) {
-        const barW = hw * 1.6;
+      // Cross-hatch overlay for under-construction structures
+      if (isBuilding && hw > 3) {
+        this.drawCrossHatch(cx, cy, hw, hh, scale, structure.definition.shape === 'hex');
+      }
+
+      // Construction progress bar (amber) — shown when under construction
+      if (isBuilding) {
+        const frac = structure.getConstructionFraction();
+        const barW = Math.max(hw * 1.6, 16 * scale);
         const barH = Math.max(2, 4 * scale);
         const barY = cy + hh + barH * 2;
         this.graphics.lineStyle(0);
         this.graphics.beginFill(0x333333, 0.7);
         this.graphics.drawRect(cx - barW / 2, barY, barW, barH);
         this.graphics.endFill();
-        this.graphics.beginFill(hpFrac > 0.5 ? 0x44cc44 : hpFrac > 0.25 ? 0xcccc44 : 0xcc4444, 0.9);
-        this.graphics.drawRect(cx - barW / 2, barY, barW * hpFrac, barH);
+        this.graphics.beginFill(CONSTRUCTION_BORDER_COLOR, 0.9);
+        this.graphics.drawRect(cx - barW / 2, barY, barW * frac, barH);
         this.graphics.endFill();
+
+        // "BUILDING" label above the structure
+        if (scale > 0.4) {
+          const pct = Math.floor(frac * 100);
+          this.placeText(`BUILDING ${pct}%`, cx, cy - hh - 12, BUILDING_LABEL_STYLE, 0.5);
+        }
       }
 
-      // Core icon — small diamond in the center
-      if (structure.type === 'Core') {
+      // Health bar (only if constructed and damaged)
+      if (!isBuilding) {
+        const hpFrac = structure.getHealthFraction();
+        if (hpFrac < 1) {
+          const barW = hw * 1.6;
+          const barH = Math.max(2, 4 * scale);
+          const barY = cy + hh + barH * 2;
+          this.graphics.lineStyle(0);
+          this.graphics.beginFill(0x333333, 0.7);
+          this.graphics.drawRect(cx - barW / 2, barY, barW, barH);
+          this.graphics.endFill();
+          this.graphics.beginFill(hpFrac > 0.5 ? 0x44cc44 : hpFrac > 0.25 ? 0xcccc44 : 0xcc4444, 0.9);
+          this.graphics.drawRect(cx - barW / 2, barY, barW * hpFrac, barH);
+          this.graphics.endFill();
+        }
+      }
+
+      // Core icon — small diamond in the center (only when constructed)
+      if (structure.type === 'Core' && !isBuilding) {
         const iconR = Math.min(hw, hh) * CORE_ICON_FRACTION;
-        this.graphics.lineStyle(Math.max(1, 1.5 * scale), borderColor, 0.9);
+        this.graphics.lineStyle(Math.max(1, 1.5 * scale), PIXI.utils.string2hex(structure.definition.borderColor), 0.9);
         this.graphics.moveTo(cx, cy - iconR);
         this.graphics.lineTo(cx + iconR, cy);
         this.graphics.lineTo(cx, cy + iconR);
@@ -102,10 +149,36 @@ export class StructureRenderer implements IRenderer {
         if (mgr) {
           const summary = mgr.getTeamGridSummary(structure.team);
           if (summary) {
+            const hpFrac = structure.getHealthFraction();
             this.renderCoreReadout(cx, cy + hh, scale, summary, hpFrac < 1);
           }
         }
       }
+    }
+  }
+
+  /** Draw diagonal cross-hatch lines inside the structure shape. */
+  private drawCrossHatch(
+    cx: number, cy: number, hw: number, hh: number,
+    scale: number, isHex: boolean,
+  ): void {
+    const spacing = Math.max(4, 6 * scale);
+    const lineAlpha = 0.15;
+    const lineWidth = Math.max(0.5, scale);
+    this.graphics.lineStyle(lineWidth, CONSTRUCTION_BORDER_COLOR, lineAlpha);
+
+    const r = isHex ? hw : Math.max(hw, hh);
+    const steps = Math.ceil((r * 2) / spacing);
+
+    // Diagonal lines (top-left to bottom-right)
+    for (let i = -steps; i <= steps; i++) {
+      const offset = i * spacing;
+      const x1 = cx + offset - r;
+      const y1 = cy - r;
+      const x2 = cx + offset + r;
+      const y2 = cy + r;
+      this.graphics.moveTo(x1, y1);
+      this.graphics.lineTo(x2, y2);
     }
   }
 
@@ -164,5 +237,19 @@ export class StructureRenderer implements IRenderer {
     text.y = y;
     text.anchor.set(anchorX, 0);
     text.visible = true;
+  }
+
+  private drawHexagon(cx: number, cy: number, radius: number): void {
+    for (let i = 0; i < 6; i++) {
+      const angle = (Math.PI / 3) * i - Math.PI / 6; // flat-top orientation
+      const px = cx + radius * Math.cos(angle);
+      const py = cy + radius * Math.sin(angle);
+      if (i === 0) {
+        this.graphics.moveTo(px, py);
+      } else {
+        this.graphics.lineTo(px, py);
+      }
+    }
+    this.graphics.closePath();
   }
 }

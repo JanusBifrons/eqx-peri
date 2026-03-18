@@ -2,7 +2,7 @@ import * as Matter from 'matter-js';
 import Stats from 'stats.js';
 import { Assembly } from './Assembly';
 import { Entity } from './Entity';
-import { EntityConfig, GRID_SIZE, ENTITY_DEFINITIONS, EntityType, ScenarioConfig, SCENARIOS, SHIP_SPAWN_SPACING, Vector2, PerformanceMetrics, isStructuralBlock } from '../../types/GameTypes';
+import { EntityConfig, GRID_SIZE, ENTITY_DEFINITIONS, EntityType, ScenarioConfig, SCENARIOS, SHIP_SPAWN_SPACING, Vector2, PerformanceMetrics, isStructuralBlock, StructureType } from '../../types/GameTypes';
 import shipsData from '../../data/ships.json';
 import { ControllerManager } from '../ai/ControllerManager';
 import { FlightController } from '../ai/FlightController';
@@ -31,6 +31,9 @@ import { AsteroidFieldSystem } from '../systems/AsteroidFieldSystem';
 import { StructureManager } from '../structures/StructureManager';
 import { Structure } from '../structures/Structure';
 import { StructureRenderer } from '../rendering/StructureRenderer';
+import { ConnectionRenderer } from '../rendering/ConnectionRenderer';
+import { StructurePlacementSystem } from '../systems/StructurePlacementSystem';
+import { StructurePlacementRenderer } from '../rendering/StructurePlacementRenderer';
 
 export class GameEngine {
   private engine: Matter.Engine;
@@ -111,6 +114,7 @@ export class GameEngine {
 
   // Structure system (null when the current scenario doesn't use structures)
   private structureManager: StructureManager | null = null;
+  private structurePlacementSystem: StructurePlacementSystem | null = null;
 
   // Current mouse position in world coordinates (updated every frame)
   private mouseWorldPos: Vector2 = { x: 0, y: 0 };
@@ -351,6 +355,13 @@ export class GameEngine {
         case 'u':
           this.cycleTargets();
           break;
+        case 'escape':
+          if (this.structurePlacementSystem?.isActive()) {
+            this.structurePlacementSystem.cancel();
+            // Prevent App.tsx's Escape handler from also opening the confirm dialog
+            event.stopImmediatePropagation();
+          }
+          break;
       }
     });
 
@@ -519,7 +530,7 @@ export class GameEngine {
     Matter.Events.on(this.engine, 'beforeUpdate', () => {
       if (this.lasers.length === 0) return;
 
-      // Build candidate body list: all assembly part bodies + asteroid bodies.
+      // Build candidate body list: all assembly part bodies + asteroid bodies + structure bodies.
       // Skip index-0 of compound parts (the compound root has no real geometry).
       const candidateBodies: Matter.Body[] = [];
       for (const assembly of this.assemblies) {
@@ -530,6 +541,8 @@ export class GameEngine {
       }
       const asteroidBodies = this.asteroidFieldSystem?.getAllBodies() ?? [];
       for (const ab of asteroidBodies) candidateBodies.push(ab);
+      const structureBodies = this.structureManager?.getStructures().map(s => s.body) ?? [];
+      for (const sb of structureBodies) candidateBodies.push(sb);
 
       if (candidateBodies.length === 0) return;
 
@@ -1002,6 +1015,7 @@ export class GameEngine {
     // Cleanup structure system
     this.structureManager?.dispose();
     this.structureManager = null;
+    this.structurePlacementSystem = null;
 
   } private gameLoop(): void {
     if (!this.running) return;
@@ -1041,6 +1055,7 @@ export class GameEngine {
 
     // Update cursor position for weapon aiming (every frame)
     this.updateCursorWorldPosition();
+    this.structurePlacementSystem?.updateCursor(this.mouseWorldPos);
 
     // Provide structure bodies to beam system for hit detection
     this.controllerManager.setBeamExtraBodies(
@@ -1127,7 +1142,7 @@ export class GameEngine {
     this.updateCamera(deltaTime);
 
     // Update structure system (remove destroyed structures, etc.)
-    this.structureManager?.update(deltaTime);
+    this.structureManager?.update(deltaTimeMs);
 
     // Stream asteroid chunks in/out based on camera position
     if (this.asteroidFieldSystem) {
@@ -1576,7 +1591,11 @@ export class GameEngine {
           }
         }
       } else if (event.button === 2) { // Right mouse button
-        this.handleRightClick(event);
+        if (this.structurePlacementSystem?.isActive()) {
+          this.structurePlacementSystem.cancel();
+        } else {
+          this.handleRightClick(event);
+        }
       }
     }); this.render.canvas.addEventListener('mouseup', (event) => {
       if (event.button === 0) {
@@ -1843,6 +1862,9 @@ export class GameEngine {
 
     this.renderSystem.register(new StarfieldRenderer());
     this.renderSystem.register(new GridRenderer(() => this.showGrid));
+    this.renderSystem.register(new ConnectionRenderer(
+      () => this.structureManager?.gridManager.getConnections() ?? [],
+    ));
     this.renderSystem.register(new StructureRenderer(
       () => this.structureManager?.getStructures() ?? [],
       () => this.structureManager,
@@ -1876,6 +1898,9 @@ export class GameEngine {
     this.renderSystem.register(new AimingDebugRenderer(() => this.playerAssembly));
     this.renderSystem.register(new BlockPickupRenderer(
       this.blockPickupSystem,
+    ));
+    this.renderSystem.register(new StructurePlacementRenderer(
+      () => this.structurePlacementSystem,
     ));
   }
 
@@ -1933,6 +1958,7 @@ export class GameEngine {
     // Tear down any existing structure system
     this.structureManager?.dispose();
     this.structureManager = null;
+    this.structurePlacementSystem = null;
 
     this.toastSystem.showGameEvent(`${cfg.label} — Battle Start!`);
     this.observerPos = { x: 0, y: 0 };
@@ -2037,12 +2063,41 @@ export class GameEngine {
       (body) => Matter.World.remove(this.world, body),
     );
 
-    // Spawn the Core at the world origin for team 0
-    this.structureManager.spawnCore({ x: 0, y: 0 }, 0);
+    // Create the placement system for player interaction
+    this.structurePlacementSystem = new StructurePlacementSystem(
+      this.structureManager,
+      this.structureManager.gridManager,
+      0, // team 0
+    );
+
+    // Spawn the Core at the world origin for team 0 with starter resources
+    const core = this.structureManager.spawnCore({ x: 0, y: 0 }, 0);
+    core.storedResources = 200;
+
+    // Spawn a ring of connectors around the Core and link them
+    const connectorCount = 4;
+    const connectorDist = 150;
+    const connectors: Structure[] = [];
+    for (let i = 0; i < connectorCount; i++) {
+      const angle = (i / connectorCount) * Math.PI * 2;
+      const cx = Math.cos(angle) * connectorDist;
+      const cy = Math.sin(angle) * connectorDist;
+      const conn = this.structureManager.spawnStructure('Connector', { x: cx, y: cy }, 0);
+      conn.markPreBuilt(); // initial base connectors start fully built
+      connectors.push(conn);
+      // Link each connector to the Core
+      this.structureManager.gridManager.connect(core, conn);
+    }
+
+    // Link adjacent connectors to each other (ring topology)
+    for (let i = 0; i < connectors.length; i++) {
+      const next = connectors[(i + 1) % connectors.length];
+      this.structureManager.gridManager.connect(connectors[i], next);
+    }
 
     // Spawn a player cockpit nearby so the player can fly around and inspect
     const cockpitConfig: EntityConfig = { type: 'Cockpit', x: 0, y: 0, rotation: 0 };
-    const playerShip = new Assembly([cockpitConfig], { x: 200, y: 0 });
+    const playerShip = new Assembly([cockpitConfig], { x: 400, y: 0 });
     playerShip.setTeam(0);
     playerShip.setShipName('Scout');
     this.assemblies.push(playerShip);
@@ -2058,7 +2113,7 @@ export class GameEngine {
     for (let i = 0; i < starterBlocks.length; i++) {
       const angle = (i / starterBlocks.length) * Math.PI * 2 + Math.PI * 0.25;
       const dist = 120 + Math.random() * 80;
-      const x = 200 + Math.cos(angle) * dist;
+      const x = 400 + Math.cos(angle) * dist;
       const y = Math.sin(angle) * dist;
       const block = new Assembly([starterBlocks[i]], { x, y });
       block.setTeam(-1);
@@ -2248,6 +2303,25 @@ export class GameEngine {
 
   public getStructureManager(): StructureManager | null {
     return this.structureManager;
+  }
+
+  public getStructurePlacementSystem(): StructurePlacementSystem | null {
+    return this.structurePlacementSystem;
+  }
+
+  /** Enter structure place mode — next click places a structure of this type. */
+  public enterStructurePlaceMode(type: StructureType): void {
+    this.structurePlacementSystem?.enterPlaceMode(type);
+  }
+
+  /** Enter structure link mode — first node selected, waiting for second click. */
+  public enterStructureLinkMode(source: Structure): void {
+    this.structurePlacementSystem?.enterLinkMode(source);
+  }
+
+  /** Cancel the current structure placement mode. */
+  public cancelStructurePlacement(): void {
+    this.structurePlacementSystem?.cancel();
   }
 
   private spawnTeamLine(team: number, cfg: ScenarioConfig): void {
@@ -2984,6 +3058,12 @@ export class GameEngine {
     // Convert screen coordinates to world coordinates
     const worldX = screenX + this.render.bounds.min.x;
     const worldY = screenY + this.render.bounds.min.y;
+
+    // Structure placement system intercepts clicks when active
+    if (this.structurePlacementSystem?.isActive()) {
+      const worldPos = this.screenToWorld(screenX, screenY);
+      if (this.structurePlacementSystem.handleClick(worldPos)) return;
+    }
 
     // Find assembly at click position
     const clickedAssembly = this.getAssemblyAtPosition(screenX, screenY);

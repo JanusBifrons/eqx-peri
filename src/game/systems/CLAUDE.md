@@ -12,6 +12,7 @@ Cross-cutting runtime systems that are not pure game-logic (physics, AI, weapons
 | `ParticleSystem` | Instance | `GameEngine.particleSystem` |
 | `BlockPickupSystem` | Instance | `GameEngine` (internal) |
 | `AsteroidFieldSystem` | Instance | `GameEngine` (conditional) |
+| `StructurePlacementSystem` | Instance | `GameEngine` (conditional, structures sandbox only) |
 
 Do not create additional singletons without documenting them here and in `/src/game/CLAUDE.md`.
 
@@ -90,6 +91,22 @@ Constructor: `(addBodyToWorld, removeBodyFromWorld)`.
 - Bodies are `isStatic: true` plain `Matter.Body` objects — **not entities or assemblies**. Rendered automatically by `BlockBodyRenderer`'s non-entity world-body loop.
 - Deterministic PRNG (mulberry32 seeded from chunk coords) so chunks regenerate identically on re-entry.
 - `body.label = 'asteroid'` tags bodies for collision routing in `GameEngine`.
+
+---
+
+## StructurePlacementSystem
+
+Two-mode player interaction system for placing structures and creating connections. Instantiated by `GameEngine` only in structures sandbox mode.
+
+Constructor: `(structureManager, gridManager, team)`.
+
+- **Place mode**: `enterPlaceMode(type)` — next click spawns a structure of that type at the cursor. Stays in place mode for rapid placement.
+- **Link mode**: `enterLinkMode(source)` — click a second structure to create a connection. Returns to none mode after attempt.
+- `cancel()` — exits current mode.
+- `handleClick(worldPos)` — dispatches click to the active mode handler. Returns `true` if consumed.
+- `updateCursor(worldPos)` — called every frame to track cursor position.
+- Preview getters: `getPlacingType()`, `getLinkSource()`, `getLinkTargetAtCursor()`, `getLinkCandidates()`.
+- `findStructureAtPosition(worldPos)` — hit detection using `widthPx/2 + 10` radius.
 
 ---
 

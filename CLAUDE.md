@@ -143,11 +143,15 @@ src/
 - Active beams are stored in a `Map<weaponId, ActiveBeam>` in `BeamSystem`, overwritten each tick the weapon fires (so each weapon has at most one beam record at a time).
 
 **Structure system (`src/game/structures/`):**
-- Static base-building structures (Phase 0: Core only). Details in `src/game/structures/CLAUDE.md`.
-- `Structure` base class wraps a static Matter.js body with HP, team, power, storage.
-- `StructureCore` provides baseline power + storage; `StructureManager` manages lifecycle.
-- `StructureRenderer` (priority 15) draws structures. `StructuresPanel.tsx` shows Core readout.
-- Scenario: `structures-sandbox` spawns a Core at origin + a player cockpit nearby.
+- Static base-building structures with construction + networking. Details in `src/game/structures/CLAUDE.md`.
+- `Structure` base class wraps a static Matter.js body with HP, team, power, storage, and **construction state**.
+- **Construction mechanic**: structures with `constructionCost > 0` start as scaffolding (10% HP, no power/storage). Resources are automatically delivered through the grid network via `GridManager.processConstructionPulse()`. Core has cost 0 (pre-built anchor). Repair uses the same system.
+- `StructureCore` provides baseline power + storage; `StructureManager` manages lifecycle; `GridManager` handles connections, routing, and construction/repair pulses.
+- `StructurePlacementSystem` (in `src/game/systems/`) handles place mode (click to spawn + auto-connect) and link mode. Escape and right-click cancel placement.
+- `StructureRenderer` (priority 15) draws structures with scaffolding visuals (cross-hatch, amber border, progress bar) when under construction. `ConnectionRenderer` (priority 13) draws network lines. `StructurePlacementRenderer` (priority 71) draws placement hologram + connection preview lines.
+- `StructuresPanel.tsx` is the RTS build menu (left sidebar). World-space readouts go on the structures themselves.
+- Scenario: `structures-sandbox` spawns a Core (200 resources) + 4 pre-built Connectors + player cockpit.
+- **Laser raycast** includes structure bodies in the candidate list. Missiles use physics collisions (automatic). Beams use `extraBodies` parameter.
 
 **Rendering system (`RenderSystem` + `src/game/rendering/`):**
 - `Matter.Render.run()` is **not called** — Matter.js is physics-only; `RenderSystem` owns the `requestAnimationFrame` loop.

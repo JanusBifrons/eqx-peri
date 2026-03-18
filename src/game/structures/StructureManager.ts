@@ -1,16 +1,19 @@
 import Matter from 'matter-js';
-import { GridPowerSummary, Vector2 } from '../../types/GameTypes';
+import { GridPowerSummary, StructureType, Vector2 } from '../../types/GameTypes';
 import { Structure } from './Structure';
 import { StructureCore } from './StructureCore';
+import { GridManager } from './GridManager';
 
 /**
  * Manages the lifecycle of all Structure instances in the world.
- * Handles spawning, per-frame updates, and teardown.
+ * Handles spawning, per-frame updates, teardown, and delegates
+ * networking/routing to the GridManager.
  */
 export class StructureManager {
   private structures: Structure[] = [];
   private addBodyToWorld: (body: Matter.Body) => void;
   private removeBodyFromWorld: (body: Matter.Body) => void;
+  public readonly gridManager: GridManager = new GridManager();
 
   constructor(
     addBodyToWorld: (body: Matter.Body) => void,
@@ -25,17 +28,38 @@ export class StructureManager {
     const core = new StructureCore(position, team);
     this.addBodyToWorld(core.body);
     this.structures.push(core);
+    this.gridManager.registerStructure(core);
     return core;
   }
 
-  /** Per-frame update — remove destroyed structures. */
-  public update(_deltaTimeMs: number): void {
+  /** Spawn any structure type at the given position. */
+  public spawnStructure(type: StructureType, position: Vector2, team: number): Structure {
+    let structure: Structure;
+    if (type === 'Core') {
+      structure = new StructureCore(position, team);
+    } else {
+      structure = new Structure(type, position, team);
+    }
+    this.addBodyToWorld(structure.body);
+    this.structures.push(structure);
+    this.gridManager.registerStructure(structure);
+    return structure;
+  }
+
+  /** Per-frame update — remove destroyed structures, update grid manager. */
+  public update(deltaTimeMs: number): void {
+    // Remove destroyed structures and sever their connections
     for (let i = this.structures.length - 1; i >= 0; i--) {
       if (this.structures[i].isDestroyed()) {
-        this.removeBodyFromWorld(this.structures[i].body);
+        const dead = this.structures[i];
+        this.gridManager.removeStructure(dead);
+        this.removeBodyFromWorld(dead.body);
         this.structures.splice(i, 1);
       }
     }
+
+    // Update grid manager (topology rebuild, resource transfer pulses)
+    this.gridManager.update(deltaTimeMs, this.structures);
   }
 
   /** Return all structures (for rendering and UI). */
@@ -51,11 +75,11 @@ export class StructureManager {
     return null;
   }
 
-  /** Get a grid power summary for a team via its Core. */
+  /** Get a grid power summary for a team via its Core, using the GridManager. */
   public getTeamGridSummary(team: number): GridPowerSummary | null {
     const core = this.getTeamCore(team);
     if (!core) return null;
-    return core.getGridSummary(this.structures);
+    return this.gridManager.getGridPowerSummary(core, this.structures);
   }
 
   /** Tear down all structures and remove their bodies from the world. */

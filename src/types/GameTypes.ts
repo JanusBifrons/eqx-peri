@@ -875,20 +875,36 @@ export const SCENARIO_ORDER: ScenarioId[] = ['ship-builder', 'structures-sandbox
 
 // ── Structure System ─────────────────────────────────────────────────────────
 
-export type StructureType = 'Core';
+export type StructureType = 'Core' | 'Connector';
 
 export interface StructureDefinition {
   type: StructureType;
   label: string;
-  widthPx: number;          // world-unit width of the physics body
-  heightPx: number;         // world-unit height of the physics body
+  widthPx: number;          // world-unit width/diameter of the physics body
+  heightPx: number;         // world-unit height of the physics body (same as width for hex/circle)
+  shape: 'rect' | 'hex';   // body geometry
   maxHealth: number;
+  maxConnections: number;   // hard cap on number of network connections
   powerOutput: number;      // passive power generation per tick (≥0)
   powerConsumption: number; // passive power draw per tick (≥0)
   storageCapacity: number;  // max resource units this structure can hold
+  constructionCost: number; // total resource units required to fully build (0 = pre-built)
   color: string;            // primary fill color
   borderColor: string;      // stroke color
 }
+
+/** Max world-unit distance between two structures to form a connection. */
+export const CONNECTION_MAX_RANGE = 300;
+/** Resource units a single connection can transfer per pulse. */
+export const CONNECTION_THROUGHPUT = 10;
+/** Milliseconds between resource transfer pulses. */
+export const TRANSFER_PULSE_MS = 1000;
+/** Resource units delivered per pulse toward construction. */
+export const CONSTRUCTION_PULSE_AMOUNT = 5;
+/** Resource units delivered per pulse toward repair. */
+export const REPAIR_PULSE_AMOUNT = 3;
+/** Resource cost per HP restored during repair. */
+export const REPAIR_COST_PER_HP = 0.1;
 
 export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefinition>> = {
   Core: {
@@ -896,12 +912,30 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
     label: 'Core',
     widthPx: 80,
     heightPx: 80,
+    shape: 'rect',
     maxHealth: 5000,
+    maxConnections: 4,
     powerOutput: 50,
     powerConsumption: 0,
     storageCapacity: 500,
+    constructionCost: 0,        // Core starts pre-built (bootstrapping anchor)
     color: '#2a2520',
     borderColor: '#d4a843',
+  },
+  Connector: {
+    type: 'Connector',
+    label: 'Connector',
+    widthPx: 12,
+    heightPx: 12,
+    shape: 'hex',
+    maxHealth: 200,
+    maxConnections: 6,
+    powerOutput: 0,
+    powerConsumption: 0,
+    storageCapacity: 0,
+    constructionCost: 20,
+    color: '#1a1e24',
+    borderColor: '#4488aa',
   },
 };
 

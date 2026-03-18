@@ -65,6 +65,9 @@ export class BlockBodyRenderer implements IRenderer {
       if (entityBodyIds.has(body.id)) continue;
       if (body.parent !== body) continue;
 
+      // Skip structure bodies — they are rendered by StructureRenderer
+      if ((body as unknown as Record<string, unknown>).structure) continue;
+
       // Skip asteroids whose on-screen footprint is too small to see — they are
       // rendered as icons by StrategicIconRenderer at that zoom level.  Avoids
       // iterating thousands of sub-pixel polygon draw calls when zoomed out.

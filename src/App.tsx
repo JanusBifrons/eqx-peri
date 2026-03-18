@@ -164,7 +164,7 @@ const App: React.FC = () => {
 
         {/* Structures build menu — shown only in structures sandbox mode */}
         {screen === 'playing' && isStructuresSandbox && (
-          <StructuresPanel />
+          <StructuresPanel gameEngine={gameEngine} />
         )}
 
         {/* Combat HUD — hidden in ship builder mode */}
