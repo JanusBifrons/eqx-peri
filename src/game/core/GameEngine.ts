@@ -28,6 +28,9 @@ import { StarfieldRenderer } from '../rendering/StarfieldRenderer';
 import { StrategicIconRenderer } from '../rendering/StrategicIconRenderer';
 import { ParticleSystem } from '../systems/ParticleSystem';
 import { AsteroidFieldSystem } from '../systems/AsteroidFieldSystem';
+import { StructureManager } from '../structures/StructureManager';
+import { Structure } from '../structures/Structure';
+import { StructureRenderer } from '../rendering/StructureRenderer';
 
 export class GameEngine {
   private engine: Matter.Engine;
@@ -105,6 +108,9 @@ export class GameEngine {
 
   // Procedural asteroid field (null when the current scenario doesn't use one)
   private asteroidFieldSystem: AsteroidFieldSystem | null = null;
+
+  // Structure system (null when the current scenario doesn't use structures)
+  private structureManager: StructureManager | null = null;
 
   // Current mouse position in world coordinates (updated every frame)
   private mouseWorldPos: Vector2 = { x: 0, y: 0 };
@@ -441,6 +447,12 @@ export class GameEngine {
         } else if ((bodyB as any).isMissile && (bodyA as any).isShieldPart) {
           this.handleMissileHitShield((bodyB as any).missile, (bodyA as any).parentAssembly);
         }
+        // Missile hitting a structure
+        else if ((bodyA as any).isMissile && (bodyB as any).structure) {
+          this.handleMissileHitStructure((bodyA as any).missile, (bodyB as any).structure as Structure);
+        } else if ((bodyB as any).isMissile && (bodyA as any).structure) {
+          this.handleMissileHitStructure((bodyB as any).missile, (bodyA as any).structure as Structure);
+        }
         // Check for entity-to-entity collisions (for flash effect)
         else if (bodyA.entity && bodyB.entity) {
           this.handleEntityCollision(bodyA.entity, bodyB.entity);
@@ -609,6 +621,8 @@ export class GameEngine {
           this.handleLaserHitShield(laser, (hitBody as any).parentAssembly, hitPos);
         } else if (hitBody.entity) {
           this.handleLaserHit(laser, hitBody.entity, hitPos);
+        } else if ((hitBody as any).structure) {
+          this.handleLaserHitStructure(laser, (hitBody as any).structure as Structure, hitPos);
         } else if (hitBody.label === 'asteroid') {
           this.handleLaserHitAsteroid(laser, hitPos);
         }
@@ -853,6 +867,23 @@ export class GameEngine {
     this.particleSystem.emitImpact(hitPos.x, hitPos.y, 'laser');
   }
 
+  private handleLaserHitStructure(laser: Matter.Body, structure: Structure, hitPos: Matter.Vector): void {
+    const LASER_DAMAGE = 10;
+    Matter.World.remove(this.world, laser);
+    this.lasers = this.lasers.filter(l => l !== laser);
+    SoundSystem.getInstance().playLaserImpact();
+    this.particleSystem.emitImpact(hitPos.x, hitPos.y, 'laser');
+    structure.takeDamage(LASER_DAMAGE);
+  }
+
+  private handleMissileHitStructure(missile: { age: number; launchCollisionDelay: number; getDamage: () => number; destroy: () => void }, structure: Structure): void {
+    if (missile.age < missile.launchCollisionDelay) return;
+    SoundSystem.getInstance().playMissileExplosion();
+    this.particleSystem.emitImpact(structure.body.position.x, structure.body.position.y, 'missile');
+    structure.takeDamage(missile.getDamage());
+    missile.destroy();
+  }
+
   private handleMissileHitShield(missile: any, shieldAssembly: Assembly): void {
     if (!missile || !shieldAssembly) return;
 
@@ -968,6 +999,10 @@ export class GameEngine {
     this.asteroidFieldSystem?.dispose();
     this.asteroidFieldSystem = null;
 
+    // Cleanup structure system
+    this.structureManager?.dispose();
+    this.structureManager = null;
+
   } private gameLoop(): void {
     if (!this.running) return;
 
@@ -1006,6 +1041,11 @@ export class GameEngine {
 
     // Update cursor position for weapon aiming (every frame)
     this.updateCursorWorldPosition();
+
+    // Provide structure bodies to beam system for hit detection
+    this.controllerManager.setBeamExtraBodies(
+      this.structureManager?.getStructures().map(s => s.body) ?? [],
+    );
 
     // Update controllers (handles both player input and AI)
     const newLasers = this.controllerManager.update(deltaTime, this.assemblies);
@@ -1085,6 +1125,9 @@ export class GameEngine {
 
     // Update camera — pilot mode or observer mode
     this.updateCamera(deltaTime);
+
+    // Update structure system (remove destroyed structures, etc.)
+    this.structureManager?.update(deltaTime);
 
     // Stream asteroid chunks in/out based on camera position
     if (this.asteroidFieldSystem) {
@@ -1800,6 +1843,10 @@ export class GameEngine {
 
     this.renderSystem.register(new StarfieldRenderer());
     this.renderSystem.register(new GridRenderer(() => this.showGrid));
+    this.renderSystem.register(new StructureRenderer(
+      () => this.structureManager?.getStructures() ?? [],
+      () => this.structureManager,
+    ));
     this.renderSystem.register(new BlockBodyRenderer(
       () => this.assemblies,
       () => this.world,
@@ -1883,6 +1930,10 @@ export class GameEngine {
     this.asteroidFieldSystem?.dispose();
     this.asteroidFieldSystem = null;
 
+    // Tear down any existing structure system
+    this.structureManager?.dispose();
+    this.structureManager = null;
+
     this.toastSystem.showGameEvent(`${cfg.label} — Battle Start!`);
     this.observerPos = { x: 0, y: 0 };
 
@@ -1893,7 +1944,9 @@ export class GameEngine {
       );
     }
 
-    if (cfg.shipBuilderMode) {
+    if (cfg.structuresSandboxMode) {
+      this.spawnStructuresSandboxScenario();
+    } else if (cfg.shipBuilderMode) {
       this.spawnShipBuilderScenario();
     } else if (cfg.sandboxMode) {
       this.spawnSandboxScenario();
@@ -1975,6 +2028,45 @@ export class GameEngine {
   private getCameraCenter(): { x: number; y: number } {
     const b = this.render.bounds;
     return { x: (b.min.x + b.max.x) / 2, y: (b.min.y + b.max.y) / 2 };
+  }
+
+  private spawnStructuresSandboxScenario(): void {
+    // Create the structure manager
+    this.structureManager = new StructureManager(
+      (body) => Matter.World.add(this.world, body),
+      (body) => Matter.World.remove(this.world, body),
+    );
+
+    // Spawn the Core at the world origin for team 0
+    this.structureManager.spawnCore({ x: 0, y: 0 }, 0);
+
+    // Spawn a player cockpit nearby so the player can fly around and inspect
+    const cockpitConfig: EntityConfig = { type: 'Cockpit', x: 0, y: 0, rotation: 0 };
+    const playerShip = new Assembly([cockpitConfig], { x: 200, y: 0 });
+    playerShip.setTeam(0);
+    playerShip.setShipName('Scout');
+    this.assemblies.push(playerShip);
+    Matter.World.add(this.world, playerShip.rootBody);
+
+    // Give the scout some basic blocks to attach (engines + gun)
+    const starterBlocks: EntityConfig[] = [
+      { type: 'Engine', x: 0, y: 0, rotation: 180 },
+      { type: 'Engine', x: 0, y: 0, rotation: 180 },
+      { type: 'Gun', x: 0, y: 0, rotation: 0 },
+      { type: 'PowerCell', x: 0, y: 0, rotation: 0 },
+    ];
+    for (let i = 0; i < starterBlocks.length; i++) {
+      const angle = (i / starterBlocks.length) * Math.PI * 2 + Math.PI * 0.25;
+      const dist = 120 + Math.random() * 80;
+      const x = 200 + Math.cos(angle) * dist;
+      const y = Math.sin(angle) * dist;
+      const block = new Assembly([starterBlocks[i]], { x, y });
+      block.setTeam(-1);
+      block.setShipName(`${starterBlocks[i].type} Block`);
+      Matter.Body.setAngularVelocity(block.rootBody, (Math.random() - 0.5) * 0.1);
+      this.assemblies.push(block);
+      Matter.World.add(this.world, block.rootBody);
+    }
   }
 
   private spawnSandboxScenario(): void {
@@ -2148,6 +2240,14 @@ export class GameEngine {
 
   public isShipBuilderMode(): boolean {
     return this.shipBuilderMode;
+  }
+
+  public isStructuresSandboxMode(): boolean {
+    return this.scenarioConfig.structuresSandboxMode;
+  }
+
+  public getStructureManager(): StructureManager | null {
+    return this.structureManager;
   }
 
   private spawnTeamLine(team: number, cfg: ScenarioConfig): void {

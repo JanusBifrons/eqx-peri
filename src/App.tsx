@@ -8,6 +8,7 @@ import MainMenu from './ui/MainMenu';
 import SettingsPanel from './ui/SettingsPanel';
 import ShipActionPanel from './ui/ShipActionPanel';
 import ShipBuilderPanel from './ui/ShipBuilderPanel';
+import StructuresPanel from './ui/StructuresPanel';
 import ConfirmDialog from './ui/ConfirmDialog';
 import PerformanceBar from './ui/PerformanceBar';
 import {
@@ -64,6 +65,7 @@ const App: React.FC = () => {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [showPerfBar, setShowPerfBar] = useState(false);
   const [isShipBuilder, setIsShipBuilder] = useState(false);
+  const [isStructuresSandbox, setIsStructuresSandbox] = useState(false);
 
   const handlePerfBarChange = (visible: boolean): void => {
     setShowPerfBar(visible);
@@ -76,6 +78,7 @@ const App: React.FC = () => {
     }
     setGameEngine(null);
     setIsShipBuilder(false);
+    setIsStructuresSandbox(false);
     setConfirmOpen(false);
     setScreen('main-menu');
   };
@@ -88,6 +91,7 @@ const App: React.FC = () => {
     engine.setScenario(scenario);
     engine.start();
     setIsShipBuilder(scenario.shipBuilderMode);
+    setIsStructuresSandbox(scenario.structuresSandboxMode);
     setScreen('playing');
   };
 
@@ -156,6 +160,11 @@ const App: React.FC = () => {
         {/* Ship builder palette — shown only in ship builder mode */}
         {screen === 'playing' && isShipBuilder && (
           <ShipBuilderPanel gameEngine={gameEngine} />
+        )}
+
+        {/* Structures build menu — shown only in structures sandbox mode */}
+        {screen === 'playing' && isStructuresSandbox && (
+          <StructuresPanel />
         )}
 
         {/* Combat HUD — hidden in ship builder mode */}

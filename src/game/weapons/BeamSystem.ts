@@ -83,7 +83,7 @@ export class BeamSystem {
    * circle part (if present), so the native SAT check sees the shield the same way
    * Matter.js collision events do for regular laser projectiles.
    */
-  processBeamFire(spec: BeamFireSpec, assemblies: Assembly[], deltaTime: number): void {
+  processBeamFire(spec: BeamFireSpec, assemblies: Assembly[], deltaTime: number, extraBodies?: Matter.Body[]): void {
     const dirX = Math.cos(spec.angle);
     const dirY = Math.sin(spec.angle);
     const endPoint = {
@@ -113,6 +113,11 @@ export class BeamSystem {
           if ((part as any).isShieldPart) testBodies.push(part);
         }
       }
+    }
+
+    // Include any extra bodies (e.g., structure bodies) in the raycast candidates
+    if (extraBodies) {
+      for (const body of extraBodies) testBodies.push(body);
     }
 
     // Matter.js native raycast — uses SAT collision detection against each candidate.
@@ -190,6 +195,10 @@ export class BeamSystem {
             .filter(e => (e.type === 'Shield' || e.type === 'LargeShield') && !e.destroyed)
             .forEach(e => e.triggerCollisionFlash());
         }
+      } else if ((closestBody as any).structure) {
+        // Beam hit a structure body — apply DPS damage directly
+        const structure = (closestBody as any).structure;
+        structure.takeDamage(spec.damagePerSecond * deltaTime);
       } else if ((closestBody as any).entity) {
         // Beam hit an entity block body — same path as handleLaserHit
         const entity = (closestBody as any).entity as Entity;

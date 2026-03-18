@@ -11,7 +11,8 @@ All game logic, physics, AI, and entity management. No React imports here — th
 | `weapons/`    | `Missile`, `MissileSystem`, `BeamSystem` |
 | `ship/`       | `BlockSystem`, `ShipDesigner`, `ShipDesignManager` |
 | `systems/`    | `PowerSystem`, `ToastSystem`, `SoundSystem`, `AsteroidFieldSystem` — singletons and support services |
-| `rendering/`  | `IRenderer` interface, `Viewport`, and one renderer class per visual concern (grid, blocks, frills, shields, highlights, aiming, block-pickup) |
+| `rendering/`  | `IRenderer` interface, `Viewport`, and one renderer class per visual concern (grid, blocks, frills, shields, highlights, aiming, block-pickup, structures) |
+| `structures/` | `Structure`, `StructureCore`, `StructureManager` — static base-building structures (Phase 0+) |
 
 ## Physics Conventions (Matter.js)
 

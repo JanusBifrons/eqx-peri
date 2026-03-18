@@ -837,7 +837,7 @@ export function getEntityOccupiedGridCells(
   return cells;
 }
 
-export type ScenarioId = 'debug' | 'duel' | 'small-battle' | 'medium-battle' | 'huge' | 'sandbox' | 'open-world' | 'ship-builder';
+export type ScenarioId = 'debug' | 'duel' | 'small-battle' | 'medium-battle' | 'huge' | 'sandbox' | 'open-world' | 'ship-builder' | 'structures-sandbox';
 
 export interface ScenarioConfig {
   id: ScenarioId;
@@ -852,6 +852,7 @@ export interface ScenarioConfig {
   sandboxMode: boolean;   // true = start as bare cockpit, scavenge blocks to build
   spawnAsteroids: boolean; // true = stream procedural asteroid chunks around camera
   shipBuilderMode: boolean; // true = static cockpit at origin, palette-driven block placement
+  structuresSandboxMode: boolean; // true = structures test environment with a pre-built Core
 }
 
 export const SHIP_SPAWN_SPACING = 300;
@@ -859,14 +860,55 @@ export const DUEL_SPAWN_X = 1200;
 export const BATTLE_SPAWN_X = 2000;
 
 export const SCENARIOS: Readonly<Record<ScenarioId, ScenarioConfig>> = {
-  'ship-builder':  { id: 'ship-builder',   label: 'Ship Builder',  description: 'Design your ship from scratch using a block palette.', teamSize: 0, spawnX: 0, shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0, sandboxMode: false, spawnAsteroids: false, shipBuilderMode: true  },
-  debug:           { id: 'debug',          label: 'Debug',         description: '1v1 sandbox with debris.',          teamSize: 1,   spawnX: DUEL_SPAWN_X,   shipIndex: 5, lineFormation: false, spawnDebris: true,  debrisCount: 12, sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false },
-  duel:            { id: 'duel',           label: 'Duel',          description: '1v1, clean space, ships face off.', teamSize: 1,   spawnX: DUEL_SPAWN_X,   shipIndex: 5, lineFormation: true,  spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false },
-  'small-battle':  { id: 'small-battle',   label: 'Small Battle',  description: '5v5 — two squads engage.',          teamSize: 5,   spawnX: BATTLE_SPAWN_X, shipIndex: 0, lineFormation: true,  spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false },
-  'medium-battle': { id: 'medium-battle',  label: 'Medium Battle', description: '10v10 — fleet engagement.',         teamSize: 10,  spawnX: BATTLE_SPAWN_X, shipIndex: 0, lineFormation: true,  spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false },
-  huge:            { id: 'huge',           label: 'Huge',          description: '100v100 — maximum chaos.',          teamSize: 100, spawnX: BATTLE_SPAWN_X, shipIndex: 0, lineFormation: true,  spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false },
-  sandbox:         { id: 'sandbox',        label: 'Sandbox',       description: 'Start as a bare cockpit. Scavenge blocks to build your ship.', teamSize: 0, spawnX: 0, shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0, sandboxMode: true,  spawnAsteroids: false, shipBuilderMode: false },
-  'open-world':    { id: 'open-world',     label: 'Open World',    description: 'Build your ship and explore a procedural asteroid field.',        teamSize: 0, spawnX: 0, shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0, sandboxMode: true,  spawnAsteroids: true,  shipBuilderMode: false },
+  'ship-builder':        { id: 'ship-builder',        label: 'Ship Builder',        description: 'Design your ship from scratch using a block palette.',                  teamSize: 0,   spawnX: 0,              shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: true,  structuresSandboxMode: false },
+  'structures-sandbox':  { id: 'structures-sandbox',  label: 'Structures Sandbox',  description: 'Test base-building: Core structure, power grid, and placement.',       teamSize: 0,   spawnX: 0,              shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false, structuresSandboxMode: true  },
+  debug:                 { id: 'debug',               label: 'Debug',               description: '1v1 sandbox with debris.',                                              teamSize: 1,   spawnX: DUEL_SPAWN_X,   shipIndex: 5, lineFormation: false, spawnDebris: true,  debrisCount: 12, sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false, structuresSandboxMode: false },
+  duel:                  { id: 'duel',                label: 'Duel',                description: '1v1, clean space, ships face off.',                                     teamSize: 1,   spawnX: DUEL_SPAWN_X,   shipIndex: 5, lineFormation: true,  spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false, structuresSandboxMode: false },
+  'small-battle':        { id: 'small-battle',        label: 'Small Battle',        description: '5v5 — two squads engage.',                                              teamSize: 5,   spawnX: BATTLE_SPAWN_X, shipIndex: 0, lineFormation: true,  spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false, structuresSandboxMode: false },
+  'medium-battle':       { id: 'medium-battle',       label: 'Medium Battle',       description: '10v10 — fleet engagement.',                                             teamSize: 10,  spawnX: BATTLE_SPAWN_X, shipIndex: 0, lineFormation: true,  spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false, structuresSandboxMode: false },
+  huge:                  { id: 'huge',                label: 'Huge',                description: '100v100 — maximum chaos.',                                              teamSize: 100, spawnX: BATTLE_SPAWN_X, shipIndex: 0, lineFormation: true,  spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false, structuresSandboxMode: false },
+  sandbox:               { id: 'sandbox',             label: 'Sandbox',             description: 'Start as a bare cockpit. Scavenge blocks to build your ship.',          teamSize: 0,   spawnX: 0,              shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0,  sandboxMode: true,  spawnAsteroids: false, shipBuilderMode: false, structuresSandboxMode: false },
+  'open-world':          { id: 'open-world',          label: 'Open World',          description: 'Build your ship and explore a procedural asteroid field.',              teamSize: 0,   spawnX: 0,              shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0,  sandboxMode: true,  spawnAsteroids: true,  shipBuilderMode: false, structuresSandboxMode: false },
 } as const;
 
-export const SCENARIO_ORDER: ScenarioId[] = ['ship-builder', 'sandbox', 'open-world', 'debug', 'duel', 'small-battle', 'medium-battle', 'huge'];
+export const SCENARIO_ORDER: ScenarioId[] = ['ship-builder', 'structures-sandbox', 'sandbox', 'open-world', 'debug', 'duel', 'small-battle', 'medium-battle', 'huge'];
+
+// ── Structure System ─────────────────────────────────────────────────────────
+
+export type StructureType = 'Core';
+
+export interface StructureDefinition {
+  type: StructureType;
+  label: string;
+  widthPx: number;          // world-unit width of the physics body
+  heightPx: number;         // world-unit height of the physics body
+  maxHealth: number;
+  powerOutput: number;      // passive power generation per tick (≥0)
+  powerConsumption: number; // passive power draw per tick (≥0)
+  storageCapacity: number;  // max resource units this structure can hold
+  color: string;            // primary fill color
+  borderColor: string;      // stroke color
+}
+
+export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefinition>> = {
+  Core: {
+    type: 'Core',
+    label: 'Core',
+    widthPx: 80,
+    heightPx: 80,
+    maxHealth: 5000,
+    powerOutput: 50,
+    powerConsumption: 0,
+    storageCapacity: 500,
+    color: '#2a2520',
+    borderColor: '#d4a843',
+  },
+};
+
+export interface GridPowerSummary {
+  totalPowerOutput: number;
+  totalPowerConsumption: number;
+  netPower: number;
+  totalCapacity: number;
+  usedCapacity: number;
+}

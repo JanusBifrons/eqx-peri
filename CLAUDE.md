@@ -25,6 +25,7 @@ src/
     ship/       # Ship design: BlockSystem, ShipDesigner, ShipDesignManager
     systems/    # Singletons & services: PowerSystem, ToastSystem, BlockPickupSystem
     rendering/  # IRenderer, Viewport, and individual renderer classes
+    structures/ # Base-building: Structure, StructureCore, StructureManager
   types/        # Shared TypeScript interfaces and enums (GameTypes.ts)
   data/         # Ship definitions (ships.json)
 ```
@@ -141,13 +142,20 @@ src/
 - `BeamRenderer` (priority 45, between ShieldRenderer and ShipHighlightRenderer) draws active beams as a two-layer glow (outer halo + bright core) with an impact flash at the hit point. Beams fade over `BEAM_DISPLAY_DURATION_MS` (80 ms) after the last firing tick.
 - Active beams are stored in a `Map<weaponId, ActiveBeam>` in `BeamSystem`, overwritten each tick the weapon fires (so each weapon has at most one beam record at a time).
 
+**Structure system (`src/game/structures/`):**
+- Static base-building structures (Phase 0: Core only). Details in `src/game/structures/CLAUDE.md`.
+- `Structure` base class wraps a static Matter.js body with HP, team, power, storage.
+- `StructureCore` provides baseline power + storage; `StructureManager` manages lifecycle.
+- `StructureRenderer` (priority 15) draws structures. `StructuresPanel.tsx` shows Core readout.
+- Scenario: `structures-sandbox` spawns a Core at origin + a player cockpit nearby.
+
 **Rendering system (`RenderSystem` + `src/game/rendering/`):**
 - `Matter.Render.run()` is **not called** — Matter.js is physics-only; `RenderSystem` owns the `requestAnimationFrame` loop.
 - `Matter.Render.lookAt()` is still used for camera/viewport management; `RenderSystem` reads `this.render.bounds` each frame.
 - **PixiJS is the rendering engine**: `pixi.js@7` (`PIXI.Application`, `PIXI.Graphics`, `PIXI.Container`, `PIXI.Text`). The PIXI canvas overlays the Matter.js canvas (`position: absolute`, `pointer-events: none`); the Matter.js canvas is `opacity: 0` (invisible but still handles mouse events and provides `render.bounds`).
 - `IRenderer` interface: `renderPriority: number` + `init(stage: PIXI.Container)` + `render(viewport, timestamp)` + optional `dispose()`. **No Canvas 2D context** — all drawing uses `PIXI.Graphics` created in `init()` and cleared/redrawn each frame.
 - `Viewport` class: wraps `Matter.Bounds` + PIXI canvas, provides `worldToScreen(wx, wy)` and `scale` getter.
-- Renderer priorities: StarfieldRenderer(5) → GridRenderer(10) → BlockBodyRenderer(20) → ParticleRenderer(22) → BlockFrillsRenderer(30) → ShieldRenderer(40) → BeamRenderer(45) → ShockwaveRenderer(46) → ShipHighlightRenderer(50) → AimingDebugRenderer(60) → BlockPickupRenderer(70).
+- Renderer priorities: StarfieldRenderer(5) → GridRenderer(10) → StructureRenderer(15) → BlockBodyRenderer(20) → ParticleRenderer(22) → BlockFrillsRenderer(30) → ShieldRenderer(40) → BeamRenderer(45) → ShockwaveRenderer(46) → ShipHighlightRenderer(50) → AimingDebugRenderer(60) → BlockPickupRenderer(70).
 - **Particle system (`ParticleSystem` + `ParticleRenderer`)**: `ParticleSystem` in `src/game/systems/` owns a single `PIXI.ParticleContainer` (`BLEND_MODES.ADD`) with a pre-pooled 2500-sprite free-list (O(1) acquire/release). All sprites share one programmatically-generated soft white-circle texture; runtime tint + alpha + scale vary per particle. World-space positions are converted to screen coords inside `update(deltaMs, viewport)` each frame. Public emitters: `emitThrust(wx, wy, exhaustDirX, exhaustDirY, level, shipVx, shipVy)`, `emitImpact(wx, wy, 'laser'|'missile'|'beam')`, `emitExplosion(wx, wy, entityCount, vx, vy)`. `ParticleRenderer` (priority 22, in `src/game/rendering/`) drives thrust emission each frame (rate-limited via probabilistic per-deltaMs check, viewport-culled); impact/explosion calls come directly from `GameEngine` which holds a named `particleSystem` reference. `MissileSystem.handleMissileHit()` now returns `boolean` so `GameEngine` can emit missile impact particles only on valid hits.
 - **`ShockwaveRenderer`** (priority 46): renders expanding shockwave rings when an assembly is fully destroyed. `GameEngine` holds a named reference (`shockwaveRenderer`) and calls `addShockwave(x, y, entityCount)` in `processEntityDestruction()` before `removeBodyWithParts()`. The renderer owns its own shockwave list and prunes expired entries each frame. Uses `PIXI.BLEND_MODES.ADD` for the glow effect.
 - Each renderer receives data via getter functions injected in its constructor — no direct GameEngine coupling.

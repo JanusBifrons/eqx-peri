@@ -10,6 +10,7 @@ export class ControllerManager {    private controllers: Map<string, IController
     private playerController?: PlayerController;
     private missileSystem?: MissileSystem;
     private beamSystem?: BeamSystem;
+    private beamExtraBodies: Matter.Body[] = [];
 
     // Set the missile system reference
     setMissileSystem(missileSystem: MissileSystem): void {
@@ -19,6 +20,11 @@ export class ControllerManager {    private controllers: Map<string, IController
     // Set the beam system reference
     setBeamSystem(beamSystem: BeamSystem): void {
         this.beamSystem = beamSystem;
+    }
+
+    /** Set extra bodies (e.g., structures) that beams can hit. */
+    setBeamExtraBodies(bodies: Matter.Body[]): void {
+        this.beamExtraBodies = bodies;
     }
 
     // Create an AI controller for an assembly
@@ -144,7 +150,7 @@ export class ControllerManager {    private controllers: Map<string, IController
             if (this.beamSystem) {
                 const beamFires = assembly.getBeamFires();
                 beamFires.forEach(spec => {
-                    this.beamSystem!.processBeamFire(spec, assemblies, deltaTime);
+                    this.beamSystem!.processBeamFire(spec, assemblies, deltaTime, this.beamExtraBodies);
                 });
             }
         }
