@@ -51,10 +51,14 @@ export class GridManager {
     return conns.some(c => c.nodeA === b || c.nodeB === b);
   }
 
-  /** Check whether two structures can be linked. */
+  /** Check whether two structures can be linked.
+   *  At least one side must be a Connector (network node) — two non-connector
+   *  structures cannot directly link to each other. */
   public canConnect(a: Structure, b: Structure): boolean {
     if (a === b) return false;
     if (this.areConnected(a, b)) return false;
+    // At least one must be a Connector
+    if (a.type !== 'Connector' && b.type !== 'Connector') return false;
     if (!this.canAddConnection(a) || !this.canAddConnection(b)) return false;
     const dx = a.body.position.x - b.body.position.x;
     const dy = a.body.position.y - b.body.position.y;

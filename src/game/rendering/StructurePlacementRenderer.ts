@@ -41,17 +41,15 @@ export class StructurePlacementRenderer implements IRenderer {
     // Draw the hologram ghost
     this.drawHologram(screenX, screenY, scale, placingType);
 
-    // Draw connection preview lines to nearby structures
+    // Draw connection preview lines to nearby structures (valid only)
     const candidates = ps.getPlacementConnectCandidates();
     for (const { structure, valid } of candidates) {
+      if (!valid) continue;
       const tgtX = sx(structure.body.position.x);
       const tgtY = sy(structure.body.position.y);
 
-      const color = valid ? 0x44ddff : 0xff4444;
-      const alpha = valid ? 0.5 : 0.25;
       const lineWidth = Math.max(1, 1.5 * scale);
-
-      this.graphics.lineStyle(lineWidth, color, alpha);
+      this.graphics.lineStyle(lineWidth, 0x44ddff, 0.5);
       this.graphics.moveTo(screenX, screenY);
       this.graphics.lineTo(tgtX, tgtY);
     }

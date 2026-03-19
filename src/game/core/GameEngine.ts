@@ -59,6 +59,8 @@ export class GameEngine {
   private maxMouseOffset: number = 100; // Maximum distance camera can be offset by mouse  // Ship selection and highlighting
   private selectedAssembly: Assembly | null = null;
   private hoveredAssembly: Assembly | null = null;
+  private selectedStructure: Structure | null = null;
+  private hoveredStructure: Structure | null = null;
   // Player command system
   private playerCommand: string | null = null;
   private playerCommandTarget: Assembly | null = null;
@@ -592,6 +594,19 @@ export class GameEngine {
           const sourceId = (laser as any).sourceAssemblyId;
           if (sourceId && body.assembly?.id === sourceId) continue;
 
+          // Turret laser: skip same-team assemblies and same-team structures
+          const sourceStructId = (laser as any).sourceStructureId as string | undefined;
+          const sourceTeam = (laser as any).sourceTeam as number | undefined;
+          if (sourceStructId) {
+            // Don't hit same-team assemblies
+            if (sourceTeam !== undefined && sourceTeam >= 0 && body.assembly) {
+              if (body.assembly.getTeam() === sourceTeam) continue;
+            }
+            // Don't hit same-team structures (including self)
+            const hitStructure = (body as any).structure as Structure | undefined;
+            if (hitStructure && sourceTeam !== undefined && hitStructure.team === sourceTeam) continue;
+          }
+
           // Skip friendly shields — same-team weapons pass through allied shield fields.
           if ((body as any).isShieldPart) {
             const shieldOwner = (body as any).parentAssembly as Assembly | undefined;
@@ -599,6 +614,8 @@ export class GameEngine {
               const sourceAssembly = this.assemblies.find(a => a.id === sourceId);
               if (sourceAssembly && sourceAssembly.getTeam() >= 0 && sourceAssembly.getTeam() === shieldOwner.getTeam()) continue;
             }
+            // Turret lasers also pass through friendly shields
+            if (shieldOwner && sourceTeam !== undefined && sourceTeam >= 0 && shieldOwner.getTeam() === sourceTeam) continue;
           }
 
           // Ray-edge intersection (Cramer's rule) against the body polygon
@@ -1141,8 +1158,14 @@ export class GameEngine {
     // Update camera — pilot mode or observer mode
     this.updateCamera(deltaTime);
 
-    // Update structure system (remove destroyed structures, etc.)
-    this.structureManager?.update(deltaTimeMs);
+    // Update structure system (remove destroyed structures, tick turrets)
+    if (this.structureManager) {
+      const turretLasers = this.structureManager.update(deltaTimeMs, this.assemblies);
+      for (const laser of turretLasers) {
+        this.lasers.push(laser);
+        Matter.World.add(this.world, laser);
+      }
+    }
 
     // Stream asteroid chunks in/out based on camera position
     if (this.asteroidFieldSystem) {
@@ -1534,9 +1557,10 @@ export class GameEngine {
         // Mouse is down in observer mode but drag not yet started
         this.render.canvas.style.cursor = 'grab';
       } else {
-        // Normal hover detection
+        // Normal hover detection (assemblies and structures)
         const hoveredAssembly = this.getAssemblyAtPosition(this.mousePosition.x, this.mousePosition.y);
         this.setHoveredAssembly(hoveredAssembly);
+        this.hoveredStructure = hoveredAssembly ? null : this.getStructureAtPosition(this.mousePosition.x, this.mousePosition.y);
 
         // Cursor style: grab hand over pickable blocks, crosshair otherwise
         if (hoveredAssembly && !hoveredAssembly.hasControlCenter() && hoveredAssembly !== this.playerAssembly) {
@@ -1894,6 +1918,10 @@ export class GameEngine {
       () => this.getSelectedAssembly(),
       (assembly) => this.getLockedTargets(assembly),
       (assembly) => this.controllerManager.getAIStateLabelForAssembly(assembly.id),
+      () => this.getHoveredStructure(),
+      () => this.getSelectedStructure(),
+      (structure) => this.structureManager?.gridManager.getGridPowerSummary(
+        structure, this.structureManager.getStructures()) ?? null,
     ));
     this.renderSystem.register(new AimingDebugRenderer(() => this.playerAssembly));
     this.renderSystem.register(new BlockPickupRenderer(
@@ -2072,7 +2100,7 @@ export class GameEngine {
 
     // Spawn the Core at the world origin for team 0 with starter resources
     const core = this.structureManager.spawnCore({ x: 0, y: 0 }, 0);
-    core.storedResources = 200;
+    core.storedResources = 500;
 
     // Spawn a ring of connectors around the Core and link them
     const connectorCount = 4;
@@ -2122,6 +2150,8 @@ export class GameEngine {
       this.assemblies.push(block);
       Matter.World.add(this.world, block.rootBody);
     }
+
+
   }
 
   private spawnSandboxScenario(): void {
@@ -2430,6 +2460,29 @@ export class GameEngine {
     return null;
   }
 
+  /** Find a structure at a screen position. */
+  private getStructureAtPosition(screenX: number, screenY: number): Structure | null {
+    if (!this.structureManager) return null;
+    const bounds = this.render.bounds;
+    const worldX = (screenX / this.render.canvas.width) * (bounds.max.x - bounds.min.x) + bounds.min.x;
+    const worldY = (screenY / this.render.canvas.height) * (bounds.max.y - bounds.min.y) + bounds.min.y;
+
+    let closest: Structure | null = null;
+    let closestDist = Infinity;
+    for (const s of this.structureManager.getStructures()) {
+      if (s.isDestroyed()) continue;
+      const dx = s.body.position.x - worldX;
+      const dy = s.body.position.y - worldY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const hitRadius = Math.max(s.definition.widthPx, s.definition.heightPx) / 2 + 10;
+      if (dist < hitRadius && dist < closestDist) {
+        closest = s;
+        closestDist = dist;
+      }
+    }
+    return closest;
+  }
+
   // @ts-expect-error - Currently unused but may be needed later
   private getAssemblyAtWorldPosition(worldX: number, worldY: number): Assembly | null {
     console.log('🔍 Looking for assembly at world position:', worldX, worldY);
@@ -2523,6 +2576,20 @@ export class GameEngine {
 
   public getHoveredAssembly(): Assembly | null {
     return this.hoveredAssembly;
+  }
+
+  public getSelectedStructure(): Structure | null {
+    if (this.selectedStructure?.isDestroyed()) {
+      this.selectedStructure = null;
+    }
+    return this.selectedStructure;
+  }
+
+  public getHoveredStructure(): Structure | null {
+    if (this.hoveredStructure?.isDestroyed()) {
+      this.hoveredStructure = null;
+    }
+    return this.hoveredStructure;
   }
 
   public turnPlayerToFaceTarget(targetX: number, targetY: number): void {
@@ -3069,6 +3136,7 @@ export class GameEngine {
     const clickedAssembly = this.getAssemblyAtPosition(screenX, screenY);
 
     if (clickedAssembly) {
+      this.selectedStructure = null; // Clear structure selection when clicking an assembly
       if (clickedAssembly === this.playerAssembly) {
         // Clicking the currently piloted ship deselects
         this.selectAssembly(null);
@@ -3080,12 +3148,20 @@ export class GameEngine {
         this.selectAssembly(clickedAssembly);
       }
     } else {
-      // Clicked empty space
-      if (this.playerAssembly) {
-        this.mousePosition = { x: screenX, y: screenY };
-        this.playerAssembly.cursorPosition = { x: worldX, y: worldY };
+      // Check for structure click
+      const clickedStructure = this.getStructureAtPosition(screenX, screenY);
+      if (clickedStructure) {
+        this.selectAssembly(null);
+        this.selectedStructure = clickedStructure;
+      } else {
+        // Clicked empty space
+        this.selectedStructure = null;
+        if (this.playerAssembly) {
+          this.mousePosition = { x: screenX, y: screenY };
+          this.playerAssembly.cursorPosition = { x: worldX, y: worldY };
+        }
+        this.selectAssembly(null);
       }
-      this.selectAssembly(null);
     }
   } private handleTargetClick(assembly: Assembly): void {
     if (!this.playerAssembly || this.playerAssembly.destroyed) return;

@@ -25,7 +25,7 @@ src/
     ship/       # Ship design: BlockSystem, ShipDesigner, ShipDesignManager
     systems/    # Singletons & services: PowerSystem, ToastSystem, BlockPickupSystem
     rendering/  # IRenderer, Viewport, and individual renderer classes
-    structures/ # Base-building: Structure, StructureCore, StructureManager
+    structures/ # Base-building: Structure, StructureCore, StructureTurret, StructureManager
   types/        # Shared TypeScript interfaces and enums (GameTypes.ts)
   data/         # Ship definitions (ships.json)
 ```
@@ -147,6 +147,8 @@ src/
 - `Structure` base class wraps a static Matter.js body with HP, team, power, storage, and **construction state**.
 - **Construction mechanic**: structures with `constructionCost > 0` start as scaffolding (10% HP, no power/storage). Resources are automatically delivered through the grid network via `GridManager.processConstructionPulse()`. Core has cost 0 (pre-built anchor). Repair uses the same system.
 - `StructureCore` provides baseline power + storage; `StructureManager` manages lifecycle; `GridManager` handles connections, routing, and construction/repair pulses.
+- **Power structures**: `SolarPanel` (+30 power), `Battery` (300 storage), `PowerStation` (+100 power). Passive — existing grid infrastructure handles aggregation.
+- **Defense structures**: `SmallTurret` and `LargeTurret` via `StructureTurret` subclass. Autonomous targeting + firing at enemies. Power-gated: negative grid `netPower` causes brownout (no firing). Turret lasers use `sourceStructureId`/`sourceTeam` for friendly-fire prevention in `setupLaserRaycast`.
 - `StructurePlacementSystem` (in `src/game/systems/`) handles place mode (click to spawn + auto-connect) and link mode. Escape and right-click cancel placement.
 - `StructureRenderer` (priority 15) draws structures with scaffolding visuals (cross-hatch, amber border, progress bar) when under construction. `ConnectionRenderer` (priority 13) draws network lines. `StructurePlacementRenderer` (priority 71) draws placement hologram + connection preview lines.
 - `StructuresPanel.tsx` is the RTS build menu (left sidebar). World-space readouts go on the structures themselves.

@@ -15,11 +15,8 @@ interface StructureCategory {
 
 const BUILD_CATEGORIES: StructureCategory[] = [
   { label: 'Infrastructure', types: ['Core', 'Connector'] },
-  // Future phases will add categories here:
-  // { label: 'Production', types: ['Refinery', 'Manufacturer', 'Recycler', 'AssemblyYard'] },
-  // { label: 'Defense',    types: ['SmallTurret', 'MediumTurret', 'LargeTurret'] },
-  // { label: 'Power',      types: ['SolarPanel', 'PowerStation', 'Battery'] },
-  // { label: 'Shield',     types: ['ShieldFence'] },
+  { label: 'Power', types: ['SolarPanel', 'Battery', 'PowerStation'] },
+  { label: 'Defense', types: ['SmallTurret', 'LargeTurret'] },
 ];
 
 // Left-side build panel
@@ -71,12 +68,7 @@ const COMING_SOON = [
   'Manufacturer',
   'Recycler',
   'Assembly Yard',
-  'Small Turret',
   'Medium Turret',
-  'Large Turret',
-  'Solar Panel',
-  'Power Station',
-  'Battery',
   'Shield Fence',
 ];
 
@@ -123,7 +115,7 @@ const StructuresPanel: React.FC<Props> = ({ gameEngine }) => {
             const def = STRUCTURE_DEFINITIONS[type];
             const isActive = activeType === type;
             return (
-              <Tooltip key={type} title={`${def.label} — HP: ${def.maxHealth}  Power: +${def.powerOutput}${def.constructionCost > 0 ? `  Cost: ${def.constructionCost}` : '  (Pre-built)'}`} placement="right" arrow>
+              <Tooltip key={type} title={`${def.label} — HP: ${def.maxHealth}${def.powerOutput > 0 ? `  Power: +${def.powerOutput}` : ''}${def.powerConsumption > 0 ? `  Power: -${def.powerConsumption}` : ''}${def.storageCapacity > 0 ? `  Storage: ${def.storageCapacity}` : ''}${def.weaponRange ? `  Range: ${def.weaponRange}` : ''}${def.constructionCost > 0 ? `  Cost: ${def.constructionCost}` : '  (Pre-built)'}`} placement="right" arrow>
                 <BuildButton
                   variant="outlined"
                   size="small"

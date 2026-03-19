@@ -2,6 +2,9 @@ import * as PIXI from 'pixi.js';
 import { IRenderer } from './IRenderer';
 import { Viewport } from './Viewport';
 import { Assembly } from '../core/Assembly';
+import { Structure } from '../structures/Structure';
+import { StructureTurret } from '../structures/StructureTurret';
+import { GridPowerSummary } from '../../types/GameTypes';
 
 interface BracketStyle {
   color: number;
@@ -125,6 +128,9 @@ export class ShipHighlightRenderer implements IRenderer {
     private readonly getSelectedAssembly: () => Assembly | null,
     private readonly getLockedTargets:    (assembly: Assembly) => Assembly[],
     private readonly getAIStateLabel:     (assembly: Assembly) => string | null,
+    private readonly getHoveredStructure?:  () => Structure | null,
+    private readonly getSelectedStructure?: () => Structure | null,
+    private readonly getStructureGridSummary?: (structure: Structure) => GridPowerSummary | null,
   ) {}
 
   init(stage: PIXI.Container): void {
@@ -166,6 +172,21 @@ export class ShipHighlightRenderer implements IRenderer {
       if (stateLabel) {
         this.renderAIStateLabel(selected, bounds, canvas, stateLabel);
       }
+    }
+
+    // Structure hover
+    const hoveredStruct = this.getHoveredStructure?.();
+    if (hoveredStruct && !hoveredStruct.isDestroyed()) {
+      this.renderStructureBrackets(hoveredStruct, bounds, canvas, { color: 0xffff00, alpha: 0.9, lineWidth: 1.5 });
+      this.renderStructureTooltip(hoveredStruct, bounds, canvas);
+    }
+
+    // Structure selection
+    const selectedStruct = this.getSelectedStructure?.();
+    if (selectedStruct && !selectedStruct.isDestroyed()) {
+      this.renderStructureBrackets(selectedStruct, bounds, canvas, { color: 0x00ffff, alpha: 0.9, lineWidth: 2 });
+      const pulse = Math.sin(timestamp / 300) * 0.3 + 0.7;
+      this.renderStructureBrackets(selectedStruct, bounds, canvas, { color: 0xffffff, alpha: pulse * 0.35, lineWidth: 1 });
     }
 
     // Locked targets
@@ -388,6 +409,152 @@ export class ShipHighlightRenderer implements IRenderer {
       screenX, screenY + bo + 15,
     );
     label.anchor.set(0.5, 0);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Structure highlight helpers
+  // ---------------------------------------------------------------------------
+
+  private structureScreenInfo(
+    structure: Structure,
+    bounds: { min: { x: number; y: number }; max: { x: number; y: number } },
+    canvas: HTMLCanvasElement,
+  ): { cx: number; cy: number; hs: number } {
+    const bw = bounds.max.x - bounds.min.x;
+    const bh = bounds.max.y - bounds.min.y;
+    const pos = structure.body.position;
+    const cx = (pos.x - bounds.min.x) / bw * canvas.width;
+    const cy = (pos.y - bounds.min.y) / bh * canvas.height;
+    const screenScale = canvas.width / bw;
+    const worldRadius = Math.max(structure.definition.widthPx, structure.definition.heightPx) / 2;
+    const hs = Math.max(MIN_HALF_SIZE, worldRadius * screenScale) + SCREEN_PAD;
+    return { cx, cy, hs };
+  }
+
+  private renderStructureBrackets(
+    structure: Structure,
+    bounds: { min: { x: number; y: number }; max: { x: number; y: number } },
+    canvas: HTMLCanvasElement,
+    style: BracketStyle,
+  ): void {
+    const { cx, cy, hs } = this.structureScreenInfo(structure, bounds, canvas);
+    const arm = Math.max(8, hs * CORNER_FRAC);
+    const l = cx - hs, r = cx + hs, t = cy - hs, b = cy + hs;
+
+    this.graphics.lineStyle(style.lineWidth, style.color, style.alpha);
+    this.graphics.moveTo(l, t + arm); this.graphics.lineTo(l, t); this.graphics.lineTo(l + arm, t);
+    this.graphics.moveTo(r - arm, t); this.graphics.lineTo(r, t); this.graphics.lineTo(r, t + arm);
+    this.graphics.moveTo(r, b - arm); this.graphics.lineTo(r, b); this.graphics.lineTo(r - arm, b);
+    this.graphics.moveTo(l + arm, b); this.graphics.lineTo(l, b); this.graphics.lineTo(l, b - arm);
+  }
+
+  private renderStructureTooltip(
+    structure: Structure,
+    bounds: { min: { x: number; y: number }; max: { x: number; y: number } },
+    canvas: HTMLCanvasElement,
+  ): void {
+    const { cx, cy, hs } = this.structureScreenInfo(structure, bounds, canvas);
+    const topSY = cy - hs;
+    const botSY = cy + hs;
+
+    const teamLabel = structure.team === 0 ? 'FRIENDLY' : structure.team >= 0 ? 'HOSTILE' : 'NEUTRAL';
+    const teamColor = structure.team === 0 ? STATUS_COLORS.friendly : structure.team >= 0 ? STATUS_COLORS.hostile : STATUS_COLORS.neutral;
+    const statusText = `[${teamLabel}]`;
+    const nameText = structure.definition.label;
+
+    // Build stat rows
+    interface StatRow { label: string; value: string; color: number; bold?: boolean }
+    const rows: StatRow[] = [];
+
+    // Health
+    const hpFrac = structure.getHealthFraction();
+    const hpColor = hpFrac > 0.5 ? 0x44ff88 : hpFrac > 0.25 ? 0xffee44 : 0xff3333;
+    rows.push({ label: 'HP', value: `${Math.round(structure.currentHealth)} / ${structure.maxHealth}`, color: hpColor });
+
+    // Construction progress
+    if (!structure.isConstructed) {
+      const pct = Math.round(structure.getConstructionFraction() * 100);
+      rows.push({ label: 'BUILD', value: `${pct}%`, color: 0xd4a843, bold: true });
+    }
+
+    // Power output/consumption
+    const def = structure.definition;
+    if (def.powerOutput > 0) {
+      rows.push({ label: 'PWR', value: `+${def.powerOutput}`, color: 0x44ff88 });
+    }
+    if (def.powerConsumption > 0) {
+      rows.push({ label: 'PWR', value: `-${def.powerConsumption}`, color: 0xff9900 });
+    }
+
+    // Storage
+    if (def.storageCapacity > 0) {
+      rows.push({ label: 'STR', value: `${Math.round(structure.storedResources)} / ${def.storageCapacity}`, color: 0x778899 });
+    }
+
+    // Grid summary (if available)
+    const summary = this.getStructureGridSummary?.(structure);
+    if (summary) {
+      const netColor = summary.netPower >= 0 ? 0x44ff88 : 0xff3333;
+      const netSign = summary.netPower >= 0 ? '+' : '';
+      rows.push({ label: 'NET', value: `${netSign}${summary.netPower} pwr`, color: netColor });
+    }
+
+    // Turret-specific stats
+    if (structure instanceof StructureTurret) {
+      if (def.weaponRange) rows.push({ label: 'RNG', value: `${def.weaponRange}`, color: 0x778899 });
+      if (def.fireRateMs) rows.push({ label: 'ROF', value: `${(1000 / def.fireRateMs).toFixed(1)}/s`, color: 0x778899 });
+    }
+
+    const PADDING = 8;
+    const LINE_H = 14;
+    const VALUE_GAP = 8;
+    const DIVIDER_H = 8;
+
+    const dimLabelStyle = { ...TOOLTIP_STYLE, fill: '#445566' } as PIXI.TextStyle;
+    const statusStyle = { ...TOOLTIP_STYLE, fill: toHex(teamColor), fontWeight: 'bold' } as PIXI.TextStyle;
+
+    const labelW = rows.length > 0 ? Math.max(...rows.map(r =>
+      PIXI.TextMetrics.measureText(r.label, r.bold ? TOOLTIP_BOLD_STYLE : TOOLTIP_STYLE).width)) : 0;
+    const maxValueW = rows.length > 0 ? Math.max(...rows.map(r =>
+      PIXI.TextMetrics.measureText(r.value, r.bold ? TOOLTIP_BOLD_STYLE : TOOLTIP_STYLE).width)) : 0;
+
+    const statusMeasure = PIXI.TextMetrics.measureText(statusText, TOOLTIP_BOLD_STYLE);
+    const nameMeasure = PIXI.TextMetrics.measureText(nameText, TOOLTIP_STYLE);
+    const headerW = statusMeasure.width + 4 + nameMeasure.width;
+
+    const contentW = Math.max(headerW, labelW + VALUE_GAP + maxValueW);
+    const tooltipW = contentW + PADDING * 2;
+    const tooltipH = LINE_H + DIVIDER_H + rows.length * LINE_H + PADDING;
+    const tooltipY = topSY - tooltipH - 4 > 4 ? topSY - tooltipH - 4 : botSY + 4;
+    const tooltipX = Math.max(4, Math.min(canvas.width - tooltipW - 4, cx - tooltipW / 2));
+
+    // Background
+    this.graphics.lineStyle(1, teamColor, 0.6);
+    this.graphics.beginFill(0x000814, 0.90);
+    this.graphics.drawRect(tooltipX, tooltipY, tooltipW, tooltipH);
+    this.graphics.endFill();
+
+    // Divider
+    const divY = tooltipY + LINE_H + DIVIDER_H / 2;
+    this.graphics.lineStyle(0.5, 0x223344, 1.0);
+    this.graphics.moveTo(tooltipX + PADDING, divY);
+    this.graphics.lineTo(tooltipX + tooltipW - PADDING, divY);
+
+    // Header: [TEAM] Structure Name
+    const headerY = tooltipY + LINE_H / 2 + PADDING / 2;
+    this.getPooledText(statusText, statusStyle, tooltipX + PADDING, headerY);
+    this.getPooledText(nameText, TOOLTIP_STYLE, tooltipX + PADDING + statusMeasure.width + 4, headerY);
+
+    // Stat rows
+    const valueX = tooltipX + PADDING + labelW + VALUE_GAP;
+    const rowStartY = tooltipY + LINE_H + DIVIDER_H + LINE_H / 2;
+
+    rows.forEach((row, i) => {
+      const rowY = rowStartY + i * LINE_H;
+      const valueStyle = { ...TOOLTIP_STYLE, fill: toHex(row.color), fontWeight: row.bold ? 'bold' : 'normal' } as PIXI.TextStyle;
+      this.getPooledText(row.label, dimLabelStyle, tooltipX + PADDING, rowY);
+      this.getPooledText(row.value, valueStyle, valueX, rowY);
+    });
   }
 
   /** Reuse / create a PIXI.Text from the pool. Returns the text object so callers can adjust anchor etc. */

@@ -875,7 +875,7 @@ export const SCENARIO_ORDER: ScenarioId[] = ['ship-builder', 'structures-sandbox
 
 // ── Structure System ─────────────────────────────────────────────────────────
 
-export type StructureType = 'Core' | 'Connector';
+export type StructureType = 'Core' | 'Connector' | 'SolarPanel' | 'Battery' | 'PowerStation' | 'SmallTurret' | 'LargeTurret';
 
 export interface StructureDefinition {
   type: StructureType;
@@ -891,6 +891,14 @@ export interface StructureDefinition {
   constructionCost: number; // total resource units required to fully build (0 = pre-built)
   color: string;            // primary fill color
   borderColor: string;      // stroke color
+  // Turret-specific fields (only for turret structure types)
+  weaponRange?: number;       // max engagement range in world units
+  fireRateMs?: number;        // ms between shots
+  laserDamage?: number;       // damage per hit
+  laserSpeed?: number;        // laser body speed in units per physics tick
+  laserColor?: string;        // laser fill color
+  laserHeight?: number;       // laser body thickness
+  aimRotationSpeed?: number;  // radians per second barrel can rotate
 }
 
 /** Max world-unit distance between two structures to form a connection. */
@@ -936,6 +944,95 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
     constructionCost: 20,
     color: '#1a1e24',
     borderColor: '#4488aa',
+  },
+  SolarPanel: {
+    type: 'SolarPanel',
+    label: 'Solar Panel',
+    widthPx: 50,
+    heightPx: 20,
+    shape: 'rect',
+    maxHealth: 300,
+    maxConnections: 2,
+    powerOutput: 30,
+    powerConsumption: 0,
+    storageCapacity: 0,
+    constructionCost: 40,
+    color: '#1a2a3a',
+    borderColor: '#4488cc',
+  },
+  Battery: {
+    type: 'Battery',
+    label: 'Battery',
+    widthPx: 40,
+    heightPx: 40,
+    shape: 'rect',
+    maxHealth: 800,
+    maxConnections: 3,
+    powerOutput: 0,
+    powerConsumption: 0,
+    storageCapacity: 300,
+    constructionCost: 60,
+    color: '#2a2020',
+    borderColor: '#cc8844',
+  },
+  PowerStation: {
+    type: 'PowerStation',
+    label: 'Power Station',
+    widthPx: 60,
+    heightPx: 60,
+    shape: 'rect',
+    maxHealth: 2000,
+    maxConnections: 4,
+    powerOutput: 100,
+    powerConsumption: 0,
+    storageCapacity: 100,
+    constructionCost: 120,
+    color: '#1a1a30',
+    borderColor: '#6644cc',
+  },
+  SmallTurret: {
+    type: 'SmallTurret',
+    label: 'Small Turret',
+    widthPx: 30,
+    heightPx: 30,
+    shape: 'rect',
+    maxHealth: 600,
+    maxConnections: 2,
+    powerOutput: 0,
+    powerConsumption: 15,
+    storageCapacity: 0,
+    constructionCost: 80,
+    color: '#2a1a1a',
+    borderColor: '#cc4444',
+    weaponRange: 500,
+    fireRateMs: 400,
+    laserDamage: 10,
+    laserSpeed: 50,
+    laserColor: '#ff4444',
+    laserHeight: 4,
+    aimRotationSpeed: 2.0,
+  },
+  LargeTurret: {
+    type: 'LargeTurret',
+    label: 'Large Turret',
+    widthPx: 50,
+    heightPx: 50,
+    shape: 'rect',
+    maxHealth: 1500,
+    maxConnections: 3,
+    powerOutput: 0,
+    powerConsumption: 35,
+    storageCapacity: 0,
+    constructionCost: 150,
+    color: '#2a1a1a',
+    borderColor: '#ff4444',
+    weaponRange: 700,
+    fireRateMs: 800,
+    laserDamage: 25,
+    laserSpeed: 60,
+    laserColor: '#ff6600',
+    laserHeight: 6,
+    aimRotationSpeed: 1.2,
   },
 };
 

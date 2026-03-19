@@ -8,6 +8,7 @@ Static structures for base-building, defense, resource production, and trading. 
 |-------|---------|
 | `Structure` | Base class — wraps a static Matter.js body with HP, team, power, and storage |
 | `StructureCore` | The foundational structure; provides baseline power + storage |
+| `StructureTurret` | Turret subclass — autonomous targeting, aiming, and laser firing |
 | `StructureManager` | Lifecycle manager — spawn, update, dispose; delegates networking to `GridManager` |
 | `Connection` | Data-only link between two structures (throughput, flash state) |
 | `GridManager` | Network graph, connected components (BFS), A* routing, power aggregation, pulse transfer |
@@ -29,11 +30,25 @@ Defined in `GameTypes.ts` as `STRUCTURE_DEFINITIONS: Record<StructureType, Struc
 3. If it needs special behavior, create a subclass extending `Structure`.
 4. Add a spawn method to `StructureManager`.
 
+## StructureTurret (Defense)
+
+- Extends `Structure` with targeting, aiming, and laser creation.
+- `SmallTurret` and `LargeTurret` types use this subclass (routed by `StructureManager.spawnStructure()`).
+- `StructureDefinition` turret fields: `weaponRange`, `fireRateMs`, `laserDamage`, `laserSpeed`, `laserColor`, `laserHeight`, `aimRotationSpeed`.
+- `updateTurret(deltaTimeMs, now, assemblies, gridSummary)` — called each frame by StructureManager; returns `Matter.Body[]` of lasers created.
+- **Targeting**: finds closest enemy assembly with control center within `weaponRange`; re-scans every 500ms.
+- **Aiming**: smoothly rotates `currentAimAngle` toward target at `aimRotationSpeed` rad/s; fires when within 0.15 rad.
+- **Power gating**: will not fire if `gridSummary.netPower < 0` — destroying power structures cripples turrets.
+- **Laser creation**: same pattern as `Assembly.createLaser()` — `isSensor`, `bullet: true`, inherits no velocity (static turret). Tags: `sourceStructureId`, `sourceTeam` for friendly-fire prevention.
+- **Friendly fire prevention**: `setupLaserRaycast` skips same-team assemblies, structures, and shields for turret lasers (checks `sourceStructureId` + `sourceTeam`).
+- `getBarrelEndpoint()` — returns world-space barrel tip position for rendering.
+
 ## StructureManager
 
 - Constructor takes `(addBodyToWorld, removeBodyFromWorld)` callbacks (same pattern as `AsteroidFieldSystem`).
 - `gridManager` is a **public** field — accessed by `GameEngine`, renderers, and `StructurePlacementSystem`.
-- `update(deltaTimeMs)` — removes destroyed structures, severs their connections via `gridManager.removeStructure()`, then calls `gridManager.update()`.
+- `update(deltaTimeMs, assemblies)` — removes destroyed structures, severs their connections, calls `gridManager.update()`, ticks turrets. Returns `Matter.Body[]` of turret lasers.
+- `spawnStructure()` routes `SmallTurret`/`LargeTurret` to `StructureTurret` constructor, `Core` to `StructureCore`, others to base `Structure`.
 - `getStructures()` — returns all structures (for rendering).
 - `getTeamCore(team)` / `getTeamGridSummary(team)` — convenience accessors for UI (delegates to `GridManager`).
 - `dispose()` — tears down all structures on scene change.

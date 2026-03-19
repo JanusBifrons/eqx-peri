@@ -2,7 +2,12 @@ import Matter from 'matter-js';
 import { GridPowerSummary, StructureType, Vector2 } from '../../types/GameTypes';
 import { Structure } from './Structure';
 import { StructureCore } from './StructureCore';
+import { StructureTurret } from './StructureTurret';
 import { GridManager } from './GridManager';
+import { Assembly } from '../core/Assembly';
+
+/** Structure types that are turrets and need the StructureTurret subclass. */
+const TURRET_TYPES: ReadonlySet<StructureType> = new Set(['SmallTurret', 'LargeTurret']);
 
 /**
  * Manages the lifecycle of all Structure instances in the world.
@@ -37,6 +42,8 @@ export class StructureManager {
     let structure: Structure;
     if (type === 'Core') {
       structure = new StructureCore(position, team);
+    } else if (TURRET_TYPES.has(type)) {
+      structure = new StructureTurret(type, position, team);
     } else {
       structure = new Structure(type, position, team);
     }
@@ -46,8 +53,11 @@ export class StructureManager {
     return structure;
   }
 
-  /** Per-frame update — remove destroyed structures, update grid manager. */
-  public update(deltaTimeMs: number): void {
+  /**
+   * Per-frame update — remove destroyed structures, update grid manager,
+   * tick turrets. Returns any laser bodies created by turrets this frame.
+   */
+  public update(deltaTimeMs: number, assemblies: Assembly[]): Matter.Body[] {
     // Remove destroyed structures and sever their connections
     for (let i = this.structures.length - 1; i >= 0; i--) {
       if (this.structures[i].isDestroyed()) {
@@ -60,6 +70,19 @@ export class StructureManager {
 
     // Update grid manager (topology rebuild, resource transfer pulses)
     this.gridManager.update(deltaTimeMs, this.structures);
+
+    // Tick turrets — collect any lasers they fire
+    const now = Date.now();
+    const newLasers: Matter.Body[] = [];
+    for (const s of this.structures) {
+      if (s instanceof StructureTurret) {
+        const summary = this.gridManager.getGridPowerSummary(s, this.structures);
+        const lasers = s.updateTurret(deltaTimeMs, now, assemblies, summary);
+        for (const l of lasers) newLasers.push(l);
+      }
+    }
+
+    return newLasers;
   }
 
   /** Return all structures (for rendering and UI). */

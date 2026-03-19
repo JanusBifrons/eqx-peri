@@ -2,6 +2,7 @@ import * as PIXI from 'pixi.js';
 import { IRenderer } from './IRenderer';
 import { Viewport } from './Viewport';
 import { Structure } from '../structures/Structure';
+import { StructureTurret } from '../structures/StructureTurret';
 import { StructureManager } from '../structures/StructureManager';
 import { GridPowerSummary } from '../../types/GameTypes';
 
@@ -25,6 +26,13 @@ const BUILDING_LABEL_STYLE = new PIXI.TextStyle({
   fontFamily: 'monospace',
   fontSize: 8,
   fill: '#d4a843',
+  fontWeight: 'bold',
+});
+
+const NO_POWER_STYLE = new PIXI.TextStyle({
+  fontFamily: 'monospace',
+  fontSize: 8,
+  fill: '#cc4444',
   fontWeight: 'bold',
 });
 
@@ -73,16 +81,29 @@ export class StructureRenderer implements IRenderer {
 
       const isBuilding = !structure.isConstructed;
 
-      // Body fill
+      // Body fill — under-construction structures get an opaque dark base
+      // to occlude connection lines underneath, then the scaffolding tint on top.
       const fillColor = isBuilding
         ? 0x1a1a10  // dark amber tint for scaffolding
         : PIXI.utils.string2hex(structure.definition.color);
       const borderColor = isBuilding
         ? CONSTRUCTION_BORDER_COLOR
         : PIXI.utils.string2hex(structure.definition.borderColor);
-      const fillAlpha = isBuilding ? 0.35 : 0.9;
       const borderWidth = Math.max(1.5, 2 * scale);
 
+      // Opaque dark base for under-construction (hides connection lines behind)
+      if (isBuilding) {
+        this.graphics.lineStyle(0);
+        this.graphics.beginFill(0x0a0a0a, 0.95);
+        if (structure.definition.shape === 'hex') {
+          this.drawHexagon(cx, cy, hw);
+        } else {
+          this.graphics.drawRect(cx - hw, cy - hh, hw * 2, hh * 2);
+        }
+        this.graphics.endFill();
+      }
+
+      const fillAlpha = isBuilding ? 0.45 : 0.9;
       this.graphics.lineStyle(borderWidth, borderColor, isBuilding ? 0.6 : 1);
       this.graphics.beginFill(fillColor, fillAlpha);
       if (structure.definition.shape === 'hex') {
@@ -135,48 +156,88 @@ export class StructureRenderer implements IRenderer {
         }
       }
 
-      // Core icon — small diamond in the center (only when constructed)
-      if (structure.type === 'Core' && !isBuilding) {
-        const iconR = Math.min(hw, hh) * CORE_ICON_FRACTION;
-        this.graphics.lineStyle(Math.max(1, 1.5 * scale), PIXI.utils.string2hex(structure.definition.borderColor), 0.9);
-        this.graphics.moveTo(cx, cy - iconR);
-        this.graphics.lineTo(cx + iconR, cy);
-        this.graphics.lineTo(cx, cy + iconR);
-        this.graphics.lineTo(cx - iconR, cy);
-        this.graphics.closePath();
+      // Structure-type-specific icons (only when constructed)
+      if (!isBuilding) {
+        if (structure.type === 'Core') {
+          // Diamond icon
+          const iconR = Math.min(hw, hh) * CORE_ICON_FRACTION;
+          this.graphics.lineStyle(Math.max(1, 1.5 * scale), PIXI.utils.string2hex(structure.definition.borderColor), 0.9);
+          this.graphics.moveTo(cx, cy - iconR);
+          this.graphics.lineTo(cx + iconR, cy);
+          this.graphics.lineTo(cx, cy + iconR);
+          this.graphics.lineTo(cx - iconR, cy);
+          this.graphics.closePath();
 
-        // World-space readout — power grid summary rendered below the Core
-        if (mgr) {
-          const summary = mgr.getTeamGridSummary(structure.team);
-          if (summary) {
-            const hpFrac = structure.getHealthFraction();
-            this.renderCoreReadout(cx, cy + hh, scale, summary, hpFrac < 1);
+          // World-space readout — power grid summary rendered below the Core
+          if (mgr) {
+            const summary = mgr.getTeamGridSummary(structure.team);
+            if (summary) {
+              const hpFrac = structure.getHealthFraction();
+              this.renderCoreReadout(cx, cy + hh, scale, summary, hpFrac < 1);
+            }
+          }
+        } else if (structure.type === 'SolarPanel') {
+          // Sun icon — small circle with rays
+          this.drawSolarIcon(cx, cy, Math.min(hw, hh) * 0.5, scale);
+        } else if (structure.type === 'Battery') {
+          // Battery icon — stacked horizontal bars
+          this.drawBatteryIcon(cx, cy, Math.min(hw, hh) * 0.45, scale);
+        } else if (structure.type === 'PowerStation') {
+          // Lightning bolt icon
+          this.drawLightningIcon(cx, cy, Math.min(hw, hh) * 0.4, scale);
+        } else if (structure instanceof StructureTurret) {
+          // Turret barrel
+          this.drawTurretBarrel(cx, cy, structure, scale);
+
+          // "NO POWER" indicator when brownout
+          if (mgr && scale > 0.4) {
+            const summary = mgr.getTeamGridSummary(structure.team);
+            if (summary && summary.netPower < 0) {
+              this.placeText('NO POWER', cx, cy - hh - 12, NO_POWER_STYLE, 0.5);
+            }
           }
         }
       }
     }
   }
 
-  /** Draw diagonal cross-hatch lines inside the structure shape. */
+  /** Draw diagonal cross-hatch lines clipped to the structure bounds. */
   private drawCrossHatch(
     cx: number, cy: number, hw: number, hh: number,
-    scale: number, isHex: boolean,
+    scale: number, _isHex: boolean,
   ): void {
     const spacing = Math.max(4, 6 * scale);
     const lineAlpha = 0.15;
     const lineWidth = Math.max(0.5, scale);
     this.graphics.lineStyle(lineWidth, CONSTRUCTION_BORDER_COLOR, lineAlpha);
 
-    const r = isHex ? hw : Math.max(hw, hh);
-    const steps = Math.ceil((r * 2) / spacing);
+    const left = cx - hw;
+    const right = cx + hw;
+    const top = cy - hh;
+    const bottom = cy + hh;
+    const diagLen = hw + hh;
+    const steps = Math.ceil((diagLen * 2) / spacing);
 
-    // Diagonal lines (top-left to bottom-right)
+    // Diagonal lines (top-left to bottom-right), clipped to the rect bounds
     for (let i = -steps; i <= steps; i++) {
       const offset = i * spacing;
-      const x1 = cx + offset - r;
-      const y1 = cy - r;
-      const x2 = cx + offset + r;
-      const y2 = cy + r;
+      // Line from (cx+offset-hh, top) to (cx+offset+hh, bottom) — slope 1:1
+      let x1 = cx + offset - hh;
+      let y1 = top;
+      let x2 = cx + offset + hh;
+      let y2 = bottom;
+
+      // Clip to left edge
+      if (x1 < left) { y1 += (left - x1); x1 = left; }
+      // Clip to right edge
+      if (x2 > right) { y2 -= (x2 - right); x2 = right; }
+      // Clip to top edge
+      if (y1 < top) { x1 += (top - y1); y1 = top; }
+      // Clip to bottom edge
+      if (y2 > bottom) { x2 -= (y2 - bottom); y2 = bottom; }
+
+      if (x1 >= right || x2 <= left || y1 >= bottom || y2 <= top) continue;
+
       this.graphics.moveTo(x1, y1);
       this.graphics.lineTo(x2, y2);
     }
@@ -237,6 +298,64 @@ export class StructureRenderer implements IRenderer {
     text.y = y;
     text.anchor.set(anchorX, 0);
     text.visible = true;
+  }
+
+  /** Draw a turret barrel line from center outward in the aim direction. */
+  private drawTurretBarrel(
+    cx: number, cy: number,
+    turret: StructureTurret,
+    scale: number,
+  ): void {
+    const barrelLen = (Math.max(turret.definition.widthPx, turret.definition.heightPx) / 2 + 6) * scale;
+    const barrelWidth = Math.max(2, 4 * scale);
+    const angle = turret.currentAimAngle;
+    const endX = cx + Math.cos(angle) * barrelLen;
+    const endY = cy + Math.sin(angle) * barrelLen;
+
+    this.graphics.lineStyle(barrelWidth, PIXI.utils.string2hex(turret.definition.borderColor), 0.9);
+    this.graphics.moveTo(cx, cy);
+    this.graphics.lineTo(endX, endY);
+
+    // Muzzle dot
+    this.graphics.lineStyle(0);
+    this.graphics.beginFill(PIXI.utils.string2hex(turret.definition.borderColor), 1);
+    this.graphics.drawCircle(endX, endY, barrelWidth * 0.6);
+    this.graphics.endFill();
+  }
+
+  /** Draw a small sun icon (circle + rays). */
+  private drawSolarIcon(cx: number, cy: number, r: number, scale: number): void {
+    const lw = Math.max(1, 1.5 * scale);
+    this.graphics.lineStyle(lw, 0x4488cc, 0.8);
+    this.graphics.drawCircle(cx, cy, r * 0.4);
+    // 8 rays
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      this.graphics.moveTo(cx + Math.cos(a) * r * 0.55, cy + Math.sin(a) * r * 0.55);
+      this.graphics.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+    }
+  }
+
+  /** Draw a battery icon (stacked bars). */
+  private drawBatteryIcon(cx: number, cy: number, r: number, scale: number): void {
+    const lw = Math.max(1, 1.5 * scale);
+    this.graphics.lineStyle(lw, 0xcc8844, 0.8);
+    const barH = r * 0.25;
+    const barW = r * 1.2;
+    for (let i = -1; i <= 1; i++) {
+      this.graphics.drawRect(cx - barW / 2, cy + i * barH * 1.5 - barH / 2, barW, barH);
+    }
+  }
+
+  /** Draw a lightning bolt icon. */
+  private drawLightningIcon(cx: number, cy: number, r: number, scale: number): void {
+    const lw = Math.max(1, 2 * scale);
+    this.graphics.lineStyle(lw, 0x6644cc, 0.9);
+    // Simple zigzag bolt
+    this.graphics.moveTo(cx + r * 0.15, cy - r);
+    this.graphics.lineTo(cx - r * 0.3, cy - r * 0.1);
+    this.graphics.lineTo(cx + r * 0.15, cy + r * 0.1);
+    this.graphics.lineTo(cx - r * 0.15, cy + r);
   }
 
   private drawHexagon(cx: number, cy: number, radius: number): void {
