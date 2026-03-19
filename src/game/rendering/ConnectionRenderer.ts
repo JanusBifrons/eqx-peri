@@ -29,6 +29,9 @@ export class ConnectionRenderer implements IRenderer {
     const now = Date.now();
 
     for (const conn of this.getConnections()) {
+      // Skip fence-to-fence connections — rendered as shield walls by StructureRenderer
+      if (conn.nodeA.type === 'ShieldFence' && conn.nodeB.type === 'ShieldFence') continue;
+
       const ax = sx(conn.nodeA.body.position.x);
       const ay = sy(conn.nodeA.body.position.y);
       const bx = sx(conn.nodeB.body.position.x);

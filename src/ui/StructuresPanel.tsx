@@ -14,9 +14,10 @@ interface StructureCategory {
 }
 
 const BUILD_CATEGORIES: StructureCategory[] = [
-  { label: 'Infrastructure', types: ['Core', 'Connector'] },
+  { label: 'Infrastructure', types: ['Core', 'Connector', 'ShieldFence'] },
   { label: 'Power', types: ['SolarPanel', 'Battery', 'PowerStation'] },
-  { label: 'Defense', types: ['SmallTurret', 'LargeTurret'] },
+  { label: 'Economy', types: ['Refinery', 'AssemblyYard'] },
+  { label: 'Defense', types: ['SmallTurret', 'MediumTurret', 'LargeTurret'] },
 ];
 
 // Left-side build panel
@@ -64,12 +65,8 @@ const BuildButton = styled(Button)(() => ({
 
 // Placeholder entries for future structure types (greyed out)
 const COMING_SOON = [
-  'Refinery',
   'Manufacturer',
   'Recycler',
-  'Assembly Yard',
-  'Medium Turret',
-  'Shield Fence',
 ];
 
 const StructuresPanel: React.FC<Props> = ({ gameEngine }) => {

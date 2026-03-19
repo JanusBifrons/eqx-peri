@@ -30,6 +30,7 @@ import { ParticleSystem } from '../systems/ParticleSystem';
 import { AsteroidFieldSystem } from '../systems/AsteroidFieldSystem';
 import { StructureManager } from '../structures/StructureManager';
 import { Structure } from '../structures/Structure';
+import { ShieldWall } from '../structures/ShieldWall';
 import { StructureRenderer } from '../rendering/StructureRenderer';
 import { ConnectionRenderer } from '../rendering/ConnectionRenderer';
 import { StructurePlacementSystem } from '../systems/StructurePlacementSystem';
@@ -223,6 +224,13 @@ export class GameEngine {
       (entity, hitAssembly, sourceAssemblyId) =>
         this.handleBeamEntityDestroyed(entity, hitAssembly, sourceAssemblyId)
     );
+    this.beamSystem.setShieldWallDamageCallback((wall, damage) => {
+      if (this.structureManager) {
+        this.structureManager.gridManager.resolveShieldWallDamage(
+          wall as ShieldWall, damage, this.structureManager.getStructures(),
+        );
+      }
+    });
     this.controllerManager.setBeamSystem(this.beamSystem);
 
     // Initialize block pickup system
@@ -466,6 +474,12 @@ export class GameEngine {
         } else if ((bodyB as any).isMissile && (bodyA as any).structure) {
           this.handleMissileHitStructure((bodyB as any).missile, (bodyA as any).structure as Structure);
         }
+        // Missile hitting a shield wall
+        else if ((bodyA as any).isMissile && (bodyB as any).shieldWall) {
+          this.handleMissileHitShieldWall((bodyA as any).missile, (bodyB as any).shieldWall);
+        } else if ((bodyB as any).isMissile && (bodyA as any).shieldWall) {
+          this.handleMissileHitShieldWall((bodyB as any).missile, (bodyA as any).shieldWall);
+        }
         // Check for entity-to-entity collisions (for flash effect)
         else if (bodyA.entity && bodyB.entity) {
           this.handleEntityCollision(bodyA.entity, bodyB.entity);
@@ -545,6 +559,8 @@ export class GameEngine {
       for (const ab of asteroidBodies) candidateBodies.push(ab);
       const structureBodies = this.structureManager?.getStructures().map(s => s.body) ?? [];
       for (const sb of structureBodies) candidateBodies.push(sb);
+      const wallBodies = this.structureManager?.gridManager.getShieldWalls().map(w => w.body) ?? [];
+      for (const wb of wallBodies) candidateBodies.push(wb);
 
       if (candidateBodies.length === 0) return;
 
@@ -605,6 +621,9 @@ export class GameEngine {
             // Don't hit same-team structures (including self)
             const hitStructure = (body as any).structure as Structure | undefined;
             if (hitStructure && sourceTeam !== undefined && hitStructure.team === sourceTeam) continue;
+            // Don't hit same-team shield walls
+            const hitWall = (body as any).shieldWall as ShieldWall | undefined;
+            if (hitWall && sourceTeam !== undefined && hitWall.team === sourceTeam) continue;
           }
 
           // Skip friendly shields — same-team weapons pass through allied shield fields.
@@ -653,6 +672,8 @@ export class GameEngine {
           this.handleLaserHit(laser, hitBody.entity, hitPos);
         } else if ((hitBody as any).structure) {
           this.handleLaserHitStructure(laser, (hitBody as any).structure as Structure, hitPos);
+        } else if ((hitBody as any).shieldWall) {
+          this.handleLaserHitShieldWall(laser, (hitBody as any).shieldWall, hitPos);
         } else if (hitBody.label === 'asteroid') {
           this.handleLaserHitAsteroid(laser, hitPos);
         }
@@ -906,6 +927,27 @@ export class GameEngine {
     structure.takeDamage(LASER_DAMAGE);
   }
 
+  private handleLaserHitShieldWall(laser: Matter.Body, wall: ShieldWall, hitPos: Matter.Vector): void {
+    const LASER_DAMAGE = 10;
+    Matter.World.remove(this.world, laser);
+    this.lasers = this.lasers.filter(l => l !== laser);
+    SoundSystem.getInstance().playLaserImpact();
+    this.particleSystem.emitImpact(hitPos.x, hitPos.y, 'laser');
+    this.structureManager?.gridManager.resolveShieldWallDamage(
+      wall, LASER_DAMAGE, this.structureManager.getStructures(),
+    );
+  }
+
+  private handleMissileHitShieldWall(missile: { age: number; launchCollisionDelay: number; getDamage: () => number; destroy: () => void }, wall: ShieldWall): void {
+    if (missile.age < missile.launchCollisionDelay) return;
+    SoundSystem.getInstance().playMissileExplosion();
+    this.particleSystem.emitImpact(wall.body.position.x, wall.body.position.y, 'missile');
+    this.structureManager?.gridManager.resolveShieldWallDamage(
+      wall, missile.getDamage(), this.structureManager.getStructures(),
+    );
+    missile.destroy();
+  }
+
   private handleMissileHitStructure(missile: { age: number; launchCollisionDelay: number; getDamage: () => number; destroy: () => void }, structure: Structure): void {
     if (missile.age < missile.launchCollisionDelay) return;
     SoundSystem.getInstance().playMissileExplosion();
@@ -1074,10 +1116,12 @@ export class GameEngine {
     this.updateCursorWorldPosition();
     this.structurePlacementSystem?.updateCursor(this.mouseWorldPos);
 
-    // Provide structure bodies to beam system for hit detection
-    this.controllerManager.setBeamExtraBodies(
-      this.structureManager?.getStructures().map(s => s.body) ?? [],
-    );
+    // Provide structure + shield wall bodies to beam system for hit detection
+    const beamExtraBodies = [
+      ...(this.structureManager?.getStructures().map(s => s.body) ?? []),
+      ...(this.structureManager?.gridManager.getShieldWalls().map(w => w.body) ?? []),
+    ];
+    this.controllerManager.setBeamExtraBodies(beamExtraBodies);
 
     // Update controllers (handles both player input and AI)
     const newLasers = this.controllerManager.update(deltaTime, this.assemblies);
@@ -1892,6 +1936,7 @@ export class GameEngine {
     this.renderSystem.register(new StructureRenderer(
       () => this.structureManager?.getStructures() ?? [],
       () => this.structureManager,
+      () => this.structureManager?.gridManager.getShieldWalls() ?? [],
     ));
     this.renderSystem.register(new BlockBodyRenderer(
       () => this.assemblies,
@@ -2052,6 +2097,34 @@ export class GameEngine {
     }
   }
 
+  /** Spawn a ship from an Assembly Yard. Picks a random small ship design. */
+  private spawnShipFromYard(yard: import('../structures/StructureAssemblyYard').StructureAssemblyYard): void {
+    // Pick a random ship design (prefer smaller/cheaper ships)
+    const ships = shipsData.ships.filter(
+      s => s.parts.length <= 12 && !s.parts.some(p => p.type.toLowerCase().includes('missile')),
+    );
+    if (ships.length === 0) return;
+
+    const shipDef = ships[Math.floor(Math.random() * ships.length)];
+    const angle = Math.random() * Math.PI * 2;
+    const dist = 120 + Math.random() * 80;
+    const x = yard.body.position.x + Math.cos(angle) * dist;
+    const y = yard.body.position.y + Math.sin(angle) * dist;
+
+    const assembly = new Assembly(shipDef.parts as EntityConfig[], { x, y });
+    assembly.setShipName(shipDef.name);
+    assembly.setTeam(yard.team);
+    this.assemblies.push(assembly);
+    Matter.World.add(this.world, assembly.rootBody);
+
+    if (assembly.hasControlCenter()) {
+      const ai = this.controllerManager.createAIController(assembly);
+      ai.setAggressionLevel(0.6 + Math.random() * 0.4);
+    }
+
+    yard.activeShipIds.push(assembly.id);
+  }
+
   /** Returns { index, name } for every ship in ships.json. */
   public getShipList(): { index: number; name: string }[] {
     return shipsData.ships.map((s, i) => ({ index: i, name: s.name }));
@@ -2091,11 +2164,17 @@ export class GameEngine {
       (body) => Matter.World.remove(this.world, body),
     );
 
+    // Wire up Assembly Yard ship spawning
+    this.structureManager.setShipSpawnCallback((yard) => {
+      this.spawnShipFromYard(yard);
+    });
+
     // Create the placement system for player interaction
     this.structurePlacementSystem = new StructurePlacementSystem(
       this.structureManager,
       this.structureManager.gridManager,
       0, // team 0
+      () => this.world.bodies,
     );
 
     // Spawn the Core at the world origin for team 0 with starter resources

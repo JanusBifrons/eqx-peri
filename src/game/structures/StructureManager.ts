@@ -3,22 +3,27 @@ import { GridPowerSummary, StructureType, Vector2 } from '../../types/GameTypes'
 import { Structure } from './Structure';
 import { StructureCore } from './StructureCore';
 import { StructureTurret } from './StructureTurret';
+import { StructureAssemblyYard } from './StructureAssemblyYard';
 import { GridManager } from './GridManager';
 import { Assembly } from '../core/Assembly';
 
 /** Structure types that are turrets and need the StructureTurret subclass. */
-const TURRET_TYPES: ReadonlySet<StructureType> = new Set(['SmallTurret', 'LargeTurret']);
+const TURRET_TYPES: ReadonlySet<StructureType> = new Set(['SmallTurret', 'MediumTurret', 'LargeTurret']);
 
 /**
  * Manages the lifecycle of all Structure instances in the world.
  * Handles spawning, per-frame updates, teardown, and delegates
  * networking/routing to the GridManager.
  */
+/** Callback invoked when an Assembly Yard has built a ship. */
+export type ShipSpawnCallback = (yard: StructureAssemblyYard) => void;
+
 export class StructureManager {
   private structures: Structure[] = [];
   private addBodyToWorld: (body: Matter.Body) => void;
   private removeBodyFromWorld: (body: Matter.Body) => void;
   public readonly gridManager: GridManager = new GridManager();
+  private onShipSpawn: ShipSpawnCallback | null = null;
 
   constructor(
     addBodyToWorld: (body: Matter.Body) => void,
@@ -26,6 +31,12 @@ export class StructureManager {
   ) {
     this.addBodyToWorld = addBodyToWorld;
     this.removeBodyFromWorld = removeBodyFromWorld;
+    this.gridManager.setWorldCallbacks(addBodyToWorld, removeBodyFromWorld);
+  }
+
+  /** Set the callback for when an Assembly Yard completes a ship build. */
+  public setShipSpawnCallback(callback: ShipSpawnCallback): void {
+    this.onShipSpawn = callback;
   }
 
   /** Spawn the Core structure for a team at the given position. */
@@ -44,6 +55,8 @@ export class StructureManager {
       structure = new StructureCore(position, team);
     } else if (TURRET_TYPES.has(type)) {
       structure = new StructureTurret(type, position, team);
+    } else if (type === 'AssemblyYard') {
+      structure = new StructureAssemblyYard(position, team);
     } else {
       structure = new Structure(type, position, team);
     }
@@ -79,6 +92,22 @@ export class StructureManager {
         const summary = this.gridManager.getGridPowerSummary(s, this.structures);
         const lasers = s.updateTurret(deltaTimeMs, now, assemblies, summary);
         for (const l of lasers) newLasers.push(l);
+      }
+    }
+
+    // Tick assembly yards — prune dead ships, trigger builds
+    for (const s of this.structures) {
+      if (s instanceof StructureAssemblyYard && s.isConstructed) {
+        // Prune ships that no longer exist
+        s.activeShipIds = s.activeShipIds.filter(id =>
+          assemblies.some(a => a.id === id && !a.destroyed),
+        );
+
+        const summary = this.gridManager.getGridPowerSummary(s, this.structures);
+        if (s.tickBuild(summary) && this.onShipSpawn) {
+          this.onShipSpawn(s);
+          s.resetBuild();
+        }
       }
     }
 

@@ -3,8 +3,10 @@ import { IRenderer } from './IRenderer';
 import { Viewport } from './Viewport';
 import { Structure } from '../structures/Structure';
 import { StructureTurret } from '../structures/StructureTurret';
+import { StructureAssemblyYard } from '../structures/StructureAssemblyYard';
+import { ShieldWall } from '../structures/ShieldWall';
 import { StructureManager } from '../structures/StructureManager';
-import { GridPowerSummary } from '../../types/GameTypes';
+import { GridPowerSummary, SHIELD_WALL_THICKNESS } from '../../types/GameTypes';
 
 const CORE_ICON_FRACTION = 0.35;
 const CONSTRUCTION_BORDER_COLOR = 0xd4a843; // amber for scaffolding
@@ -46,6 +48,7 @@ export class StructureRenderer implements IRenderer {
   constructor(
     private readonly getStructures: () => Structure[],
     private readonly getStructureManager: () => StructureManager | null,
+    private readonly getShieldWalls: () => ShieldWall[],
   ) {}
 
   init(stage: PIXI.Container): void {
@@ -156,6 +159,16 @@ export class StructureRenderer implements IRenderer {
         }
       }
 
+      // Shield fence icon (small shield emblem)
+      if (!isBuilding && structure.type === 'ShieldFence') {
+        this.drawShieldFenceIcon(cx, cy, Math.min(hw, hh) * 0.5, scale);
+      }
+
+      // Refinery icon (gear/refine)
+      if (!isBuilding && structure.type === 'Refinery') {
+        this.drawRefineryIcon(cx, cy, Math.min(hw, hh) * 0.4, scale);
+      }
+
       // Structure-type-specific icons (only when constructed)
       if (!isBuilding) {
         if (structure.type === 'Core') {
@@ -196,6 +209,98 @@ export class StructureRenderer implements IRenderer {
               this.placeText('NO POWER', cx, cy - hh - 12, NO_POWER_STYLE, 0.5);
             }
           }
+        } else if (structure instanceof StructureAssemblyYard) {
+          // Assembly Yard icon (wrench/gear)
+          this.drawAssemblyYardIcon(cx, cy, Math.min(hw, hh) * 0.35, scale);
+
+          // Build progress bar (orange)
+          const buildFrac = structure.getBuildFraction();
+          if (buildFrac > 0 && buildFrac < 1) {
+            const barW = Math.max(hw * 1.4, 14 * scale);
+            const barH = Math.max(2, 4 * scale);
+            const barY = cy + hh + barH * 2;
+            this.graphics.lineStyle(0);
+            this.graphics.beginFill(0x333333, 0.7);
+            this.graphics.drawRect(cx - barW / 2, barY, barW, barH);
+            this.graphics.endFill();
+            this.graphics.beginFill(0xcc8844, 0.9);
+            this.graphics.drawRect(cx - barW / 2, barY, barW * buildFrac, barH);
+            this.graphics.endFill();
+          }
+
+          // Ship count indicator
+          if (scale > 0.4) {
+            const count = structure.activeShipIds.length;
+            const cap = 3; // ASSEMBLY_YARD_MAX_SHIPS
+            this.placeText(`SHIPS: ${count}/${cap}`, cx, cy - hh - 12, READOUT_STYLE, 0.5);
+          }
+        }
+      }
+    }
+
+    // ── Shield walls ──────────────────────────────────────────────────────
+    this.renderShieldWalls(viewport);
+  }
+
+  /** Render shield wall barriers between connected ShieldFence posts. */
+  private renderShieldWalls(viewport: Viewport): void {
+    const walls = this.getShieldWalls();
+    if (walls.length === 0) return;
+
+    const { bounds, canvas } = viewport;
+    const bw = bounds.max.x - bounds.min.x;
+    const bh = bounds.max.y - bounds.min.y;
+    const sx = (wx: number): number => (wx - bounds.min.x) / bw * canvas.width;
+    const sy = (wy: number): number => (wy - bounds.min.y) / bh * canvas.height;
+    const scale = canvas.width / bw;
+
+    for (const wall of walls) {
+      const ax = sx(wall.postA.body.position.x);
+      const ay = sy(wall.postA.body.position.y);
+      const bx = sx(wall.postB.body.position.x);
+      const by = sy(wall.postB.body.position.y);
+
+      // Viewport culling
+      const margin = 20;
+      if (
+        (ax < -margin && bx < -margin) ||
+        (ax > canvas.width + margin && bx > canvas.width + margin) ||
+        (ay < -margin && by < -margin) ||
+        (ay > canvas.height + margin && by > canvas.height + margin)
+      ) continue;
+
+      const active = wall.isActive();
+      const wallWidth = Math.max(2, SHIELD_WALL_THICKNESS * scale);
+
+      if (active) {
+        // Outer glow
+        this.graphics.lineStyle(wallWidth * 2.5, 0x4488ff, 0.15);
+        this.graphics.moveTo(ax, ay);
+        this.graphics.lineTo(bx, by);
+
+        // Core wall line
+        this.graphics.lineStyle(wallWidth, 0x6699ff, 0.7);
+        this.graphics.moveTo(ax, ay);
+        this.graphics.lineTo(bx, by);
+
+        // Bright inner core
+        this.graphics.lineStyle(Math.max(1, wallWidth * 0.4), 0xaaccff, 0.9);
+        this.graphics.moveTo(ax, ay);
+        this.graphics.lineTo(bx, by);
+      } else {
+        // Inactive — dim flickering red line (stunned or unpowered)
+        const now = Date.now();
+        const flicker = Math.sin(now * 0.01) * 0.15 + 0.2;
+        this.graphics.lineStyle(wallWidth, 0x664444, flicker);
+        this.graphics.moveTo(ax, ay);
+        this.graphics.lineTo(bx, by);
+
+        // Status label
+        if (scale > 0.3) {
+          const midX = (ax + bx) / 2;
+          const midY = (ay + by) / 2;
+          const label = wall.isStunned ? 'STUNNED' : 'NO POWER';
+          this.placeText(label, midX, midY - wallWidth - 10, NO_POWER_STYLE, 0.5);
         }
       }
     }
@@ -356,6 +461,43 @@ export class StructureRenderer implements IRenderer {
     this.graphics.lineTo(cx - r * 0.3, cy - r * 0.1);
     this.graphics.lineTo(cx + r * 0.15, cy + r * 0.1);
     this.graphics.lineTo(cx - r * 0.15, cy + r);
+  }
+
+  /** Draw an assembly yard icon (crossed wrench). */
+  private drawAssemblyYardIcon(cx: number, cy: number, r: number, scale: number): void {
+    const lw = Math.max(1, 1.5 * scale);
+    this.graphics.lineStyle(lw, 0xcc8844, 0.8);
+    // Crossed wrenches
+    this.graphics.moveTo(cx - r, cy - r);
+    this.graphics.lineTo(cx + r, cy + r);
+    this.graphics.moveTo(cx + r, cy - r);
+    this.graphics.lineTo(cx - r, cy + r);
+    // Wrench heads
+    this.graphics.drawCircle(cx - r, cy - r, r * 0.25);
+    this.graphics.drawCircle(cx + r, cy + r, r * 0.25);
+  }
+
+  /** Draw a shield fence icon (small chevron/shield shape). */
+  private drawShieldFenceIcon(cx: number, cy: number, r: number, scale: number): void {
+    const lw = Math.max(1, 1.5 * scale);
+    this.graphics.lineStyle(lw, 0x4488ff, 0.9);
+    // Shield-shaped chevron
+    this.graphics.moveTo(cx - r * 0.5, cy - r * 0.6);
+    this.graphics.lineTo(cx, cy + r * 0.6);
+    this.graphics.lineTo(cx + r * 0.5, cy - r * 0.6);
+  }
+
+  /** Draw a refinery icon (small circle with arrow). */
+  private drawRefineryIcon(cx: number, cy: number, r: number, scale: number): void {
+    const lw = Math.max(1, 1.5 * scale);
+    this.graphics.lineStyle(lw, 0x44cc44, 0.8);
+    this.graphics.drawCircle(cx, cy, r * 0.5);
+    // Small upward arrow inside
+    this.graphics.moveTo(cx, cy - r * 0.3);
+    this.graphics.lineTo(cx, cy + r * 0.3);
+    this.graphics.moveTo(cx - r * 0.2, cy);
+    this.graphics.lineTo(cx, cy - r * 0.3);
+    this.graphics.lineTo(cx + r * 0.2, cy);
   }
 
   private drawHexagon(cx: number, cy: number, radius: number): void {

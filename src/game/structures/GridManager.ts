@@ -1,6 +1,8 @@
-import { CONNECTION_MAX_RANGE, GridPowerSummary, TRANSFER_PULSE_MS, CONSTRUCTION_PULSE_AMOUNT, REPAIR_PULSE_AMOUNT } from '../../types/GameTypes';
+import Matter from 'matter-js';
+import { CONNECTION_MAX_RANGE, GridPowerSummary, TRANSFER_PULSE_MS, CONSTRUCTION_PULSE_AMOUNT, REPAIR_PULSE_AMOUNT, SHIELD_WALL_POWER_SPIKE_MS } from '../../types/GameTypes';
 import { Structure } from './Structure';
 import { Connection } from './Connection';
+import { ShieldWall } from './ShieldWall';
 
 /** A resource transfer request queued for the next pulse. */
 interface TransferRequest {
@@ -32,6 +34,20 @@ export class GridManager {
   private transferQueue: TransferRequest[] = [];
   private lastPulseTime: number = 0;
 
+  /** Shield walls keyed by connection ID. */
+  private shieldWalls: Map<string, ShieldWall> = new Map();
+  private addBodyToWorld: ((body: Matter.Body) => void) | null = null;
+  private removeBodyFromWorld: ((body: Matter.Body) => void) | null = null;
+
+  /** Set the physics world callbacks for shield wall body management. */
+  public setWorldCallbacks(
+    addBody: (body: Matter.Body) => void,
+    removeBody: (body: Matter.Body) => void,
+  ): void {
+    this.addBodyToWorld = addBody;
+    this.removeBodyFromWorld = removeBody;
+  }
+
   // ── Connection management ──────────────────────────────────────────────
 
   /** Get the number of connections a structure currently has. */
@@ -52,13 +68,27 @@ export class GridManager {
   }
 
   /** Check whether two structures can be linked.
-   *  At least one side must be a Connector (network node) — two non-connector
-   *  structures cannot directly link to each other. */
+   *  Rules:
+   *  - At least one side must be a Connector, OR both sides are ShieldFence.
+   *  - ShieldFence can only connect to Connectors or other ShieldFences.
+   *  - All other structures connect only to Connectors. */
   public canConnect(a: Structure, b: Structure): boolean {
     if (a === b) return false;
     if (this.areConnected(a, b)) return false;
-    // At least one must be a Connector
-    if (a.type !== 'Connector' && b.type !== 'Connector') return false;
+
+    // Connection type validation
+    const aIsConnector = a.type === 'Connector';
+    const bIsConnector = b.type === 'Connector';
+    const aIsFence = a.type === 'ShieldFence';
+    const bIsFence = b.type === 'ShieldFence';
+
+    // ShieldFence can only connect to Connectors or other ShieldFences
+    if (aIsFence && !bIsConnector && !bIsFence) return false;
+    if (bIsFence && !aIsConnector && !aIsFence) return false;
+
+    // General rule: at least one Connector, OR both are ShieldFence
+    if (!aIsConnector && !bIsConnector && !(aIsFence && bIsFence)) return false;
+
     if (!this.canAddConnection(a) || !this.canAddConnection(b)) return false;
     const dx = a.body.position.x - b.body.position.x;
     const dy = a.body.position.y - b.body.position.y;
@@ -74,15 +104,32 @@ export class GridManager {
     this.getOrCreateAdj(a.id).push(conn);
     this.getOrCreateAdj(b.id).push(conn);
     this.topologyDirty = true;
+
+    // If both sides are ShieldFence AND both are constructed, spawn a physical wall.
+    // Unconstructed fences get their wall created later via updateShieldWallActivation().
+    if (a.type === 'ShieldFence' && b.type === 'ShieldFence'
+        && a.isConstructed && b.isConstructed && this.addBodyToWorld) {
+      const wall = new ShieldWall(a, b);
+      this.shieldWalls.set(conn.id, wall);
+      this.addBodyToWorld(wall.body);
+    }
+
     return conn;
   }
 
-  /** Remove a specific connection. */
+  /** Remove a specific connection and its shield wall (if any). */
   public disconnect(conn: Connection): void {
     this.connections = this.connections.filter(c => c !== conn);
     this.removeFromAdj(conn.nodeA.id, conn);
     this.removeFromAdj(conn.nodeB.id, conn);
     this.topologyDirty = true;
+
+    // Remove associated shield wall
+    const wall = this.shieldWalls.get(conn.id);
+    if (wall && this.removeBodyFromWorld) {
+      this.removeBodyFromWorld(wall.body);
+      this.shieldWalls.delete(conn.id);
+    }
   }
 
   /** Remove all connections to a structure (e.g., when it's destroyed). */
@@ -128,6 +175,9 @@ export class GridManager {
       while (queue.length > 0) {
         const current = queue.shift()!;
         members.push(current);
+        // Only traverse through constructed structures — unconstructed ones are
+        // reachable as destinations but cannot relay resources/power further.
+        if (!current.isConstructed) continue;
         const conns = this.adjacency.get(current.id) ?? [];
         for (const conn of conns) {
           const neighbor = conn.getOtherNode(current);
@@ -238,6 +288,10 @@ export class GridManager {
 
       openSet.delete(currentId);
       const current = structureById.get(currentId)!;
+
+      // Unconstructed structures can be destinations but cannot relay — don't expand
+      if (!current.isConstructed && currentId !== to.id) continue;
+
       const conns = this.adjacency.get(currentId) ?? [];
 
       for (const conn of conns) {
@@ -329,16 +383,146 @@ export class GridManager {
   public update(deltaTimeMs: number, allStructures: Structure[]): void {
     this.rebuildComponents(allStructures);
 
-    // Pulse-based resource transfer + construction/repair
+    // Manage shield wall stun state — reactivate walls whose stun has expired
+    this.updateShieldWallStuns();
+
+    // Create/remove shield walls based on fence construction + power state
+    this.updateShieldWallActivation(allStructures);
+
+    // Pulse-based resource transfer + construction/repair + generation
     const now = Date.now();
     if (now - this.lastPulseTime >= TRANSFER_PULSE_MS) {
       this.lastPulseTime = now;
+      this.processResourceGeneration(allStructures);
+      this.processResourceDistribution(allStructures);
       this.processPulse(allStructures);
       this.processConstructionPulse(allStructures);
     }
 
     // Suppress unused warning — deltaTimeMs reserved for future tick-rate-independent logic
     void deltaTimeMs;
+  }
+
+  /** Reactivate stunned shield walls whose cooldown has expired. */
+  private updateShieldWallStuns(): void {
+    const now = Date.now();
+    for (const wall of this.shieldWalls.values()) {
+      if (wall.isStunned && now >= wall.stunUntil) {
+        wall.isStunned = false;
+        // Only re-add body if the wall is powered — updateShieldWallActivation
+        // will handle re-adding when power is restored if currently unpowered.
+        if (wall.isPowered && this.addBodyToWorld) {
+          this.addBodyToWorld(wall.body);
+        }
+      }
+    }
+  }
+
+  /**
+   * Create/remove shield walls based on fence construction and power state.
+   * Walls only exist when BOTH fence posts are constructed.
+   * Walls go offline (body removed) when grid netPower ≤ 0.
+   */
+  private updateShieldWallActivation(allStructures: Structure[]): void {
+    for (const conn of this.connections) {
+      const a = conn.nodeA;
+      const b = conn.nodeB;
+      if (a.type !== 'ShieldFence' || b.type !== 'ShieldFence') continue;
+
+      const shouldExist = a.isConstructed && b.isConstructed;
+      const exists = this.shieldWalls.has(conn.id);
+
+      if (shouldExist && !exists && this.addBodyToWorld) {
+        // Both posts just finished construction — spawn the wall
+        const wall = new ShieldWall(a, b);
+        this.shieldWalls.set(conn.id, wall);
+        // Check power before adding body — don't add if unpowered
+        const summary = this.getGridPowerSummary(a, allStructures);
+        if (summary.netPower > 0) {
+          this.addBodyToWorld(wall.body);
+          wall.isPowered = true;
+        } else {
+          wall.isPowered = false;
+        }
+      } else if (!shouldExist && exists) {
+        // One post was un-constructed (shouldn't normally happen, but defensive)
+        const wall = this.shieldWalls.get(conn.id)!;
+        if (this.removeBodyFromWorld && wall.isPowered && !wall.isStunned) {
+          this.removeBodyFromWorld(wall.body);
+        }
+        this.shieldWalls.delete(conn.id);
+      } else if (exists) {
+        // Wall exists — check power state
+        const wall = this.shieldWalls.get(conn.id)!;
+        if (wall.isStunned) continue; // Stun takes priority, handled by updateShieldWallStuns
+
+        const summary = this.getGridPowerSummary(a, allStructures);
+        const hasPower = summary.netPower > 0;
+
+        if (wall.isPowered && !hasPower) {
+          // Power lost — take wall offline
+          wall.isPowered = false;
+          if (this.removeBodyFromWorld) {
+            this.removeBodyFromWorld(wall.body);
+          }
+        } else if (!wall.isPowered && hasPower) {
+          // Power restored — bring wall back online
+          wall.isPowered = true;
+          if (this.addBodyToWorld) {
+            this.addBodyToWorld(wall.body);
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Resolve damage against a shield wall using the grid's power system.
+   *
+   * Step 1: If damage ≤ grid netPower → fully absorbed, no effect.
+   * Step 2: If damage > netPower → excess drains Battery storedResources.
+   * Step 3: If damage > netPower + battery reserves → wall is stunned.
+   *
+   * All damage applies a temporary power spike to the fence posts, stressing the grid.
+   */
+  public resolveShieldWallDamage(wall: ShieldWall, damage: number, allStructures: Structure[]): void {
+    if (wall.isStunned) return;
+
+    // Apply power spike to both fence posts — stresses the grid for the spike duration.
+    // Multiple simultaneous hits stack, potentially pushing netPower negative and
+    // browning out turrets / other consumers.
+    wall.postA.applyPowerSpike(damage, SHIELD_WALL_POWER_SPIKE_MS);
+    wall.postB.applyPowerSpike(damage, SHIELD_WALL_POWER_SPIKE_MS);
+
+    const summary = this.getGridPowerSummary(wall.postA, allStructures);
+
+    // Step 1: grid generation absorbs the hit entirely
+    const netPower = Math.max(0, summary.netPower);
+    if (damage <= netPower) return;
+
+    // Step 2: excess drains Battery structures across the grid
+    let excess = damage - netPower;
+    const members = this.getGridMembers(wall.postA);
+
+    for (const s of members) {
+      if (s.team !== wall.team) continue;
+      if (s.type !== 'Battery') continue;
+      if (s.storedResources <= 0) continue;
+
+      const drain = Math.min(excess, s.storedResources);
+      s.storedResources -= drain;
+      excess -= drain;
+      if (excess <= 0) break;
+    }
+
+    // Step 3: if batteries couldn't absorb the remainder, stun the wall
+    if (excess > 0) {
+      wall.stun();
+      // Remove the wall body from physics so things pass through
+      if (this.removeBodyFromWorld) {
+        this.removeBodyFromWorld(wall.body);
+      }
+    }
   }
 
   /**
@@ -371,6 +555,7 @@ export class GridManager {
         if (available <= 0) continue;
 
         // Deliver resources
+        const wasUnbuilt = !structure.isConstructed;
         const consumed = isBuilding
           ? structure.applyConstructionResources(available)
           : structure.applyRepairResources(available);
@@ -383,6 +568,12 @@ export class GridManager {
           for (const conn of route.connections) {
             conn.flash();
           }
+
+          // Structure just completed construction — rebuild topology so it can
+          // relay resources/power to structures beyond it.
+          if (wasUnbuilt && structure.isConstructed) {
+            this.topologyDirty = true;
+          }
         }
 
         if (remaining <= 0) break;
@@ -390,10 +581,83 @@ export class GridManager {
     }
   }
 
+  /**
+   * Redistribute resources from structures with stored resources to grid members
+   * that have available storage capacity. This moves generated resources (e.g. from
+   * Refinery) into storage structures (Core, Battery) across the grid.
+   */
+  private processResourceDistribution(allStructures: Structure[]): void {
+    for (const source of allStructures) {
+      if (source.storedResources <= 0) continue;
+      if (!source.isConstructed || source.isDestroyed()) continue;
+
+      // Only distribute from structures that don't primarily need their own resources
+      // (i.e., skip structures under construction or needing repair — those keep theirs)
+      if (source.needsConstruction() || source.needsRepair()) continue;
+
+      const members = this.getGridMembers(source);
+
+      for (const dest of members) {
+        if (dest === source) continue;
+        if (dest.team !== source.team) continue;
+        if (!dest.isConstructed || dest.isDestroyed()) continue;
+
+        const destCap = dest.getStorageCapacity();
+        const destSpace = destCap - dest.storedResources;
+        if (destSpace <= 0) continue;
+
+        const route = this.findRoute(source, dest);
+        if (!route) continue;
+
+        const bottleneck = Math.min(...route.connections.map(c => c.throughput));
+        const transfer = Math.min(source.storedResources, destSpace, bottleneck);
+        if (transfer <= 0) continue;
+
+        source.storedResources -= transfer;
+        dest.storedResources += transfer;
+
+        // Flash connections along the route
+        for (const conn of route.connections) {
+          conn.flash();
+        }
+
+        if (source.storedResources <= 0) break;
+      }
+    }
+  }
+
+  /**
+   * Passive resource generation for structures with resourceGenerationRate (e.g. Refinery).
+   * Generates into the structure's own storedResources buffer, capped at storageCapacity.
+   * Power-gated: skips if grid netPower < 0.
+   */
+  private processResourceGeneration(allStructures: Structure[]): void {
+    for (const s of allStructures) {
+      const rate = s.definition.resourceGenerationRate;
+      if (!rate || rate <= 0) continue;
+      if (!s.isConstructed || s.isDestroyed()) continue;
+
+      // Power gating — same check as turrets
+      const summary = this.getGridPowerSummary(s, allStructures);
+      if (summary.netPower < 0) continue;
+
+      const cap = s.getStorageCapacity();
+      const space = cap - s.storedResources;
+      if (space <= 0) continue;
+
+      s.storedResources += Math.min(rate, space);
+    }
+  }
+
   // ── Accessors ──────────────────────────────────────────────────────────
 
   public getConnections(): Connection[] {
     return this.connections;
+  }
+
+  /** Return all active shield walls. */
+  public getShieldWalls(): ShieldWall[] {
+    return Array.from(this.shieldWalls.values());
   }
 
   /** Force topology rebuild on next update (e.g., after external structure removal). */

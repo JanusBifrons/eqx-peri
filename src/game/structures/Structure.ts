@@ -30,6 +30,11 @@ export class Structure {
   /** Whether the structure is fully built and operational. */
   public isConstructed: boolean = false;
 
+  /** Temporary power consumption spike (e.g. shield wall absorbing damage). */
+  private powerSpikeAmount: number = 0;
+  /** Timestamp (ms) when the current power spike expires. */
+  private powerSpikeUntil: number = 0;
+
   constructor(type: StructureType, position: Vector2, team: number) {
     this.id = `structure-${nextStructureId++}`;
     this.type = type;
@@ -161,7 +166,30 @@ export class Structure {
   }
 
   public getPowerConsumption(): number {
-    return this.isConstructed ? this.definition.powerConsumption : 0;
+    if (!this.isConstructed) return 0;
+    let consumption = this.definition.powerConsumption;
+    // Include temporary spike from shield wall damage absorption
+    if (this.powerSpikeAmount > 0 && Date.now() < this.powerSpikeUntil) {
+      consumption += this.powerSpikeAmount;
+    } else {
+      this.powerSpikeAmount = 0;
+    }
+    return consumption;
+  }
+
+  /**
+   * Apply a temporary power consumption spike (e.g. shield wall absorbing damage).
+   * Stacks additively with existing spikes. Resets the timer on each hit.
+   */
+  public applyPowerSpike(amount: number, durationMs: number): void {
+    const now = Date.now();
+    if (now < this.powerSpikeUntil) {
+      // Stack with existing spike
+      this.powerSpikeAmount += amount;
+    } else {
+      this.powerSpikeAmount = amount;
+    }
+    this.powerSpikeUntil = now + durationMs;
   }
 
   public getStorageCapacity(): number {

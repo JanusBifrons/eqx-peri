@@ -1,3 +1,4 @@
+import Matter from 'matter-js';
 import { StructureType, CONNECTION_MAX_RANGE, STRUCTURE_DEFINITIONS, Vector2 } from '../../types/GameTypes';
 import { Structure } from '../structures/Structure';
 import { StructureManager } from '../structures/StructureManager';
@@ -21,11 +22,18 @@ export class StructurePlacementSystem {
   private structureManager: StructureManager;
   private gridManager: GridManager;
   private team: number;
+  private getWorldBodies: () => Matter.Body[];
 
-  constructor(structureManager: StructureManager, gridManager: GridManager, team: number) {
+  constructor(
+    structureManager: StructureManager,
+    gridManager: GridManager,
+    team: number,
+    getWorldBodies: () => Matter.Body[] = () => [],
+  ) {
     this.structureManager = structureManager;
     this.gridManager = gridManager;
     this.team = team;
+    this.getWorldBodies = getWorldBodies;
   }
 
   // ── Mode control (called from UI) ──────────────────────────────────────
@@ -81,13 +89,24 @@ export class StructurePlacementSystem {
   private handlePlaceClick(worldPos: Vector2): boolean {
     if (this.mode.kind !== 'place') return false;
 
+    // Block placement if the position overlaps existing objects
+    if (this.isPlacementBlocked(worldPos, this.mode.structureType)) return true;
+
     const placed = this.structureManager.spawnStructure(this.mode.structureType, worldPos, this.team);
 
-    // Auto-connect to all nearby structures within range
-    for (const s of this.structureManager.getStructures()) {
-      if (s === placed) continue;
-      if (this.gridManager.canConnect(placed, s)) {
-        this.gridManager.connect(placed, s);
+    // Auto-connect to nearby structures, closest first
+    const candidates = this.structureManager.getStructures()
+      .filter(s => s !== placed)
+      .map(s => {
+        const dx = s.body.position.x - worldPos.x;
+        const dy = s.body.position.y - worldPos.y;
+        return { structure: s, dist: Math.sqrt(dx * dx + dy * dy) };
+      })
+      .sort((a, b) => a.dist - b.dist);
+
+    for (const { structure } of candidates) {
+      if (this.gridManager.canConnect(placed, structure)) {
+        this.gridManager.connect(placed, structure);
       }
     }
 
@@ -135,6 +154,62 @@ export class StructurePlacementSystem {
     return closest;
   }
 
+  // ── Placement validity ───────────────────────────────────────────────
+
+  /** Check if the cursor position is blocked by existing objects. */
+  public isPlacementBlocked(worldPos: Vector2, type: StructureType): boolean {
+    const def = STRUCTURE_DEFINITIONS[type];
+    const hw = def.widthPx / 2;
+    const hh = def.heightPx / 2;
+
+    // Check overlap with existing structures (AABB)
+    for (const s of this.structureManager.getStructures()) {
+      const sHw = s.definition.widthPx / 2;
+      const sHh = s.definition.heightPx / 2;
+      const dx = Math.abs(s.body.position.x - worldPos.x);
+      const dy = Math.abs(s.body.position.y - worldPos.y);
+      if (dx < hw + sHw && dy < hh + sHh) return true;
+    }
+
+    // Check overlap with active shield walls (inactive walls have no physics body)
+    for (const wall of this.gridManager.getShieldWalls()) {
+      if (!wall.isActive()) continue;
+      const wallBounds = wall.body.bounds;
+      const wMinX = wallBounds.min.x;
+      const wMinY = wallBounds.min.y;
+      const wMaxX = wallBounds.max.x;
+      const wMaxY = wallBounds.max.y;
+      if (
+        worldPos.x + hw > wMinX && worldPos.x - hw < wMaxX &&
+        worldPos.y + hh > wMinY && worldPos.y - hh < wMaxY
+      ) return true;
+    }
+
+    // Check overlap with world bodies (assemblies, entities, asteroids, etc.)
+    // Use Matter.Query.region for efficient broad-phase check
+    const placementBounds = {
+      min: { x: worldPos.x - hw, y: worldPos.y - hh },
+      max: { x: worldPos.x + hw, y: worldPos.y + hh },
+    };
+    const worldBodies = this.getWorldBodies();
+    const overlapping = Matter.Query.region(worldBodies, placementBounds);
+    // Filter out lasers and sensors — they shouldn't block placement
+    for (const body of overlapping) {
+      if (body.isSensor) continue;
+      if (body.isLaser) continue;
+      if (body.label === 'cursor') continue;
+      return true;
+    }
+
+    return false;
+  }
+
+  /** Whether the current cursor placement is valid (not blocked). */
+  public isCurrentPlacementValid(): boolean {
+    if (this.mode.kind !== 'place') return true;
+    return !this.isPlacementBlocked(this.cursorWorldPos, this.mode.structureType);
+  }
+
   // ── Preview data for rendering ─────────────────────────────────────────
 
   /** Get the source node for link preview line (null if not in link mode). */
@@ -178,14 +253,21 @@ export class StructurePlacementSystem {
     const placingDef = STRUCTURE_DEFINITIONS[this.mode.structureType];
     const maxConns = placingDef.maxConnections;
 
-    const results: { structure: Structure; valid: boolean }[] = [];
-    let validCount = 0;
-
+    // Collect candidates within range, sorted by distance (closest first)
+    const inRange: { structure: Structure; dist: number }[] = [];
     for (const s of this.structureManager.getStructures()) {
       const dx = s.body.position.x - cursor.x;
       const dy = s.body.position.y - cursor.y;
-      if (Math.sqrt(dx * dx + dy * dy) > CONNECTION_MAX_RANGE) continue;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > CONNECTION_MAX_RANGE) continue;
+      inRange.push({ structure: s, dist });
+    }
+    inRange.sort((a, b) => a.dist - b.dist);
 
+    const results: { structure: Structure; valid: boolean }[] = [];
+    let validCount = 0;
+
+    for (const { structure: s } of inRange) {
       // Can the existing structure accept another connection?
       const existingCanAccept = this.gridManager.canAddConnection(s);
       // Would the new structure still have connection slots?

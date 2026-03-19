@@ -67,13 +67,22 @@ function rayPolygonEntry(
   return minT;
 }
 
+/** Callback for resolving shield wall damage through the grid power system. */
+type ShieldWallDamageCallback = (wall: unknown, damage: number) => void;
+
 export class BeamSystem {
   // Keyed by weapon entity ID so each weapon has exactly one active beam record
   private readonly activeBeams: Map<string, ActiveBeam> = new Map();
   private readonly onEntityDestroyed: EntityDestroyedCallback;
+  private onShieldWallDamage: ShieldWallDamageCallback | null = null;
 
   constructor(onEntityDestroyed: EntityDestroyedCallback) {
     this.onEntityDestroyed = onEntityDestroyed;
+  }
+
+  /** Set the callback for resolving shield wall damage via the grid power system. */
+  public setShieldWallDamageCallback(cb: ShieldWallDamageCallback): void {
+    this.onShieldWallDamage = cb;
   }
 
   /**
@@ -194,6 +203,11 @@ export class BeamSystem {
           hitAssembly.entities
             .filter(e => (e.type === 'Shield' || e.type === 'LargeShield') && !e.destroyed)
             .forEach(e => e.triggerCollisionFlash());
+        }
+      } else if ((closestBody as any).shieldWall) {
+        // Beam hit a shield wall — resolve through grid power system
+        if (this.onShieldWallDamage) {
+          this.onShieldWallDamage((closestBody as any).shieldWall, spec.damagePerSecond * deltaTime);
         }
       } else if ((closestBody as any).structure) {
         // Beam hit a structure body — apply DPS damage directly

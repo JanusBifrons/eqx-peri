@@ -38,48 +38,52 @@ export class StructurePlacementRenderer implements IRenderer {
     const screenX = sx(cursor.x);
     const screenY = sy(cursor.y);
 
-    // Draw the hologram ghost
-    this.drawHologram(screenX, screenY, scale, placingType);
+    const placementValid = ps.isCurrentPlacementValid();
 
-    // Draw connection preview lines to nearby structures (valid only)
-    const candidates = ps.getPlacementConnectCandidates();
-    for (const { structure, valid } of candidates) {
-      if (!valid) continue;
-      const tgtX = sx(structure.body.position.x);
-      const tgtY = sy(structure.body.position.y);
+    // Draw the hologram ghost (red if blocked)
+    this.drawHologram(screenX, screenY, scale, placingType, placementValid);
 
-      const lineWidth = Math.max(1, 1.5 * scale);
-      this.graphics.lineStyle(lineWidth, 0x44ddff, 0.5);
-      this.graphics.moveTo(screenX, screenY);
-      this.graphics.lineTo(tgtX, tgtY);
+    // Draw connection preview lines to nearby structures (only when placement is valid)
+    if (placementValid) {
+      const candidates = ps.getPlacementConnectCandidates();
+      for (const { structure, valid } of candidates) {
+        if (!valid) continue;
+        const tgtX = sx(structure.body.position.x);
+        const tgtY = sy(structure.body.position.y);
+
+        const lineWidth = Math.max(1, 1.5 * scale);
+        this.graphics.lineStyle(lineWidth, 0x44ddff, 0.5);
+        this.graphics.moveTo(screenX, screenY);
+        this.graphics.lineTo(tgtX, tgtY);
+      }
     }
 
     // Draw range circle (faint) so the player knows connection reach
     const rangeRadius = CONNECTION_MAX_RANGE * scale;
-    this.graphics.lineStyle(Math.max(1, scale), 0x4488aa, 0.12);
+    this.graphics.lineStyle(Math.max(1, scale), placementValid ? 0x4488aa : 0xaa4444, 0.12);
     this.graphics.drawCircle(screenX, screenY, rangeRadius);
   }
 
-  private drawHologram(cx: number, cy: number, scale: number, type: StructureType): void {
+  private drawHologram(cx: number, cy: number, scale: number, type: StructureType, valid: boolean): void {
     const def = STRUCTURE_DEFINITIONS[type];
     const hw = (def.widthPx / 2) * scale;
     const hh = (def.heightPx / 2) * scale;
 
-    const fillColor = PIXI.utils.string2hex(def.color);
-    const borderColor = PIXI.utils.string2hex(def.borderColor);
+    const fillColor = valid ? PIXI.utils.string2hex(def.color) : 0x661111;
+    const borderColor = valid ? PIXI.utils.string2hex(def.borderColor) : 0xff3333;
     const borderWidth = Math.max(1.5, 2 * scale);
+    const fillAlpha = valid ? 0.3 : 0.35;
+    const borderAlpha = valid ? 0.6 : 0.8;
 
     if (def.shape === 'hex') {
-      // Hexagonal preview
       const radius = hw;
-      this.graphics.lineStyle(borderWidth, borderColor, 0.6);
-      this.graphics.beginFill(fillColor, 0.3);
+      this.graphics.lineStyle(borderWidth, borderColor, borderAlpha);
+      this.graphics.beginFill(fillColor, fillAlpha);
       this.drawHexagon(cx, cy, radius);
       this.graphics.endFill();
     } else {
-      // Rectangular preview
-      this.graphics.lineStyle(borderWidth, borderColor, 0.6);
-      this.graphics.beginFill(fillColor, 0.3);
+      this.graphics.lineStyle(borderWidth, borderColor, borderAlpha);
+      this.graphics.beginFill(fillColor, fillAlpha);
       this.graphics.drawRect(cx - hw, cy - hh, hw * 2, hh * 2);
       this.graphics.endFill();
     }

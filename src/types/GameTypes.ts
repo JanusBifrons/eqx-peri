@@ -875,7 +875,7 @@ export const SCENARIO_ORDER: ScenarioId[] = ['ship-builder', 'structures-sandbox
 
 // ── Structure System ─────────────────────────────────────────────────────────
 
-export type StructureType = 'Core' | 'Connector' | 'SolarPanel' | 'Battery' | 'PowerStation' | 'SmallTurret' | 'LargeTurret';
+export type StructureType = 'Core' | 'Connector' | 'SolarPanel' | 'Battery' | 'PowerStation' | 'SmallTurret' | 'MediumTurret' | 'LargeTurret' | 'Refinery' | 'ShieldFence' | 'AssemblyYard';
 
 export interface StructureDefinition {
   type: StructureType;
@@ -899,6 +899,11 @@ export interface StructureDefinition {
   laserColor?: string;        // laser fill color
   laserHeight?: number;       // laser body thickness
   aimRotationSpeed?: number;  // radians per second barrel can rotate
+  // Refinery: passive resource generation
+  resourceGenerationRate?: number; // resource units generated per pulse
+  // Assembly Yard: ship spawning
+  shipBuildCost?: number;     // resources consumed per ship
+  shipBuildTimeMs?: number;   // ms to construct one ship after resources invested
 }
 
 /** Max world-unit distance between two structures to form a connection. */
@@ -952,7 +957,7 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
     heightPx: 20,
     shape: 'rect',
     maxHealth: 300,
-    maxConnections: 2,
+    maxConnections: 1,
     powerOutput: 30,
     powerConsumption: 0,
     storageCapacity: 0,
@@ -967,7 +972,7 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
     heightPx: 40,
     shape: 'rect',
     maxHealth: 800,
-    maxConnections: 3,
+    maxConnections: 1,
     powerOutput: 0,
     powerConsumption: 0,
     storageCapacity: 300,
@@ -982,7 +987,7 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
     heightPx: 60,
     shape: 'rect',
     maxHealth: 2000,
-    maxConnections: 4,
+    maxConnections: 1,
     powerOutput: 100,
     powerConsumption: 0,
     storageCapacity: 100,
@@ -997,7 +1002,7 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
     heightPx: 30,
     shape: 'rect',
     maxHealth: 600,
-    maxConnections: 2,
+    maxConnections: 1,
     powerOutput: 0,
     powerConsumption: 15,
     storageCapacity: 0,
@@ -1019,7 +1024,7 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
     heightPx: 50,
     shape: 'rect',
     maxHealth: 1500,
-    maxConnections: 3,
+    maxConnections: 1,
     powerOutput: 0,
     powerConsumption: 35,
     storageCapacity: 0,
@@ -1034,7 +1039,87 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
     laserHeight: 6,
     aimRotationSpeed: 1.2,
   },
+  MediumTurret: {
+    type: 'MediumTurret',
+    label: 'Medium Turret',
+    widthPx: 40,
+    heightPx: 40,
+    shape: 'rect',
+    maxHealth: 1000,
+    maxConnections: 1,
+    powerOutput: 0,
+    powerConsumption: 25,
+    storageCapacity: 0,
+    constructionCost: 110,
+    color: '#2a1a1a',
+    borderColor: '#cc6644',
+    weaponRange: 600,
+    fireRateMs: 600,
+    laserDamage: 18,
+    laserSpeed: 55,
+    laserColor: '#ff6644',
+    laserHeight: 5,
+    aimRotationSpeed: 1.6,
+  },
+  Refinery: {
+    type: 'Refinery',
+    label: 'Refinery',
+    widthPx: 50,
+    heightPx: 50,
+    shape: 'rect',
+    maxHealth: 1200,
+    maxConnections: 1,
+    powerOutput: 0,
+    powerConsumption: 25,
+    storageCapacity: 100,
+    constructionCost: 100,
+    color: '#1a2a1a',
+    borderColor: '#44cc44',
+    resourceGenerationRate: 3,
+  },
+  ShieldFence: {
+    type: 'ShieldFence',
+    label: 'Shield Fence',
+    widthPx: 16,
+    heightPx: 16,
+    shape: 'rect',
+    maxHealth: 800,
+    maxConnections: 3,
+    powerOutput: 0,
+    powerConsumption: 20,
+    storageCapacity: 0,
+    constructionCost: 80,
+    color: '#1a1a2a',
+    borderColor: '#4488ff',
+  },
+  AssemblyYard: {
+    type: 'AssemblyYard',
+    label: 'Assembly Yard',
+    widthPx: 100,
+    heightPx: 80,
+    shape: 'rect',
+    maxHealth: 3000,
+    maxConnections: 1,
+    powerOutput: 0,
+    powerConsumption: 60,
+    storageCapacity: 200,
+    constructionCost: 250,
+    color: '#2a2020',
+    borderColor: '#cc8844',
+    shipBuildCost: 150,
+    shipBuildTimeMs: 30000,
+  },
 };
+
+/** Max ships a single Assembly Yard can have alive at once. */
+export const ASSEMBLY_YARD_MAX_SHIPS = 3;
+
+/** Shield wall thickness in world units. */
+export const SHIELD_WALL_THICKNESS = 6;
+/** Stun cooldown (ms) when a shield wall is overloaded. */
+export const SHIELD_WALL_STUN_MS = 5000;
+/** Duration (ms) of the power consumption spike when a shield wall absorbs damage. */
+export const SHIELD_WALL_POWER_SPIKE_MS = 1500;
 
 export interface GridPowerSummary {
   totalPowerOutput: number;
