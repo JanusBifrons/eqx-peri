@@ -16,7 +16,7 @@ interface StructureCategory {
 const BUILD_CATEGORIES: StructureCategory[] = [
   { label: 'Infrastructure', types: ['Core', 'Connector', 'ShieldFence'] },
   { label: 'Power', types: ['SolarPanel', 'Battery', 'PowerStation'] },
-  { label: 'Economy', types: ['Refinery', 'AssemblyYard'] },
+  { label: 'Economy', types: ['Refinery', 'Manufacturer', 'Recycler', 'AssemblyYard'] },
   { label: 'Defense', types: ['SmallTurret', 'MediumTurret', 'LargeTurret'] },
 ];
 
@@ -64,10 +64,7 @@ const BuildButton = styled(Button)(() => ({
 }));
 
 // Placeholder entries for future structure types (greyed out)
-const COMING_SOON = [
-  'Manufacturer',
-  'Recycler',
-];
+const COMING_SOON: string[] = [];
 
 const StructuresPanel: React.FC<Props> = ({ gameEngine }) => {
   const [activeType, setActiveType] = useState<StructureType | null>(null);
@@ -133,20 +130,22 @@ const StructuresPanel: React.FC<Props> = ({ gameEngine }) => {
       ))}
 
       {/* Coming soon — greyed out future structure types */}
-      <Box sx={{ mt: 0.5, borderTop: '1px solid rgba(255,255,255,0.08)', pt: 1 }}>
-        <CategoryLabel sx={{ color: 'rgba(255,255,255,0.25)' }}>Coming Soon</CategoryLabel>
-        {COMING_SOON.map((name) => (
-          <BuildButton
-            key={name}
-            variant="outlined"
-            size="small"
-            fullWidth
-            disabled
-          >
-            {name}
-          </BuildButton>
-        ))}
-      </Box>
+      {COMING_SOON.length > 0 && (
+        <Box sx={{ mt: 0.5, borderTop: '1px solid rgba(255,255,255,0.08)', pt: 1 }}>
+          <CategoryLabel sx={{ color: 'rgba(255,255,255,0.25)' }}>Coming Soon</CategoryLabel>
+          {COMING_SOON.map((name) => (
+            <BuildButton
+              key={name}
+              variant="outlined"
+              size="small"
+              fullWidth
+              disabled
+            >
+              {name}
+            </BuildButton>
+          ))}
+        </Box>
+      )}
     </PanelContainer>
   );
 };

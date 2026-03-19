@@ -1,0 +1,167 @@
+{
+  "resource_nodes": [
+    {
+      "id": "asteroid_c_type",
+      "name": "C-Type Asteroid",
+      "type": "Carbonaceous / Icy",
+      "ore_type": "CarbonaceousOre",
+      "waste_fraction": 0.80,
+      "refined_drops": [
+        { "material": "Hydrogen", "rarity": "Common", "drop_chance_pct": 20.0, "yield_kg": 1500 },
+        { "material": "Oxygen", "rarity": "Common", "drop_chance_pct": 20.0, "yield_kg": 1500 },
+        { "material": "Carbon", "rarity": "Common", "drop_chance_pct": 20.0, "yield_kg": 1000 },
+        { "material": "Coolant", "rarity": "Common", "drop_chance_pct": 20.0, "yield_kg": 1000 },
+        { "material": "Ammonia", "rarity": "Uncommon", "drop_chance_pct": 15.0, "yield_kg": 500 },
+        { "material": "Fluorine", "rarity": "Rare", "drop_chance_pct": 4.99, "yield_kg": 100 },
+        { "material": "PreSolarAminoAcids", "rarity": "Jackpot", "drop_chance_pct": 0.01, "yield_kg": 5 }
+      ]
+    },
+    {
+      "id": "asteroid_s_type",
+      "name": "S-Type Asteroid",
+      "type": "Silicate / Stony",
+      "ore_type": "SilicateOre",
+      "waste_fraction": 0.80,
+      "refined_drops": [
+        { "material": "Silicon", "rarity": "Common", "drop_chance_pct": 40.0, "yield_kg": 1500 },
+        { "material": "Magnesium", "rarity": "Common", "drop_chance_pct": 40.0, "yield_kg": 1500 },
+        { "material": "Lithium", "rarity": "Uncommon", "drop_chance_pct": 15.0, "yield_kg": 400 },
+        { "material": "Titanium", "rarity": "Rare", "drop_chance_pct": 4.99, "yield_kg": 100 },
+        { "material": "PallasiteGem", "rarity": "Jackpot", "drop_chance_pct": 0.01, "yield_kg": 20 }
+      ]
+    },
+    {
+      "id": "asteroid_m_type",
+      "name": "M-Type Asteroid",
+      "type": "Metallic",
+      "ore_type": "MetallicOre",
+      "waste_fraction": 0.80,
+      "refined_drops": [
+        { "material": "Iron", "rarity": "Common", "drop_chance_pct": 40.0, "yield_kg": 2000 },
+        { "material": "Nickel", "rarity": "Common", "drop_chance_pct": 40.0, "yield_kg": 1500 },
+        { "material": "Copper", "rarity": "Uncommon", "drop_chance_pct": 15.0, "yield_kg": 500 },
+        { "material": "Cobalt", "rarity": "Rare", "drop_chance_pct": 4.99, "yield_kg": 100 },
+        { "material": "IridiumGeode", "rarity": "Jackpot", "drop_chance_pct": 0.01, "yield_kg": 10 }
+      ]
+    }
+  ],
+  "recipes": {
+    "ship_parts": [
+      {
+        "id": "part_structure_block_1x1",
+        "name": "Structure Block 1x1",
+        "ingredients": [
+          { "material": "Iron", "amount_kg": 2500 }
+        ]
+      },
+      {
+        "id": "part_structure_block_3x1",
+        "name": "Structure Block 3x1",
+        "ingredients": [
+          { "material": "Iron", "amount_kg": 6000 },
+          { "material": "Carbon", "amount_kg": 1000 }
+        ]
+      },
+      {
+        "id": "part_structure_block_5x5",
+        "name": "Structure Block 5x5",
+        "ingredients": [
+          { "material": "Iron", "amount_kg": 25000 },
+          { "material": "Magnesium", "amount_kg": 12000 },
+          { "material": "Titanium", "amount_kg": 2000 }
+        ]
+      },
+      {
+        "id": "part_power_core",
+        "name": "Ship Power Core",
+        "ingredients": [
+          { "material": "Copper", "amount_kg": 4500 },
+          { "material": "Lithium", "amount_kg": 1500 },
+          { "material": "Coolant", "amount_kg": 2000 }
+        ]
+      },
+      {
+        "id": "part_engine",
+        "name": "Ship Engine",
+        "ingredients": [
+          { "material": "Nickel", "amount_kg": 6000 },
+          { "material": "Hydrogen", "amount_kg": 3000 },
+          { "material": "Oxygen", "amount_kg": 3000 }
+        ]
+      },
+      {
+        "id": "part_shield_generator",
+        "name": "Shield Generator",
+        "ingredients": [
+          { "material": "Cobalt", "amount_kg": 800 },
+          { "material": "Coolant", "amount_kg": 2500 },
+          { "material": "PallasiteGem", "amount_kg": 20 }
+        ]
+      },
+      {
+        "id": "part_weapon_small",
+        "name": "Small Weapon",
+        "ingredients": [
+          { "material": "Iron", "amount_kg": 3000 },
+          { "material": "Copper", "amount_kg": 1500 }
+        ]
+      },
+      {
+        "id": "part_weapon_large",
+        "name": "Large Weapon",
+        "ingredients": [
+          { "material": "Titanium", "amount_kg": 4000 },
+          { "material": "Cobalt", "amount_kg": 1500 },
+          { "material": "IridiumGeode", "amount_kg": 10 }
+        ]
+      }
+    ],
+    "world_structures": [
+      {
+        "id": "struct_power_station",
+        "name": "Power Station",
+        "ingredients": [
+          { "material": "Iron", "amount_kg": 45000 },
+          { "material": "Copper", "amount_kg": 15000 },
+          { "material": "Coolant", "amount_kg": 10000 }
+        ]
+      },
+      {
+        "id": "struct_solar_panel",
+        "name": "Solar Panel",
+        "ingredients": [
+          { "material": "Silicon", "amount_kg": 8000 },
+          { "material": "Copper", "amount_kg": 3000 },
+          { "material": "Magnesium", "amount_kg": 2000 }
+        ]
+      },
+      {
+        "id": "struct_connectors",
+        "name": "Connectors",
+        "ingredients": [
+          { "material": "Iron", "amount_kg": 1500 },
+          { "material": "Copper", "amount_kg": 500 }
+        ]
+      },
+      {
+        "id": "struct_base_core",
+        "name": "Base Core",
+        "ingredients": [
+          { "material": "Titanium", "amount_kg": 15000 },
+          { "material": "Silicon", "amount_kg": 20000 },
+          { "material": "Lithium", "amount_kg": 8000 },
+          { "material": "Cobalt", "amount_kg": 2000 }
+        ]
+      },
+      {
+        "id": "struct_assembler",
+        "name": "Assembler",
+        "ingredients": [
+          { "material": "Iron", "amount_kg": 30000 },
+          { "material": "Silicon", "amount_kg": 10000 },
+          { "material": "Copper", "amount_kg": 5000 }
+        ]
+      }
+    ]
+  }
+}

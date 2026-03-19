@@ -4,6 +4,8 @@ import { Structure } from './Structure';
 import { StructureCore } from './StructureCore';
 import { StructureTurret } from './StructureTurret';
 import { StructureAssemblyYard } from './StructureAssemblyYard';
+import { StructureManufacturer } from './StructureManufacturer';
+import { StructureRecycler } from './StructureRecycler';
 import { GridManager } from './GridManager';
 import { Assembly } from '../core/Assembly';
 
@@ -57,6 +59,10 @@ export class StructureManager {
       structure = new StructureTurret(type, position, team);
     } else if (type === 'AssemblyYard') {
       structure = new StructureAssemblyYard(position, team);
+    } else if (type === 'Manufacturer') {
+      structure = new StructureManufacturer(position, team);
+    } else if (type === 'Recycler') {
+      structure = new StructureRecycler(position, team);
     } else {
       structure = new Structure(type, position, team);
     }
@@ -108,6 +114,22 @@ export class StructureManager {
           this.onShipSpawn(s);
           s.resetBuild();
         }
+      }
+    }
+
+    // Tick manufacturers — consume materials, produce parts
+    for (const s of this.structures) {
+      if (s instanceof StructureManufacturer && s.isConstructed) {
+        const summary = this.gridManager.getGridPowerSummary(s, this.structures);
+        s.tickBuild(summary);
+      }
+    }
+
+    // Tick recyclers — process scrap into recovered materials
+    for (const s of this.structures) {
+      if (s instanceof StructureRecycler && s.isConstructed) {
+        const summary = this.gridManager.getGridPowerSummary(s, this.structures);
+        s.tickProcess(summary);
       }
     }
 

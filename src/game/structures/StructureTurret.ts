@@ -44,8 +44,8 @@ export class StructureTurret extends Structure {
     // Not operational until fully constructed
     if (!this.isConstructed || this.isDestroyed()) return [];
 
-    // Power gating: turret cannot fire if grid has negative net power
-    const hasPower = gridSummary !== null && gridSummary.netPower >= 0;
+    // Power efficiency: turret fires slower when underpowered, stops at 0
+    const efficiency = gridSummary?.powerEfficiency ?? 0;
 
     // Target scanning (throttled)
     if (now - this.lastScanTime >= TARGET_SCAN_INTERVAL_MS) {
@@ -91,9 +91,11 @@ export class StructureTurret extends Structure {
     }
 
     // Fire if conditions met
-    if (!hasPower || !this.targetAssembly) return [];
+    if (efficiency <= 0 || !this.targetAssembly) return [];
 
-    const fireRate = this.definition.fireRateMs ?? 400;
+    // Scale fire rate inversely with power efficiency (slower when underpowered)
+    const baseFireRate = this.definition.fireRateMs ?? 400;
+    const fireRate = baseFireRate / efficiency;
     if (now - this.lastFireTime < fireRate) return [];
 
     // Check aim alignment

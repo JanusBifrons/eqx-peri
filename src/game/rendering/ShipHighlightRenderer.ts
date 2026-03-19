@@ -488,7 +488,7 @@ export class ShipHighlightRenderer implements IRenderer {
 
     // Storage
     if (def.storageCapacity > 0) {
-      rows.push({ label: 'STR', value: `${Math.round(structure.storedResources)} / ${def.storageCapacity}`, color: 0x778899 });
+      rows.push({ label: 'STR', value: `${Math.round(structure.getInventoryTotal())} / ${def.storageCapacity}`, color: 0x778899 });
     }
 
     // Grid summary (if available)

@@ -1,4 +1,4 @@
-import { CONNECTION_THROUGHPUT } from '../../types/GameTypes';
+import { CONNECTION_THROUGHPUT, InventoryItemType } from '../../types/GameTypes';
 import { Structure } from './Structure';
 
 let nextConnectionId = 1;
@@ -13,8 +13,16 @@ export class Connection {
   public readonly nodeB: Structure;
   public readonly throughput: number; // max resource units per pulse
 
+  /** Timestamp (ms) at which this connection's flash becomes visible. */
+  public flashAfter: number = 0;
   /** Timestamp (ms) until which this connection should render a flash. */
   public flashUntil: number = 0;
+
+  /**
+   * The dominant material type being transferred on this connection.
+   * Used by ConnectionRenderer for color coding.
+   */
+  public flowMaterial: InventoryItemType | null = null;
 
   constructor(nodeA: Structure, nodeB: Structure, throughput: number = CONNECTION_THROUGHPUT) {
     this.id = `conn-${nextConnectionId++}`;
@@ -35,13 +43,28 @@ export class Connection {
     return Math.sqrt(dx * dx + dy * dy);
   }
 
-  /** Trigger a visual flash on this connection for the given duration. */
-  public flash(durationMs: number = 300): void {
-    this.flashUntil = Date.now() + durationMs;
+  /**
+   * Trigger a visual flash with material type and an optional stagger delay.
+   * The flash becomes visible after `delayMs` and lasts `durationMs` from that point.
+   */
+  public flashWithFlow(material: InventoryItemType | null, delayMs: number = 0, durationMs: number = 300): void {
+    const now = Date.now();
+    this.flashAfter = now + delayMs;
+    this.flashUntil = this.flashAfter + durationMs;
+    this.flowMaterial = material;
   }
 
-  /** Whether this connection is currently flashing. */
+  /** Trigger a visual flash on this connection for the given duration. */
+  public flash(durationMs: number = 300): void {
+    const now = Date.now();
+    this.flashAfter = now;
+    this.flashUntil = now + durationMs;
+    this.flowMaterial = null;
+  }
+
+  /** Whether this connection is currently flashing (past delay, before expiry). */
   public isFlashing(): boolean {
-    return Date.now() < this.flashUntil;
+    const now = Date.now();
+    return now >= this.flashAfter && now < this.flashUntil;
   }
 }

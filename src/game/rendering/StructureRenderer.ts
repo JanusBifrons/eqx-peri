@@ -4,6 +4,8 @@ import { Viewport } from './Viewport';
 import { Structure } from '../structures/Structure';
 import { StructureTurret } from '../structures/StructureTurret';
 import { StructureAssemblyYard } from '../structures/StructureAssemblyYard';
+import { StructureManufacturer } from '../structures/StructureManufacturer';
+import { StructureRecycler } from '../structures/StructureRecycler';
 import { ShieldWall } from '../structures/ShieldWall';
 import { StructureManager } from '../structures/StructureManager';
 import { GridPowerSummary, SHIELD_WALL_THICKNESS } from '../../types/GameTypes';
@@ -202,10 +204,10 @@ export class StructureRenderer implements IRenderer {
           // Turret barrel
           this.drawTurretBarrel(cx, cy, structure, scale);
 
-          // "NO POWER" indicator when brownout
+          // "NO POWER" indicator when fully depowered
           if (mgr && scale > 0.4) {
             const summary = mgr.getTeamGridSummary(structure.team);
-            if (summary && summary.netPower < 0) {
+            if (summary && summary.powerEfficiency <= 0) {
               this.placeText('NO POWER', cx, cy - hh - 12, NO_POWER_STYLE, 0.5);
             }
           }
@@ -233,6 +235,40 @@ export class StructureRenderer implements IRenderer {
             const count = structure.activeShipIds.length;
             const cap = 3; // ASSEMBLY_YARD_MAX_SHIPS
             this.placeText(`SHIPS: ${count}/${cap}`, cx, cy - hh - 12, READOUT_STYLE, 0.5);
+          }
+        } else if (structure instanceof StructureManufacturer) {
+          // Manufacturer icon (gear)
+          this.drawManufacturerIcon(cx, cy, Math.min(hw, hh) * 0.35, scale);
+
+          // Build progress bar (green-yellow)
+          const buildFrac = structure.getBuildFraction();
+          if (buildFrac > 0 && buildFrac < 1) {
+            const barW = Math.max(hw * 1.4, 14 * scale);
+            const barH = Math.max(2, 4 * scale);
+            const barY = cy + hh + barH * 2;
+            this.graphics.lineStyle(0);
+            this.graphics.beginFill(0x333333, 0.7);
+            this.graphics.drawRect(cx - barW / 2, barY, barW, barH);
+            this.graphics.endFill();
+            this.graphics.beginFill(0xaacc44, 0.9);
+            this.graphics.drawRect(cx - barW / 2, barY, barW * buildFrac, barH);
+            this.graphics.endFill();
+          }
+
+          // Recipe name
+          if (scale > 0.4) {
+            this.placeText(structure.getRecipeName(), cx, cy - hh - 12, READOUT_STYLE, 0.5);
+          }
+        } else if (structure instanceof StructureRecycler) {
+          // Recycler icon (recycle arrows)
+          this.drawRecyclerIcon(cx, cy, Math.min(hw, hh) * 0.4, scale);
+
+          // "NO POWER" indicator when fully depowered
+          if (mgr && scale > 0.4) {
+            const summary = mgr.getTeamGridSummary(structure.team);
+            if (summary && summary.powerEfficiency <= 0) {
+              this.placeText('NO POWER', cx, cy - hh - 12, NO_POWER_STYLE, 0.5);
+            }
           }
         }
       }
@@ -498,6 +534,42 @@ export class StructureRenderer implements IRenderer {
     this.graphics.moveTo(cx - r * 0.2, cy);
     this.graphics.lineTo(cx, cy - r * 0.3);
     this.graphics.lineTo(cx + r * 0.2, cy);
+  }
+
+  /** Draw a manufacturer icon (gear/cog shape). */
+  private drawManufacturerIcon(cx: number, cy: number, r: number, scale: number): void {
+    const lw = Math.max(1, 1.5 * scale);
+    this.graphics.lineStyle(lw, 0xaacc44, 0.8);
+    // Simple gear — outer circle with 4 teeth
+    this.graphics.drawCircle(cx, cy, r * 0.4);
+    const teeth = 4;
+    for (let i = 0; i < teeth; i++) {
+      const angle = (Math.PI * 2 / teeth) * i;
+      const ix = cx + Math.cos(angle) * r * 0.35;
+      const iy = cy + Math.sin(angle) * r * 0.35;
+      const ox = cx + Math.cos(angle) * r * 0.7;
+      const oy = cy + Math.sin(angle) * r * 0.7;
+      this.graphics.moveTo(ix, iy);
+      this.graphics.lineTo(ox, oy);
+    }
+  }
+
+  /** Draw a recycler icon (triangular recycle arrows). */
+  private drawRecyclerIcon(cx: number, cy: number, r: number, scale: number): void {
+    const lw = Math.max(1, 1.5 * scale);
+    this.graphics.lineStyle(lw, 0x44ccaa, 0.8);
+    // Three arrows forming a triangle loop
+    const sides = 3;
+    for (let i = 0; i < sides; i++) {
+      const a1 = (Math.PI * 2 / sides) * i - Math.PI / 2;
+      const a2 = (Math.PI * 2 / sides) * (i + 1) - Math.PI / 2;
+      const x1 = cx + Math.cos(a1) * r * 0.5;
+      const y1 = cy + Math.sin(a1) * r * 0.5;
+      const mx = cx + Math.cos((a1 + a2) / 2) * r * 0.55;
+      const my = cy + Math.sin((a1 + a2) / 2) * r * 0.55;
+      this.graphics.moveTo(x1, y1);
+      this.graphics.lineTo(mx, my);
+    }
   }
 
   private drawHexagon(cx: number, cy: number, radius: number): void {

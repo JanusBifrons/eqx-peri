@@ -27,7 +27,7 @@ src/
     rendering/  # IRenderer, Viewport, and individual renderer classes
     structures/ # Base-building: Structure, StructureCore, StructureTurret, StructureManager
   types/        # Shared TypeScript interfaces and enums (GameTypes.ts)
-  data/         # Ship definitions (ships.json)
+  data/         # Ship definitions (ships.json), economy data (economy.json)
 ```
 
 ## Universal Coding Standards
@@ -149,7 +149,8 @@ src/
 - `StructureCore` provides baseline power + storage; `StructureManager` manages lifecycle; `GridManager` handles connections, routing, and construction/repair pulses.
 - **Power structures**: `SolarPanel` (+30 power), `Battery` (300 storage), `PowerStation` (+100 power). Passive — existing grid infrastructure handles aggregation.
 - **Defense structures**: `SmallTurret`, `MediumTurret`, and `LargeTurret` via `StructureTurret` subclass. Autonomous targeting + firing at enemies. Power-gated: negative grid `netPower` causes brownout (no firing). Turret lasers use `sourceStructureId`/`sourceTeam` for friendly-fire prevention in `setupLaserRaycast`.
-- **Economy structures**: `Refinery` generates resources passively (power-gated). `AssemblyYard` (`StructureAssemblyYard` subclass) builds AI ships over time from stored resources (power-gated, ship-capped at `ASSEMBLY_YARD_MAX_SHIPS`).
+- **Economy structures**: `Refinery` generates resources passively (power-gated). `Manufacturer` (`StructureManufacturer` subclass) assembles ship parts from refined materials per recipe (power-gated). `Recycler` (`StructureRecycler` subclass) breaks down scrap into recovered materials at 60% yield (power-gated). `AssemblyYard` (`StructureAssemblyYard` subclass) builds AI ships over time from stored resources (power-gated, ship-capped at `ASSEMBLY_YARD_MAX_SHIPS`).
+- **Resource economy data**: `src/data/economy.json` defines asteroid ore types (C/S/M-Type), refining loot tables (80% waste, 20% rolls against drop table), and material recipes for ship parts and world structures. Types in `GameTypes.ts`: `OreType`, `MaterialType`, `MaterialRecipe`, `RefiningTable`, `Recipe`, `AsteroidClass`.
 - **Shield Fence**: fence post structures (`maxConnections: 3`). Connects only to Connectors or other ShieldFences. Fence-to-fence connections spawn a physical `ShieldWall` barrier only when both posts are constructed. Walls block ALL movement and weapons (no friendly pass-through). Damage is grid-powered: hits spike power consumption on fence posts (`SHIELD_WALL_POWER_SPIKE_MS`), excess drains Battery reserves, overload stuns the wall.
 - `StructurePlacementSystem` (in `src/game/systems/`) handles place mode (click to spawn + auto-connect) and link mode. Escape and right-click cancel placement.
 - `StructureRenderer` (priority 15) draws structures with scaffolding visuals + shield walls as glowing blue lines. `ConnectionRenderer` (priority 13) draws network lines (skips fence-to-fence). `StructurePlacementRenderer` (priority 71) draws placement hologram + connection preview lines.

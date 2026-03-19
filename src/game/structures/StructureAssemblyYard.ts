@@ -36,23 +36,23 @@ export class StructureAssemblyYard extends Structure {
   }
 
   /**
-   * Per-pulse build tick. Pulls resources from own storedResources buffer.
+   * Per-pulse build tick. Pulls resources from own storage (any material type).
    * Returns true if a ship is ready to spawn.
    */
   public tickBuild(gridSummary: GridPowerSummary): boolean {
     if (!this.isConstructed || this.isDestroyed()) return false;
-    if (gridSummary.netPower < 0) return false;
+    if (gridSummary.powerEfficiency <= 0) return false;
     if (this.isAtShipCap()) return false;
 
     const cost = this.definition.shipBuildCost ?? 0;
     if (cost <= 0) return false;
 
-    // Pull resources from own storage
+    // Pull resources from own storage, scaled by power efficiency
     const remaining = cost - this.buildProgress;
-    const pull = Math.min(remaining, this.storedResources, 5); // 5 per pulse
+    const pull = Math.min(remaining, this.getInventoryTotal(), 5 * gridSummary.powerEfficiency);
     if (pull <= 0) return false;
 
-    this.storedResources -= pull;
+    this.removeAnyMaterials(pull);
     this.buildProgress += pull;
 
     return this.isShipReady();

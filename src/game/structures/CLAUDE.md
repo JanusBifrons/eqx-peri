@@ -10,6 +10,8 @@ Static structures for base-building, defense, resource production, and trading. 
 | `StructureCore` | The foundational structure; provides baseline power + storage |
 | `StructureTurret` | Turret subclass — autonomous targeting, aiming, and laser firing |
 | `StructureAssemblyYard` | Assembly Yard subclass — builds AI ships over time from stored resources |
+| `StructureManufacturer` | Manufacturer subclass — assembles ship parts from refined materials per recipe |
+| `StructureRecycler` | Recycler subclass — breaks down scrap into recovered materials at 60% yield |
 | `ShieldWall` | Physical barrier body between two connected ShieldFence posts |
 | `StructureManager` | Lifecycle manager — spawn, update, dispose; delegates networking to `GridManager` |
 | `Connection` | Data-only link between two structures (throughput, flash state) |
@@ -110,6 +112,30 @@ Defined in `GameTypes.ts` as `STRUCTURE_DEFINITIONS: Record<StructureType, Struc
 - Build cost: `shipBuildCost` from definition (150); build rate: 5 resources per pulse.
 - `GameEngine.spawnShipFromYard(yard)` — spawns a random small ship design near the yard, assigns AI.
 - Rendered by `StructureRenderer`: crossed-wrench icon, build progress bar, ship count readout.
+
+## StructureManufacturer (Part Assembly)
+
+- Extends `Structure` with recipe-based manufacturing.
+- `currentRecipe: Recipe | null` — set via `setRecipe(recipe)`. Changing recipe resets progress.
+- `tickBuild(gridSummary)` — pulls resources from own `storedResources` each pulse; power-gated.
+- Build rate: `MANUFACTURER_PROCESS_RATE_KG` (50 kg) per pulse.
+- `getBuildFraction()` — 0–1 progress toward current recipe completion.
+- `getRecipeName()` — display name for rendering (or "Idle" when no recipe set).
+- `getRequiredMaterials()` — lists recipe ingredients for UI display.
+- `itemsProduced` — lifetime counter for stats display.
+- Currently uses simplified single-resource model (`storedResources`). Will consume specific `MaterialType` quantities per recipe once inventory system is live.
+- Rendered by `StructureRenderer`: gear icon, green-yellow build progress bar, recipe name readout.
+
+## StructureRecycler (Scrap Recovery)
+
+- Extends `Structure` with scrap processing.
+- `tickProcess(gridSummary)` — processes scrap from `storedResources` each pulse; power-gated.
+- Process rate: `RECYCLER_PROCESS_RATE_KG` (30 kg) per pulse.
+- Recovery yield: `RECYCLER_YIELD_FRACTION` (60%) — 40% is waste.
+- Recovered materials deposited back into own `storedResources` for grid distribution.
+- Lifetime stats: `totalProcessedKg`, `totalRecoveredKg` (via `getLifetimeStats()`).
+- Currently uses simplified single-resource model. Will output specific `MaterialType` quantities once inventory system is live.
+- Rendered by `StructureRenderer`: triangular recycle-arrows icon, NO POWER indicator when brownout.
 
 ## Connection Rules
 

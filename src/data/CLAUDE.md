@@ -1,4 +1,4 @@
-# /src/data — Ship Definitions
+# /src/data — Static Game Data
 
 ## ships.json
 
@@ -25,4 +25,22 @@ Each ship entry is an object with:
 
 ---
 
-MAINTENANCE MANDATE: If you change the ships.json schema or add new required fields, update this file and the `EntityConfig` interface in `GameTypes.ts`.
+## economy.json
+
+Resource economy data — asteroid ore types, refining loot tables, and material recipes.
+
+### Structure
+
+- `resource_nodes[]` — one entry per asteroid class (C-Type, S-Type, M-Type). Each has `ore_type`, `waste_fraction` (0.80 = 80% slag), and `refined_drops[]` with `material`, `rarity`, `drop_chance_pct`, `yield_kg`.
+- `recipes.ship_parts[]` — recipes for manufacturing ship blocks. Each has `id`, `name`, `ingredients[]` with `material` and `amount_kg`.
+- `recipes.world_structures[]` — recipes for constructing world structures. Same format.
+
+### Editing Rules
+
+- Material names must match the `MaterialType` union in `GameTypes.ts` (PascalCase, no spaces).
+- Drop chances per asteroid type should sum to 100%.
+- All amounts are in **kg** (the game's mass standard: 1 Matter.js mass unit = 1 kg).
+
+---
+
+MAINTENANCE MANDATE: If you change the ships.json schema or add new required fields, update this file and the `EntityConfig` interface in `GameTypes.ts`. If you change economy.json, ensure material names match the `MaterialType` union.

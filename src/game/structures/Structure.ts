@@ -1,5 +1,5 @@
 import Matter from 'matter-js';
-import { StructureType, StructureDefinition, STRUCTURE_DEFINITIONS, Vector2, REPAIR_COST_PER_HP } from '../../types/GameTypes';
+import { StructureType, StructureDefinition, STRUCTURE_DEFINITIONS, Vector2, REPAIR_COST_PER_HP, InventoryItemType, MaterialType, OreType } from '../../types/GameTypes';
 
 let nextStructureId = 1;
 
@@ -8,11 +8,10 @@ const SCAFFOLDING_HP_FRACTION = 0.1;
 
 /**
  * Base class for a placed structure in the world.
- * Wraps a static Matter.js body with HP, team ownership, power, and storage.
+ * Wraps a static Matter.js body with HP, team ownership, power, and a typed material inventory.
  *
- * Structures with constructionCost > 0 start as scaffolding and must receive
- * resources through the grid network to be built. Only fully constructed
- * structures provide power, storage, and full HP.
+ * The inventory stores specific materials (ore and refined types) in kg.
+ * All material flows (construction, distribution, repair) go through the inventory API.
  */
 export class Structure {
   public readonly id: string;
@@ -23,10 +22,12 @@ export class Structure {
 
   public currentHealth: number;
   public maxHealth: number;
-  public storedResources: number;
 
-  /** Resource units invested toward construction so far. */
-  public constructionProgress: number = 0;
+  /** Typed material inventory. All amounts in kg. */
+  protected _inventory: Map<InventoryItemType, number> = new Map();
+
+  /** Per-material kg delivered toward construction. */
+  public constructionDelivered: Map<MaterialType, number> = new Map();
   /** Whether the structure is fully built and operational. */
   public isConstructed: boolean = false;
 
@@ -42,16 +43,13 @@ export class Structure {
     this.team = team;
 
     this.maxHealth = this.definition.maxHealth;
-    this.storedResources = 0;
 
     // Structures with zero construction cost are pre-built
     if (this.definition.constructionCost <= 0) {
       this.isConstructed = true;
-      this.constructionProgress = 0;
       this.currentHealth = this.maxHealth;
     } else {
       this.isConstructed = false;
-      this.constructionProgress = 0;
       this.currentHealth = Math.floor(this.maxHealth * SCAFFOLDING_HP_FRACTION);
     }
 
@@ -68,7 +66,6 @@ export class Structure {
     };
 
     if (this.definition.shape === 'hex') {
-      // Regular hexagon — radius = half the widthPx
       this.body = Matter.Bodies.polygon(
         position.x, position.y,
         6, this.definition.widthPx / 2,
@@ -82,57 +79,167 @@ export class Structure {
       );
     }
 
-    // Back-reference so collision handlers can look up the structure from the body
     (this.body as unknown as Record<string, unknown>).structure = this;
+  }
+
+  // ── Inventory ──────────────────────────────────────────────────────────
+
+  /** Total kg of all materials stored (read-only proxy for backward compat). */
+  public get storedResources(): number {
+    return this.getInventoryTotal();
+  }
+
+  /** Amount (kg) of a specific material in inventory. */
+  public getInventoryAmount(type: InventoryItemType): number {
+    return this._inventory.get(type) ?? 0;
+  }
+
+  /** Sum of all inventory values (kg). */
+  public getInventoryTotal(): number {
+    let total = 0;
+    for (const v of this._inventory.values()) total += v;
+    return total;
+  }
+
+  /** All non-zero inventory entries as [type, amount] pairs. */
+  public getInventoryItems(): [InventoryItemType, number][] {
+    return Array.from(this._inventory.entries()).filter(([, v]) => v > 0);
+  }
+
+  /**
+   * Add a material to inventory, capped at storageCapacity.
+   * Returns the amount actually added.
+   */
+  public addToInventory(type: InventoryItemType, amount: number): number {
+    if (amount <= 0) return 0;
+    const cap = this.getStorageCapacity();
+    if (cap <= 0) return 0;
+    const space = cap - this.getInventoryTotal();
+    const added = Math.min(amount, Math.max(0, space));
+    if (added <= 0) return 0;
+    this._inventory.set(type, (this._inventory.get(type) ?? 0) + added);
+    return added;
+  }
+
+  /**
+   * Remove a specific material from inventory.
+   * Returns the amount actually removed.
+   */
+  public removeFromInventory(type: InventoryItemType, amount: number): number {
+    if (amount <= 0) return 0;
+    const current = this._inventory.get(type) ?? 0;
+    const removed = Math.min(amount, current);
+    if (removed <= 0) return 0;
+    const remaining = current - removed;
+    if (remaining <= 0) {
+      this._inventory.delete(type);
+    } else {
+      this._inventory.set(type, remaining);
+    }
+    return removed;
+  }
+
+  /**
+   * Remove up to `amount` kg from inventory, draining materials sequentially.
+   * Returns total kg actually removed.
+   */
+  public removeAnyMaterials(amount: number): number {
+    if (amount <= 0) return 0;
+    let remaining = amount;
+    for (const [type, current] of this._inventory) {
+      if (remaining <= 0) break;
+      const take = Math.min(current, remaining);
+      remaining -= take;
+      const newAmt = current - take;
+      if (newAmt <= 0) {
+        this._inventory.delete(type);
+      } else {
+        this._inventory.set(type, newAmt);
+      }
+    }
+    return amount - remaining;
+  }
+
+  /**
+   * Initialize inventory with specific amounts, bypassing storage capacity.
+   * Used for scenario setup (Core starting resources, etc.).
+   */
+  public initInventory(items: Partial<Record<InventoryItemType, number>>): void {
+    this._inventory.clear();
+    for (const [k, v] of Object.entries(items)) {
+      if (v && v > 0) {
+        this._inventory.set(k as InventoryItemType, v);
+      }
+    }
   }
 
   // ── Construction ──────────────────────────────────────────────────────
 
   /**
-   * Apply resource units toward construction. Returns the amount actually consumed.
-   * When fully built, sets isConstructed and restores full HP.
+   * Record that `amount` kg of `material` has been delivered toward construction.
+   * GridManager calls this after deducting from the source.
+   * Checks completion after each delivery.
    */
-  public applyConstructionResources(amount: number): number {
-    if (this.isConstructed) return 0;
-    const remaining = this.definition.constructionCost - this.constructionProgress;
-    const consumed = Math.min(amount, remaining);
-    this.constructionProgress += consumed;
+  public deliverConstructionMaterial(material: MaterialType, amount: number): void {
+    if (this.isConstructed || amount <= 0) return;
+    this.constructionDelivered.set(
+      material,
+      (this.constructionDelivered.get(material) ?? 0) + amount,
+    );
+    this.checkConstructionComplete();
+  }
 
-    if (this.constructionProgress >= this.definition.constructionCost) {
-      this.isConstructed = true;
-      this.currentHealth = this.maxHealth;
+  /** How much more of this material is still needed for construction. */
+  public getConstructionRemaining(material: MaterialType): number {
+    const recipe = this.definition.constructionRecipe;
+    if (!recipe) return 0;
+    const needed = recipe[material] ?? 0;
+    const delivered = this.constructionDelivered.get(material) ?? 0;
+    return Math.max(0, needed - delivered);
+  }
+
+  /** Check if all recipe materials have been fully delivered. */
+  private checkConstructionComplete(): void {
+    const recipe = this.definition.constructionRecipe;
+    if (!recipe) return;
+    for (const [material, needed] of Object.entries(recipe) as [MaterialType, number][]) {
+      if ((this.constructionDelivered.get(material) ?? 0) < needed) return;
     }
-    return consumed;
+    this.isConstructed = true;
+    this.currentHealth = this.maxHealth;
   }
 
   /**
-   * Apply resource units toward repair. Returns the amount actually consumed.
-   * Only works when fully constructed and damaged.
+   * Apply resource units toward repair (consumes caller-supplied generic amount).
+   * GridManager drains source inventory; this method restores HP.
+   * Returns the amount actually useful for repair.
    */
   public applyRepairResources(amount: number): number {
     if (!this.isConstructed) return 0;
     if (this.currentHealth >= this.maxHealth) return 0;
-
     const hpNeeded = this.maxHealth - this.currentHealth;
     const maxResourcesUseful = hpNeeded * REPAIR_COST_PER_HP;
     const consumed = Math.min(amount, maxResourcesUseful);
-    const hpRestored = consumed / REPAIR_COST_PER_HP;
-
-    this.currentHealth = Math.min(this.maxHealth, this.currentHealth + hpRestored);
+    this.currentHealth = Math.min(this.maxHealth, this.currentHealth + consumed / REPAIR_COST_PER_HP);
     return consumed;
   }
 
   /** Mark this structure as pre-built (used by Core and test scenarios). */
   public markPreBuilt(): void {
-    this.constructionProgress = this.definition.constructionCost;
     this.isConstructed = true;
     this.currentHealth = this.maxHealth;
   }
 
   /** 0–1 fraction of construction completion. 1 if cost is 0 or fully built. */
   public getConstructionFraction(): number {
-    if (this.definition.constructionCost <= 0) return 1;
-    return Math.min(1, this.constructionProgress / this.definition.constructionCost);
+    if (this.isConstructed) return 1;
+    const recipe = this.definition.constructionRecipe;
+    if (!recipe) return 1;
+    const totalCost = this.definition.constructionCost;
+    if (totalCost <= 0) return 1;
+    let delivered = 0;
+    for (const v of this.constructionDelivered.values()) delivered += v;
+    return Math.min(1, delivered / totalCost);
   }
 
   /** Whether this structure needs construction resources. */
@@ -159,7 +266,7 @@ export class Structure {
     return this.maxHealth > 0 ? this.currentHealth / this.maxHealth : 0;
   }
 
-  // ── Power & storage (gated behind isConstructed) ──────────────────────
+  // ── Power & storage ───────────────────────────────────────────────────
 
   public getPowerOutput(): number {
     return this.isConstructed ? this.definition.powerOutput : 0;
@@ -168,7 +275,6 @@ export class Structure {
   public getPowerConsumption(): number {
     if (!this.isConstructed) return 0;
     let consumption = this.definition.powerConsumption;
-    // Include temporary spike from shield wall damage absorption
     if (this.powerSpikeAmount > 0 && Date.now() < this.powerSpikeUntil) {
       consumption += this.powerSpikeAmount;
     } else {
@@ -177,14 +283,9 @@ export class Structure {
     return consumption;
   }
 
-  /**
-   * Apply a temporary power consumption spike (e.g. shield wall absorbing damage).
-   * Stacks additively with existing spikes. Resets the timer on each hit.
-   */
   public applyPowerSpike(amount: number, durationMs: number): void {
     const now = Date.now();
     if (now < this.powerSpikeUntil) {
-      // Stack with existing spike
       this.powerSpikeAmount += amount;
     } else {
       this.powerSpikeAmount = amount;
@@ -198,6 +299,18 @@ export class Structure {
 
   public getStorageUtilization(): number {
     const cap = this.getStorageCapacity();
-    return cap > 0 ? this.storedResources / cap : 0;
+    return cap > 0 ? this.getInventoryTotal() / cap : 0;
+  }
+
+  // ── Type guard helpers ────────────────────────────────────────────────
+
+  /** Whether this material is an ore type (not yet refined). */
+  public static isOreType(type: InventoryItemType): type is OreType {
+    return type === 'CarbonaceousOre' || type === 'SilicateOre' || type === 'MetallicOre';
+  }
+
+  /** Whether this material is a refined material type. */
+  public static isMaterialType(type: InventoryItemType): type is MaterialType {
+    return !Structure.isOreType(type);
   }
 }

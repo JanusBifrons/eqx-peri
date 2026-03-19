@@ -85,7 +85,7 @@ export class Missile {
         this.fuelRemaining = this.config.fuel;        // Create missile body with no friction for realistic space physics
         const size = this.getMissileSize();
         this.body = Matter.Bodies.rectangle(position.x, position.y, size.width, size.height, {
-            mass: 2, // Lighter for better maneuverability
+            mass: 2, // 2 kg — intentionally light for maneuverability (TODO: scale to 15-30 kg for 1kg=1mass realism)
             frictionAir: 0, // No air resistance in space
             inertia: 0.5, // Lower moment of inertia for quicker rotation
             angle: initialAngle,

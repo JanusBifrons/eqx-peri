@@ -1,14 +1,8 @@
 import Matter from 'matter-js';
-import { CONNECTION_MAX_RANGE, GridPowerSummary, TRANSFER_PULSE_MS, CONSTRUCTION_PULSE_AMOUNT, REPAIR_PULSE_AMOUNT, SHIELD_WALL_POWER_SPIKE_MS } from '../../types/GameTypes';
+import { CONNECTION_MAX_RANGE, GridPowerSummary, TRANSFER_PULSE_MS, SHIELD_WALL_POWER_SPIKE_MS, OreType, REFINING_TABLES, REFINERY_PROCESS_RATE_KG, CONSTRUCTION_RATE_KG, REPAIR_RATE_KG, MaterialType } from '../../types/GameTypes';
 import { Structure } from './Structure';
 import { Connection } from './Connection';
 import { ShieldWall } from './ShieldWall';
-
-/** A resource transfer request queued for the next pulse. */
-interface TransferRequest {
-  destination: Structure;
-  amount: number;
-}
 
 /** Cached A* route between two structures. */
 interface CachedRoute {
@@ -31,7 +25,6 @@ export class GridManager {
   private components: Map<number, Structure[]> = new Map();
   private topologyDirty: boolean = true;
   private routeCache: Map<string, CachedRoute | null> = new Map();
-  private transferQueue: TransferRequest[] = [];
   private lastPulseTime: number = 0;
 
   /** Shield walls keyed by connection ID. */
@@ -222,12 +215,13 @@ export class GridManager {
       totalPowerOutput += s.getPowerOutput();
       totalPowerConsumption += s.getPowerConsumption();
       totalCapacity += s.getStorageCapacity();
-      usedCapacity += s.storedResources;
+      usedCapacity += s.getInventoryTotal();
     }
     return {
       totalPowerOutput,
       totalPowerConsumption,
       netPower: totalPowerOutput - totalPowerConsumption,
+      powerEfficiency: totalPowerConsumption > 0 ? Math.min(1, totalPowerOutput / totalPowerConsumption) : 1,
       totalCapacity,
       usedCapacity,
     };
@@ -318,65 +312,6 @@ export class GridManager {
     return Math.sqrt(dx * dx + dy * dy) / CONNECTION_MAX_RANGE;
   }
 
-  // ── Resource transfer (pulse-based) ────────────────────────────────────
-
-  /** Queue a resource transfer request. Processed on the next pulse. */
-  public requestTransfer(destination: Structure, amount: number): void {
-    this.transferQueue.push({ destination, amount });
-  }
-
-  /**
-   * Process queued transfers on a pulse. Called from update().
-   * Returns true if any transfers occurred (for sound/effects).
-   */
-  private processPulse(_allStructures: Structure[]): boolean {
-    if (this.transferQueue.length === 0) return false;
-
-    let anyTransferred = false;
-
-    for (const request of this.transferQueue) {
-      const dest = request.destination;
-      const destCap = dest.getStorageCapacity();
-      const destSpace = destCap - dest.storedResources;
-      if (destSpace <= 0) continue;
-
-      const wanted = Math.min(request.amount, destSpace);
-
-      // Find sources on the same grid with available resources
-      const members = this.getGridMembers(dest);
-      let remaining = wanted;
-
-      for (const source of members) {
-        if (source === dest) continue;
-        if (source.storedResources <= 0) continue;
-        if (source.team !== dest.team) continue;
-
-        const route = this.findRoute(source, dest);
-        if (!route) continue;
-
-        // Bottleneck = minimum throughput along the route
-        const bottleneck = Math.min(...route.connections.map(c => c.throughput));
-        const transferAmount = Math.min(remaining, source.storedResources, bottleneck);
-        if (transferAmount <= 0) continue;
-
-        source.storedResources -= transferAmount;
-        dest.storedResources += transferAmount;
-        remaining -= transferAmount;
-        anyTransferred = true;
-
-        // Flash connections along the route
-        for (const conn of route.connections) {
-          conn.flash();
-        }
-
-        if (remaining <= 0) break;
-      }
-    }
-
-    this.transferQueue = [];
-    return anyTransferred;
-  }
-
   // ── Per-frame update ───────────────────────────────────────────────────
 
   /** Call every frame. Rebuilds topology if needed, processes transfer pulses. */
@@ -393,9 +328,8 @@ export class GridManager {
     const now = Date.now();
     if (now - this.lastPulseTime >= TRANSFER_PULSE_MS) {
       this.lastPulseTime = now;
-      this.processResourceGeneration(allStructures);
+      this.processRefining(allStructures);
       this.processResourceDistribution(allStructures);
-      this.processPulse(allStructures);
       this.processConstructionPulse(allStructures);
     }
 
@@ -507,10 +441,10 @@ export class GridManager {
     for (const s of members) {
       if (s.team !== wall.team) continue;
       if (s.type !== 'Battery') continue;
-      if (s.storedResources <= 0) continue;
+      if (s.getInventoryTotal() <= 0) continue;
 
-      const drain = Math.min(excess, s.storedResources);
-      s.storedResources -= drain;
+      const drain = Math.min(excess, s.getInventoryTotal());
+      s.removeAnyMaterials(drain);
       excess -= drain;
       if (excess <= 0) break;
     }
@@ -526,8 +460,9 @@ export class GridManager {
   }
 
   /**
-   * Automatically deliver resources to structures under construction or in need of repair.
+   * Automatically deliver materials to structures under construction or in need of repair.
    * Runs once per pulse alongside the regular transfer pulse.
+   * Construction consumes specific materials per recipe; repair consumes any available materials.
    */
   private processConstructionPulse(allStructures: Structure[]): void {
     for (const structure of allStructures) {
@@ -535,117 +470,155 @@ export class GridManager {
       const isRepairing = structure.needsRepair();
       if (!isBuilding && !isRepairing) continue;
 
-      const pulseAmount = isBuilding ? CONSTRUCTION_PULSE_AMOUNT : REPAIR_PULSE_AMOUNT;
-
-      // Find grid members that have stored resources
       const members = this.getGridMembers(structure);
-      let remaining = pulseAmount;
 
-      for (const source of members) {
-        if (source === structure) continue;
-        if (source.storedResources <= 0) continue;
-        if (source.team !== structure.team) continue;
+      if (isBuilding) {
+        const recipe = structure.definition.constructionRecipe;
+        if (!recipe) continue;
 
-        const route = this.findRoute(source, structure);
-        if (!route) continue;
-
-        // Bottleneck throughput along the route
-        const bottleneck = Math.min(...route.connections.map(c => c.throughput));
-        const available = Math.min(remaining, source.storedResources, bottleneck);
-        if (available <= 0) continue;
-
-        // Deliver resources
         const wasUnbuilt = !structure.isConstructed;
-        const consumed = isBuilding
-          ? structure.applyConstructionResources(available)
-          : structure.applyRepairResources(available);
+        let budgetRemaining = CONSTRUCTION_RATE_KG;
 
-        if (consumed > 0) {
-          source.storedResources -= consumed;
-          remaining -= consumed;
+        // For each material in the recipe, pull what's still needed from grid sources
+        for (const [material, recipeAmount] of Object.entries(recipe) as [MaterialType, number][]) {
+          const stillNeeded = structure.getConstructionRemaining(material);
+          if (stillNeeded <= 0) continue;
+          const toDeliver = Math.min(stillNeeded, budgetRemaining);
+          if (toDeliver <= 0) continue;
 
-          // Flash connections along the route
-          for (const conn of route.connections) {
-            conn.flash();
+          let delivered = 0;
+          for (const source of members) {
+            if (source === structure) continue;
+            if (source.team !== structure.team) continue;
+            if (!source.isConstructed) continue;
+            const sourceHas = source.getInventoryAmount(material);
+            if (sourceHas <= 0) continue;
+            const route = this.findRoute(source, structure);
+            if (!route) continue;
+            const bottleneck = Math.min(...route.connections.map(c => c.throughput));
+            const pull = Math.min(toDeliver - delivered, sourceHas, bottleneck);
+            if (pull <= 0) continue;
+            source.removeFromInventory(material, pull);
+            delivered += pull;
+            for (let ci = 0; ci < route.connections.length; ci++) route.connections[ci].flashWithFlow(material, ci * 50);
+            if (delivered >= toDeliver) break;
           }
 
-          // Structure just completed construction — rebuild topology so it can
-          // relay resources/power to structures beyond it.
-          if (wasUnbuilt && structure.isConstructed) {
-            this.topologyDirty = true;
+          if (delivered > 0) {
+            structure.deliverConstructionMaterial(material, delivered);
+            budgetRemaining -= delivered;
           }
+          void recipeAmount; // used via getConstructionRemaining
         }
 
-        if (remaining <= 0) break;
+        if (wasUnbuilt && structure.isConstructed) {
+          this.topologyDirty = true;
+        }
+      } else {
+        // Repair: deliver up to REPAIR_RATE_KG of any materials per pulse
+        for (const source of members) {
+          if (source === structure) continue;
+          if (source.getInventoryTotal() <= 0) continue;
+          if (source.team !== structure.team) continue;
+          const route = this.findRoute(source, structure);
+          if (!route) continue;
+          const bottleneck = Math.min(...route.connections.map(c => c.throughput));
+          const available = Math.min(REPAIR_RATE_KG, source.getInventoryTotal(), bottleneck);
+          if (available <= 0) continue;
+          const consumed = structure.applyRepairResources(available);
+          if (consumed > 0) {
+            source.removeAnyMaterials(consumed);
+            for (let ci = 0; ci < route.connections.length; ci++) route.connections[ci].flashWithFlow(null, ci * 50);
+          }
+          break; // one source per pulse for repair
+        }
       }
     }
   }
 
   /**
-   * Redistribute resources from structures with stored resources to grid members
-   * that have available storage capacity. This moves generated resources (e.g. from
-   * Refinery) into storage structures (Core, Battery) across the grid.
+   * Move produced materials from producer structures (Refinery, Recycler)
+   * into storage hubs (Core, Battery) across the grid.
+   * Only producers push — storage hubs never redistribute their own inventory,
+   * preventing infinite ping-pong between structures with capacity.
    */
   private processResourceDistribution(allStructures: Structure[]): void {
     for (const source of allStructures) {
-      if (source.storedResources <= 0) continue;
+      // Only producers should push their output into storage
+      if (source.type !== 'Refinery' && source.type !== 'Recycler') continue;
+      if (source.getInventoryTotal() <= 0) continue;
       if (!source.isConstructed || source.isDestroyed()) continue;
-
-      // Only distribute from structures that don't primarily need their own resources
-      // (i.e., skip structures under construction or needing repair — those keep theirs)
-      if (source.needsConstruction() || source.needsRepair()) continue;
 
       const members = this.getGridMembers(source);
 
-      for (const dest of members) {
-        if (dest === source) continue;
-        if (dest.team !== source.team) continue;
-        if (!dest.isConstructed || dest.isDestroyed()) continue;
+      for (const [material, sourceAmount] of source.getInventoryItems()) {
+        if (sourceAmount <= 0) continue;
+        let remaining = sourceAmount;
 
-        const destCap = dest.getStorageCapacity();
-        const destSpace = destCap - dest.storedResources;
-        if (destSpace <= 0) continue;
+        for (const dest of members) {
+          if (dest === source) continue;
+          if (dest.team !== source.team) continue;
+          if (!dest.isConstructed || dest.isDestroyed()) continue;
+          if (dest.getStorageCapacity() <= 0) continue;
 
-        const route = this.findRoute(source, dest);
-        if (!route) continue;
+          const destSpace = dest.getStorageCapacity() - dest.getInventoryTotal();
+          if (destSpace <= 0) continue;
 
-        const bottleneck = Math.min(...route.connections.map(c => c.throughput));
-        const transfer = Math.min(source.storedResources, destSpace, bottleneck);
-        if (transfer <= 0) continue;
+          const route = this.findRoute(source, dest);
+          if (!route) continue;
 
-        source.storedResources -= transfer;
-        dest.storedResources += transfer;
+          const bottleneck = Math.min(...route.connections.map(c => c.throughput));
+          const transfer = Math.min(remaining, destSpace, bottleneck);
+          if (transfer <= 0) continue;
 
-        // Flash connections along the route
-        for (const conn of route.connections) {
-          conn.flash();
+          const removed = source.removeFromInventory(material, transfer);
+          if (removed > 0) {
+            dest.addToInventory(material, removed);
+            remaining -= removed;
+            for (let ci = 0; ci < route.connections.length; ci++) route.connections[ci].flashWithFlow(material, ci * 50);
+          }
+
+          if (remaining <= 0) break;
         }
-
-        if (source.storedResources <= 0) break;
+        if (source.getInventoryTotal() <= 0) break;
       }
     }
   }
 
   /**
-   * Passive resource generation for structures with resourceGenerationRate (e.g. Refinery).
-   * Generates into the structure's own storedResources buffer, capped at storageCapacity.
-   * Power-gated: skips if grid netPower < 0.
+   * Process ore in Refinery structures into refined materials via loot tables.
+   * Runs once per pulse. Power-gated.
+   * 80% of processed ore becomes waste. 20% is split among drops by chance percentage.
    */
-  private processResourceGeneration(allStructures: Structure[]): void {
+  private processRefining(allStructures: Structure[]): void {
     for (const s of allStructures) {
-      const rate = s.definition.resourceGenerationRate;
-      if (!rate || rate <= 0) continue;
+      if (s.type !== 'Refinery') continue;
       if (!s.isConstructed || s.isDestroyed()) continue;
 
-      // Power gating — same check as turrets
       const summary = this.getGridPowerSummary(s, allStructures);
-      if (summary.netPower < 0) continue;
+      if (summary.powerEfficiency <= 0) continue;
 
-      const cap = s.getStorageCapacity();
-      const space = cap - s.storedResources;
-      if (space <= 0) continue;
+      // Find ore in this refinery's inventory
+      const oreTypes: OreType[] = ['CarbonaceousOre', 'SilicateOre', 'MetallicOre'];
+      for (const oreType of oreTypes) {
+        const oreAmount = s.getInventoryAmount(oreType);
+        if (oreAmount <= 0) continue;
 
-      s.storedResources += Math.min(rate, space);
+        const processAmount = Math.min(oreAmount, REFINERY_PROCESS_RATE_KG * summary.powerEfficiency);
+        s.removeFromInventory(oreType, processAmount);
+
+        // 80% waste, 20% yield
+        const table = REFINING_TABLES[oreType];
+        const yieldAmount = processAmount * (1 - table.wasteFraction);
+
+        for (const drop of table.drops) {
+          const produced = yieldAmount * (drop.dropChancePct / 100);
+          if (produced > 0) {
+            s.addToInventory(drop.material, produced);
+          }
+        }
+        break; // process one ore type per pulse
+      }
     }
   }
 

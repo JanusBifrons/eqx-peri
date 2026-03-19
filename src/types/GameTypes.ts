@@ -873,9 +873,84 @@ export const SCENARIOS: Readonly<Record<ScenarioId, ScenarioConfig>> = {
 
 export const SCENARIO_ORDER: ScenarioId[] = ['ship-builder', 'structures-sandbox', 'sandbox', 'open-world', 'debug', 'duel', 'small-battle', 'medium-battle', 'huge'];
 
+// ── Resource Economy ──────────────────────────────────────────────────────────
+
+/**
+ * Mass standard: 1 Matter.js mass unit = 1 kg.
+ * All mass values, force magnitudes, and resource amounts are in kilograms.
+ */
+
+/** Raw ore types extracted from asteroids. */
+export type OreType = 'CarbonaceousOre' | 'SilicateOre' | 'MetallicOre';
+
+/** Refined materials produced by processing ore. */
+export type MaterialType =
+  | 'Hydrogen' | 'Oxygen' | 'Carbon' | 'Coolant' | 'Ammonia' | 'Fluorine' | 'PreSolarAminoAcids'   // C-Type
+  | 'Silicon' | 'Magnesium' | 'Lithium' | 'Titanium' | 'PallasiteGem'                               // S-Type
+  | 'Iron' | 'Nickel' | 'Copper' | 'Cobalt' | 'IridiumGeode';                                       // M-Type
+
+/** Any item that can be stored in an inventory (ore or refined material). */
+export type InventoryItemType = OreType | MaterialType;
+
+/** A quantity of materials keyed by type (all values in kg). */
+export type MaterialRecipe = Partial<Record<MaterialType, number>>;
+
+/** Rarity classification for refined material drops. */
+export type MaterialRarity = 'Common' | 'Uncommon' | 'Rare' | 'Jackpot';
+
+/** A single entry in a refining loot table. */
+export interface RefinedDrop {
+  material: MaterialType;
+  rarity: MaterialRarity;
+  dropChancePct: number;
+  yieldKg: number;
+}
+
+/** Refining table for one ore type. */
+export interface RefiningTable {
+  oreType: OreType;
+  wasteFraction: number;  // e.g. 0.80 = 80% waste
+  drops: RefinedDrop[];
+}
+
+/** A recipe ingredient: material + amount in kg. */
+export interface RecipeIngredient {
+  material: MaterialType;
+  amountKg: number;
+}
+
+/** A manufacturing or construction recipe. */
+export interface Recipe {
+  id: string;
+  name: string;
+  ingredients: RecipeIngredient[];
+}
+
+/** Asteroid classification. */
+export type AsteroidClass = 'C-Type' | 'S-Type' | 'M-Type';
+
+/** Map from asteroid class to ore type. */
+export const ASTEROID_ORE_MAP: Record<AsteroidClass, OreType> = {
+  'C-Type': 'CarbonaceousOre',
+  'S-Type': 'SilicateOre',
+  'M-Type': 'MetallicOre',
+};
+
+/** Fraction of recycled material recovered (60% yield). */
+export const RECYCLER_YIELD_FRACTION = 0.6;
+
+/** Rate at which a Manufacturer consumes materials per pulse (kg). */
+export const MANUFACTURER_PROCESS_RATE_KG = 50;
+
+/** Rate at which a Recycler processes scrap per pulse (kg). */
+export const RECYCLER_PROCESS_RATE_KG = 30;
+
+/** Rate at which a Refinery processes ore per pulse (kg). */
+export const REFINERY_PROCESS_RATE_KG = 40;
+
 // ── Structure System ─────────────────────────────────────────────────────────
 
-export type StructureType = 'Core' | 'Connector' | 'SolarPanel' | 'Battery' | 'PowerStation' | 'SmallTurret' | 'MediumTurret' | 'LargeTurret' | 'Refinery' | 'ShieldFence' | 'AssemblyYard';
+export type StructureType = 'Core' | 'Connector' | 'SolarPanel' | 'Battery' | 'PowerStation' | 'SmallTurret' | 'MediumTurret' | 'LargeTurret' | 'Refinery' | 'ShieldFence' | 'AssemblyYard' | 'Manufacturer' | 'Recycler';
 
 export interface StructureDefinition {
   type: StructureType;
@@ -889,6 +964,7 @@ export interface StructureDefinition {
   powerConsumption: number; // passive power draw per tick (≥0)
   storageCapacity: number;  // max resource units this structure can hold
   constructionCost: number; // total resource units required to fully build (0 = pre-built)
+  constructionRecipe?: Partial<Record<MaterialType, number>>; // specific materials required (kg)
   color: string;            // primary fill color
   borderColor: string;      // stroke color
   // Turret-specific fields (only for turret structure types)
@@ -899,8 +975,6 @@ export interface StructureDefinition {
   laserColor?: string;        // laser fill color
   laserHeight?: number;       // laser body thickness
   aimRotationSpeed?: number;  // radians per second barrel can rotate
-  // Refinery: passive resource generation
-  resourceGenerationRate?: number; // resource units generated per pulse
   // Assembly Yard: ship spawning
   shipBuildCost?: number;     // resources consumed per ship
   shipBuildTimeMs?: number;   // ms to construct one ship after resources invested
@@ -909,15 +983,15 @@ export interface StructureDefinition {
 /** Max world-unit distance between two structures to form a connection. */
 export const CONNECTION_MAX_RANGE = 300;
 /** Resource units a single connection can transfer per pulse. */
-export const CONNECTION_THROUGHPUT = 10;
+export const CONNECTION_THROUGHPUT = 100000;
 /** Milliseconds between resource transfer pulses. */
 export const TRANSFER_PULSE_MS = 1000;
-/** Resource units delivered per pulse toward construction. */
-export const CONSTRUCTION_PULSE_AMOUNT = 5;
-/** Resource units delivered per pulse toward repair. */
-export const REPAIR_PULSE_AMOUNT = 3;
 /** Resource cost per HP restored during repair. */
 export const REPAIR_COST_PER_HP = 0.1;
+/** Fixed kg delivered per construction pulse (build time = cost / rate). */
+export const CONSTRUCTION_RATE_KG = 200;
+/** Fixed kg consumed per repair pulse. */
+export const REPAIR_RATE_KG = 150;
 
 export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefinition>> = {
   Core: {
@@ -930,7 +1004,7 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
     maxConnections: 4,
     powerOutput: 50,
     powerConsumption: 0,
-    storageCapacity: 500,
+    storageCapacity: 2000000,
     constructionCost: 0,        // Core starts pre-built (bootstrapping anchor)
     color: '#2a2520',
     borderColor: '#d4a843',
@@ -946,7 +1020,8 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
     powerOutput: 0,
     powerConsumption: 0,
     storageCapacity: 0,
-    constructionCost: 20,
+    constructionCost: 600,
+    constructionRecipe: { Iron: 450, Copper: 150 },
     color: '#1a1e24',
     borderColor: '#4488aa',
   },
@@ -961,7 +1036,8 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
     powerOutput: 30,
     powerConsumption: 0,
     storageCapacity: 0,
-    constructionCost: 40,
+    constructionCost: 2000,
+    constructionRecipe: { Silicon: 1200, Copper: 500, Magnesium: 300 },
     color: '#1a2a3a',
     borderColor: '#4488cc',
   },
@@ -975,8 +1051,9 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
     maxConnections: 1,
     powerOutput: 0,
     powerConsumption: 0,
-    storageCapacity: 300,
-    constructionCost: 60,
+    storageCapacity: 500000,
+    constructionCost: 1200,
+    constructionRecipe: { Iron: 800, Lithium: 400 },
     color: '#2a2020',
     borderColor: '#cc8844',
   },
@@ -990,8 +1067,9 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
     maxConnections: 1,
     powerOutput: 100,
     powerConsumption: 0,
-    storageCapacity: 100,
-    constructionCost: 120,
+    storageCapacity: 50000,
+    constructionCost: 5000,
+    constructionRecipe: { Iron: 3000, Copper: 1200, Coolant: 800 },
     color: '#1a1a30',
     borderColor: '#6644cc',
   },
@@ -1006,7 +1084,8 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
     powerOutput: 0,
     powerConsumption: 15,
     storageCapacity: 0,
-    constructionCost: 80,
+    constructionCost: 2500,
+    constructionRecipe: { Iron: 1500, Copper: 600, Silicon: 400 },
     color: '#2a1a1a',
     borderColor: '#cc4444',
     weaponRange: 500,
@@ -1028,7 +1107,8 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
     powerOutput: 0,
     powerConsumption: 35,
     storageCapacity: 0,
-    constructionCost: 150,
+    constructionCost: 6000,
+    constructionRecipe: { Iron: 3000, Copper: 1200, Silicon: 800, Titanium: 1000 },
     color: '#2a1a1a',
     borderColor: '#ff4444',
     weaponRange: 700,
@@ -1050,7 +1130,8 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
     powerOutput: 0,
     powerConsumption: 25,
     storageCapacity: 0,
-    constructionCost: 110,
+    constructionCost: 4000,
+    constructionRecipe: { Iron: 2400, Copper: 900, Silicon: 700 },
     color: '#2a1a1a',
     borderColor: '#cc6644',
     weaponRange: 600,
@@ -1071,11 +1152,11 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
     maxConnections: 1,
     powerOutput: 0,
     powerConsumption: 25,
-    storageCapacity: 100,
-    constructionCost: 100,
+    storageCapacity: 200000,
+    constructionCost: 3500,
+    constructionRecipe: { Iron: 2000, Silicon: 900, Copper: 600 },
     color: '#1a2a1a',
     borderColor: '#44cc44',
-    resourceGenerationRate: 3,
   },
   ShieldFence: {
     type: 'ShieldFence',
@@ -1088,7 +1169,8 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
     powerOutput: 0,
     powerConsumption: 20,
     storageCapacity: 0,
-    constructionCost: 80,
+    constructionCost: 1500,
+    constructionRecipe: { Iron: 1000, Copper: 300, Silicon: 200 },
     color: '#1a1a2a',
     borderColor: '#4488ff',
   },
@@ -1102,12 +1184,45 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
     maxConnections: 1,
     powerOutput: 0,
     powerConsumption: 60,
-    storageCapacity: 200,
-    constructionCost: 250,
+    storageCapacity: 500000,
+    constructionCost: 6000,
+    constructionRecipe: { Iron: 3500, Silicon: 1500, Copper: 1000 },
     color: '#2a2020',
     borderColor: '#cc8844',
     shipBuildCost: 150,
     shipBuildTimeMs: 30000,
+  },
+  Manufacturer: {
+    type: 'Manufacturer',
+    label: 'Manufacturer',
+    widthPx: 70,
+    heightPx: 70,
+    shape: 'rect',
+    maxHealth: 2000,
+    maxConnections: 1,
+    powerOutput: 0,
+    powerConsumption: 80,
+    storageCapacity: 300000,
+    constructionCost: 5000,
+    constructionRecipe: { Iron: 3000, Silicon: 1200, Copper: 800 },
+    color: '#2a2a1a',
+    borderColor: '#aacc44',
+  },
+  Recycler: {
+    type: 'Recycler',
+    label: 'Recycler',
+    widthPx: 60,
+    heightPx: 50,
+    shape: 'rect',
+    maxHealth: 1200,
+    maxConnections: 1,
+    powerOutput: 0,
+    powerConsumption: 40,
+    storageCapacity: 200000,
+    constructionCost: 2500,
+    constructionRecipe: { Iron: 1500, Silicon: 600, Copper: 400 },
+    color: '#1a2a2a',
+    borderColor: '#44ccaa',
   },
 };
 
@@ -1121,10 +1236,51 @@ export const SHIELD_WALL_STUN_MS = 5000;
 /** Duration (ms) of the power consumption spike when a shield wall absorbs damage. */
 export const SHIELD_WALL_POWER_SPIKE_MS = 1500;
 
+/** Refining loot tables for each ore type. Drops sum to 100%. Output = processedKg * (1 - wasteFraction) * (dropChancePct / 100). */
+export const REFINING_TABLES: Readonly<Record<OreType, RefiningTable>> = {
+  CarbonaceousOre: {
+    oreType: 'CarbonaceousOre',
+    wasteFraction: 0.80,
+    drops: [
+      { material: 'Hydrogen',           rarity: 'Common',   dropChancePct: 20.0,  yieldKg: 1500 },
+      { material: 'Oxygen',             rarity: 'Common',   dropChancePct: 20.0,  yieldKg: 1500 },
+      { material: 'Carbon',             rarity: 'Common',   dropChancePct: 20.0,  yieldKg: 1000 },
+      { material: 'Coolant',            rarity: 'Common',   dropChancePct: 20.0,  yieldKg: 1000 },
+      { material: 'Ammonia',            rarity: 'Uncommon', dropChancePct: 15.0,  yieldKg: 500  },
+      { material: 'Fluorine',           rarity: 'Rare',     dropChancePct: 4.99,  yieldKg: 100  },
+      { material: 'PreSolarAminoAcids', rarity: 'Jackpot',  dropChancePct: 0.01,  yieldKg: 5   },
+    ],
+  },
+  SilicateOre: {
+    oreType: 'SilicateOre',
+    wasteFraction: 0.80,
+    drops: [
+      { material: 'Silicon',     rarity: 'Common',   dropChancePct: 40.0,  yieldKg: 1500 },
+      { material: 'Magnesium',   rarity: 'Common',   dropChancePct: 40.0,  yieldKg: 1500 },
+      { material: 'Lithium',     rarity: 'Uncommon', dropChancePct: 15.0,  yieldKg: 400  },
+      { material: 'Titanium',    rarity: 'Rare',     dropChancePct: 4.99,  yieldKg: 100  },
+      { material: 'PallasiteGem', rarity: 'Jackpot', dropChancePct: 0.01,  yieldKg: 20  },
+    ],
+  },
+  MetallicOre: {
+    oreType: 'MetallicOre',
+    wasteFraction: 0.80,
+    drops: [
+      { material: 'Iron',         rarity: 'Common',   dropChancePct: 40.0,  yieldKg: 2000 },
+      { material: 'Nickel',       rarity: 'Common',   dropChancePct: 40.0,  yieldKg: 1500 },
+      { material: 'Copper',       rarity: 'Uncommon', dropChancePct: 15.0,  yieldKg: 500  },
+      { material: 'Cobalt',       rarity: 'Rare',     dropChancePct: 4.99,  yieldKg: 100  },
+      { material: 'IridiumGeode', rarity: 'Jackpot',  dropChancePct: 0.01,  yieldKg: 10  },
+    ],
+  },
+};
+
 export interface GridPowerSummary {
   totalPowerOutput: number;
   totalPowerConsumption: number;
   netPower: number;
+  /** 0–1 ratio of output/consumption. 1 when output ≥ consumption or consumption is 0. */
+  powerEfficiency: number;
   totalCapacity: number;
   usedCapacity: number;
 }

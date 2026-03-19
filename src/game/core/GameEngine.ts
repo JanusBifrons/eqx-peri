@@ -2179,7 +2179,7 @@ export class GameEngine {
 
     // Spawn the Core at the world origin for team 0 with starter resources
     const core = this.structureManager.spawnCore({ x: 0, y: 0 }, 0);
-    core.storedResources = 500;
+    core.initStartingInventory();
 
     // Spawn a ring of connectors around the Core and link them
     const connectorCount = 4;
