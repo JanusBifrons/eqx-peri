@@ -215,8 +215,9 @@ export class BeamSystem {
         }
       } else if ((closestBody as any).shieldWall) {
         // Beam hit a shield wall — resolve through grid power system
-        if (this.onShieldWallDamage) {
-          this.onShieldWallDamage((closestBody as any).shieldWall, spec.damagePerSecond * deltaTime);
+        const hitWall = (closestBody as any).shieldWall;
+        if (this.onShieldWallDamage && hitWall.isActive()) {
+          this.onShieldWallDamage(hitWall, spec.damagePerSecond * deltaTime);
         }
       } else if ((closestBody as any).structure) {
         // Beam hit a structure body — apply DPS damage directly

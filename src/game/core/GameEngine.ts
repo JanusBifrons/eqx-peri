@@ -553,7 +553,7 @@ export class GameEngine {
       for (const ab of asteroidBodies) candidateBodies.push(ab);
       const structureBodies = this.structureManager?.getStructures().map(s => s.body) ?? [];
       for (const sb of structureBodies) candidateBodies.push(sb);
-      const wallBodies = this.structureManager?.gridManager.getShieldWalls().map(w => w.body) ?? [];
+      const wallBodies = this.structureManager?.gridManager.getShieldWalls().filter(w => w.isActive()).map(w => w.body) ?? [];
       for (const wb of wallBodies) candidateBodies.push(wb);
 
       if (candidateBodies.length === 0) return;
@@ -941,6 +941,7 @@ export class GameEngine {
   }
 
   private handleLaserHitShieldWall(laser: Matter.Body, wall: ShieldWall, hitPos: Matter.Vector): void {
+    if (!wall.isActive()) return;
     const LASER_DAMAGE = 10;
     Matter.World.remove(this.world, laser);
     this.lasers = this.lasers.filter(l => l !== laser);
@@ -952,6 +953,7 @@ export class GameEngine {
   }
 
   private handleMissileHitShieldWall(missile: { age: number; launchCollisionDelay: number; getDamage: () => number; destroy: () => void }, wall: ShieldWall): void {
+    if (!wall.isActive()) return;
     if (missile.age < missile.launchCollisionDelay) return;
     SoundSystem.getInstance().playMissileExplosion();
     this.particleSystem.emitImpact(wall.body.position.x, wall.body.position.y, 'missile');
@@ -1132,7 +1134,7 @@ export class GameEngine {
     // Provide structure + shield wall + asteroid bodies to beam system for hit detection
     const beamExtraBodies = [
       ...(this.structureManager?.getStructures().map(s => s.body) ?? []),
-      ...(this.structureManager?.gridManager.getShieldWalls().map(w => w.body) ?? []),
+      ...(this.structureManager?.gridManager.getShieldWalls().filter(w => w.isActive()).map(w => w.body) ?? []),
       ...(this.asteroidFieldSystem?.getAllBodies() ?? []),
     ];
     this.controllerManager.setBeamExtraBodies(beamExtraBodies);
