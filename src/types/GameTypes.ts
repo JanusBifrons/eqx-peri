@@ -981,7 +981,7 @@ export interface StructureDefinition {
 }
 
 /** Max world-unit distance between two structures to form a connection. */
-export const CONNECTION_MAX_RANGE = 300;
+export const CONNECTION_MAX_RANGE = 600;
 /** Resource units a single connection can transfer per pulse. */
 export const CONNECTION_THROUGHPUT = 100000;
 /** Milliseconds between resource transfer pulses. */
@@ -992,13 +992,15 @@ export const REPAIR_COST_PER_HP = 0.1;
 export const CONSTRUCTION_RATE_KG = 200;
 /** Fixed kg consumed per repair pulse. */
 export const REPAIR_RATE_KG = 150;
+/** Fixed kg returned per deconstruction pulse. */
+export const DECONSTRUCTION_RATE_KG = 100;
 
 export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefinition>> = {
   Core: {
     type: 'Core',
     label: 'Core',
-    widthPx: 80,
-    heightPx: 80,
+    widthPx: 400,
+    heightPx: 400,
     shape: 'rect',
     maxHealth: 5000,
     maxConnections: 4,
@@ -1028,8 +1030,8 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
   SolarPanel: {
     type: 'SolarPanel',
     label: 'Solar Panel',
-    widthPx: 50,
-    heightPx: 20,
+    widthPx: 250,
+    heightPx: 100,
     shape: 'rect',
     maxHealth: 300,
     maxConnections: 1,
@@ -1044,8 +1046,8 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
   Battery: {
     type: 'Battery',
     label: 'Battery',
-    widthPx: 40,
-    heightPx: 40,
+    widthPx: 200,
+    heightPx: 200,
     shape: 'rect',
     maxHealth: 800,
     maxConnections: 1,
@@ -1060,8 +1062,8 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
   PowerStation: {
     type: 'PowerStation',
     label: 'Power Station',
-    widthPx: 60,
-    heightPx: 60,
+    widthPx: 300,
+    heightPx: 300,
     shape: 'rect',
     maxHealth: 2000,
     maxConnections: 1,
@@ -1076,8 +1078,8 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
   SmallTurret: {
     type: 'SmallTurret',
     label: 'Small Turret',
-    widthPx: 30,
-    heightPx: 30,
+    widthPx: 150,
+    heightPx: 150,
     shape: 'rect',
     maxHealth: 600,
     maxConnections: 1,
@@ -1099,8 +1101,8 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
   LargeTurret: {
     type: 'LargeTurret',
     label: 'Large Turret',
-    widthPx: 50,
-    heightPx: 50,
+    widthPx: 250,
+    heightPx: 250,
     shape: 'rect',
     maxHealth: 1500,
     maxConnections: 1,
@@ -1122,8 +1124,8 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
   MediumTurret: {
     type: 'MediumTurret',
     label: 'Medium Turret',
-    widthPx: 40,
-    heightPx: 40,
+    widthPx: 200,
+    heightPx: 200,
     shape: 'rect',
     maxHealth: 1000,
     maxConnections: 1,
@@ -1145,8 +1147,8 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
   Refinery: {
     type: 'Refinery',
     label: 'Refinery',
-    widthPx: 50,
-    heightPx: 50,
+    widthPx: 250,
+    heightPx: 250,
     shape: 'rect',
     maxHealth: 1200,
     maxConnections: 1,
@@ -1177,8 +1179,8 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
   AssemblyYard: {
     type: 'AssemblyYard',
     label: 'Assembly Yard',
-    widthPx: 100,
-    heightPx: 80,
+    widthPx: 500,
+    heightPx: 400,
     shape: 'rect',
     maxHealth: 3000,
     maxConnections: 1,
@@ -1195,8 +1197,8 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
   Manufacturer: {
     type: 'Manufacturer',
     label: 'Manufacturer',
-    widthPx: 70,
-    heightPx: 70,
+    widthPx: 350,
+    heightPx: 350,
     shape: 'rect',
     maxHealth: 2000,
     maxConnections: 1,
@@ -1211,8 +1213,8 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
   Recycler: {
     type: 'Recycler',
     label: 'Recycler',
-    widthPx: 60,
-    heightPx: 50,
+    widthPx: 300,
+    heightPx: 250,
     shape: 'rect',
     maxHealth: 1200,
     maxConnections: 1,

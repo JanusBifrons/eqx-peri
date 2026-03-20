@@ -1,5 +1,5 @@
 import Matter from 'matter-js';
-import { GridPowerSummary, StructureType, Vector2 } from '../../types/GameTypes';
+import { DECONSTRUCTION_RATE_KG, GridPowerSummary, StructureType, Vector2 } from '../../types/GameTypes';
 import { Structure } from './Structure';
 import { StructureCore } from './StructureCore';
 import { StructureTurret } from './StructureTurret';
@@ -87,6 +87,19 @@ export class StructureManager {
       }
     }
 
+    // Tick deconstruction — structures being deconstructed return resources
+    for (let i = this.structures.length - 1; i >= 0; i--) {
+      const s = this.structures[i];
+      if (!s.isDeconstructing) continue;
+      const result = s.tickDeconstruction(DECONSTRUCTION_RATE_KG);
+      if (result === -1) {
+        // Deconstruction complete — remove the structure
+        this.gridManager.removeStructure(s);
+        this.removeBodyFromWorld(s.body);
+        this.structures.splice(i, 1);
+      }
+    }
+
     // Update grid manager (topology rebuild, resource transfer pulses)
     this.gridManager.update(deltaTimeMs, this.structures);
 
@@ -103,7 +116,7 @@ export class StructureManager {
 
     // Tick assembly yards — prune dead ships, trigger builds
     for (const s of this.structures) {
-      if (s instanceof StructureAssemblyYard && s.isConstructed) {
+      if (s instanceof StructureAssemblyYard && s.isOperational()) {
         // Prune ships that no longer exist
         s.activeShipIds = s.activeShipIds.filter(id =>
           assemblies.some(a => a.id === id && !a.destroyed),
@@ -119,7 +132,7 @@ export class StructureManager {
 
     // Tick manufacturers — consume materials, produce parts
     for (const s of this.structures) {
-      if (s instanceof StructureManufacturer && s.isConstructed) {
+      if (s instanceof StructureManufacturer && s.isOperational()) {
         const summary = this.gridManager.getGridPowerSummary(s, this.structures);
         s.tickBuild(summary);
       }
@@ -127,7 +140,7 @@ export class StructureManager {
 
     // Tick recyclers — process scrap into recovered materials
     for (const s of this.structures) {
-      if (s instanceof StructureRecycler && s.isConstructed) {
+      if (s instanceof StructureRecycler && s.isOperational()) {
         const summary = this.gridManager.getGridPowerSummary(s, this.structures);
         s.tickProcess(summary);
       }

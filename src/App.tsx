@@ -9,6 +9,7 @@ import SettingsPanel from './ui/SettingsPanel';
 import ShipActionPanel from './ui/ShipActionPanel';
 import ShipBuilderPanel from './ui/ShipBuilderPanel';
 import StructuresPanel from './ui/StructuresPanel';
+import StructureActionPanel from './ui/StructureActionPanel';
 import ConfirmDialog from './ui/ConfirmDialog';
 import PerformanceBar from './ui/PerformanceBar';
 import {
@@ -164,7 +165,10 @@ const App: React.FC = () => {
 
         {/* Structures build menu — shown only in structures sandbox mode */}
         {screen === 'playing' && isStructuresSandbox && (
-          <StructuresPanel gameEngine={gameEngine} />
+          <>
+            <StructuresPanel gameEngine={gameEngine} />
+            <StructureActionPanel gameEngine={gameEngine} />
+          </>
         )}
 
         {/* Combat HUD — hidden in ship builder mode */}

@@ -1,4 +1,5 @@
 import * as PIXI from 'pixi.js';
+import { CRTFilter } from 'pixi-filters';
 import { IRenderer } from './IRenderer';
 import { Viewport } from './Viewport';
 import { Structure } from '../structures/Structure';
@@ -8,28 +9,35 @@ import { StructureManufacturer } from '../structures/StructureManufacturer';
 import { StructureRecycler } from '../structures/StructureRecycler';
 import { ShieldWall } from '../structures/ShieldWall';
 import { StructureManager } from '../structures/StructureManager';
-import { GridPowerSummary, SHIELD_WALL_THICKNESS } from '../../types/GameTypes';
+import { SHIELD_WALL_THICKNESS } from '../../types/GameTypes';
 
 const CORE_ICON_FRACTION = 0.35;
 const CONSTRUCTION_BORDER_COLOR = 0xd4a843; // amber for scaffolding
+const DECONSTRUCTION_COLOR = 0xcc4444; // red for deconstruction
+
+/** Minimum zoom scale to render text readouts (avoids unreadable micro-text). */
+const MIN_TEXT_SCALE = 0.4;
+
+/** Types that are too small or don't warrant a power/storage readout. */
+const SKIP_READOUT_TYPES = new Set(['Connector', 'ShieldFence']);
 
 const READOUT_STYLE = new PIXI.TextStyle({
   fontFamily: 'monospace',
   fontSize: 10,
-  fill: '#cccccc',
-});
-
-const READOUT_LABEL_STYLE = new PIXI.TextStyle({
-  fontFamily: 'monospace',
-  fontSize: 9,
-  fill: '#d4a843',
-  fontWeight: 'bold',
+  fill: '#ffffff',
 });
 
 const BUILDING_LABEL_STYLE = new PIXI.TextStyle({
   fontFamily: 'monospace',
   fontSize: 8,
   fill: '#d4a843',
+  fontWeight: 'bold',
+});
+
+const DECON_LABEL_STYLE = new PIXI.TextStyle({
+  fontFamily: 'monospace',
+  fontSize: 8,
+  fill: '#cc4444',
   fontWeight: 'bold',
 });
 
@@ -40,11 +48,34 @@ const NO_POWER_STYLE = new PIXI.TextStyle({
   fontWeight: 'bold',
 });
 
+// ── Formatting helpers ──────────────────────────────────────────────────
+
+/** Format a power value with auto-scaled unit (W / kW / MW). */
+function formatPower(value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)} MW`;
+  if (abs >= 1_000) return `${(value / 1_000).toFixed(1)} kW`;
+  return `${value} W`;
+}
+
+/** Format a weight value in kg to human-readable (g / kg / t / kt / Mt). */
+function formatWeight(kg: number): string {
+  if (kg < 1) return `${Math.round(kg * 1000)} g`;
+  if (kg < 1_000) return `${Math.round(kg)} kg`;
+  if (kg < 1_000_000) return `${(kg / 1_000).toFixed(1)} t`;
+  if (kg < 1_000_000_000) return `${(kg / 1_000_000).toFixed(1)} kt`;
+  return `${(kg / 1_000_000_000).toFixed(1)} Mt`;
+}
+
+/** Pad a string to a fixed width (right-align numbers for consistency). */
+
 export class StructureRenderer implements IRenderer {
   readonly renderPriority = 15;
 
   private graphics!: PIXI.Graphics;
   private textContainer!: PIXI.Container;
+  private readoutGraphics!: PIXI.Graphics;  // backdrop rects drawn inside textContainer
+  private crtFilter!: CRTFilter;
   private textPool: PIXI.Text[] = [];
 
   constructor(
@@ -57,11 +88,31 @@ export class StructureRenderer implements IRenderer {
     this.graphics = new PIXI.Graphics();
     stage.addChild(this.graphics);
     this.textContainer = new PIXI.Container();
+    // Readout backdrops are drawn inside textContainer so the CRT filter covers them
+    this.readoutGraphics = new PIXI.Graphics();
+    this.textContainer.addChild(this.readoutGraphics);
+    // Subtle CRT / LCD scanline effect on all readout panels
+    this.crtFilter = new CRTFilter({
+      curvature: 4,
+      lineWidth: 4,
+      lineContrast: 0.6,
+      noise: 0.25,
+      noiseSize: 1.0,
+      vignetting: 0.3,
+      vignettingAlpha: 0.8,
+      vignettingBlur: 0.4,
+      verticalLine: false,
+    });
+    this.textContainer.filters = [this.crtFilter];
     stage.addChild(this.textContainer);
   }
 
   render(viewport: Viewport): void {
     this.graphics.clear();
+    this.readoutGraphics.clear();
+    // Animate CRT scanlines
+    this.crtFilter.time += 0.04;
+    this.crtFilter.seed = Math.random();
     // Hide all pooled texts — only the ones needed this frame will be shown
     for (const t of this.textPool) t.visible = false;
 
@@ -85,19 +136,19 @@ export class StructureRenderer implements IRenderer {
       if (cx + hw < 0 || cx - hw > canvas.width || cy + hh < 0 || cy - hh > canvas.height) continue;
 
       const isBuilding = !structure.isConstructed;
+      const isDeconstructing = structure.isDeconstructing;
 
-      // Body fill — under-construction structures get an opaque dark base
-      // to occlude connection lines underneath, then the scaffolding tint on top.
-      const fillColor = isBuilding
-        ? 0x1a1a10  // dark amber tint for scaffolding
+      // Body fill — under-construction / deconstructing structures get an opaque dark base
+      const fillColor = isBuilding || isDeconstructing
+        ? (isDeconstructing ? 0x1a0a0a : 0x1a1a10)
         : PIXI.utils.string2hex(structure.definition.color);
-      const borderColor = isBuilding
-        ? CONSTRUCTION_BORDER_COLOR
-        : PIXI.utils.string2hex(structure.definition.borderColor);
+      const borderColor = isDeconstructing
+        ? DECONSTRUCTION_COLOR
+        : (isBuilding ? CONSTRUCTION_BORDER_COLOR : PIXI.utils.string2hex(structure.definition.borderColor));
       const borderWidth = Math.max(1.5, 2 * scale);
 
-      // Opaque dark base for under-construction (hides connection lines behind)
-      if (isBuilding) {
+      // Opaque dark base for under-construction / deconstructing (hides connection lines behind)
+      if (isBuilding || isDeconstructing) {
         this.graphics.lineStyle(0);
         this.graphics.beginFill(0x0a0a0a, 0.95);
         if (structure.definition.shape === 'hex') {
@@ -108,8 +159,8 @@ export class StructureRenderer implements IRenderer {
         this.graphics.endFill();
       }
 
-      const fillAlpha = isBuilding ? 0.45 : 0.9;
-      this.graphics.lineStyle(borderWidth, borderColor, isBuilding ? 0.6 : 1);
+      const fillAlpha = (isBuilding || isDeconstructing) ? 0.45 : (structure.isPoweredOn ? 0.9 : 0.5);
+      this.graphics.lineStyle(borderWidth, borderColor, (isBuilding || isDeconstructing) ? 0.6 : 1);
       this.graphics.beginFill(fillColor, fillAlpha);
       if (structure.definition.shape === 'hex') {
         this.drawHexagon(cx, cy, hw);
@@ -123,12 +174,25 @@ export class StructureRenderer implements IRenderer {
         this.drawCrossHatch(cx, cy, hw, hh, scale, structure.definition.shape === 'hex');
       }
 
-      // Construction progress bar (amber) — shown when under construction
-      if (isBuilding) {
+      // "Powered off" overlay — dim X pattern
+      if (!structure.isPoweredOn && structure.isConstructed && !isDeconstructing) {
+        const lw = Math.max(1, 2 * scale);
+        this.graphics.lineStyle(lw, 0xcc4444, 0.4);
+        this.graphics.moveTo(cx - hw * 0.5, cy - hh * 0.5);
+        this.graphics.lineTo(cx + hw * 0.5, cy + hh * 0.5);
+        this.graphics.moveTo(cx + hw * 0.5, cy - hh * 0.5);
+        this.graphics.lineTo(cx - hw * 0.5, cy + hh * 0.5);
+      }
+
+      // ── Progress bars ──────────────────────────────────────────────
+      // Track the Y position below the structure for stacking bars + readouts
+      let barY = cy + hh + Math.max(2, 4 * scale) * 2;
+
+      // Construction progress bar (amber)
+      if (isBuilding && !isDeconstructing) {
         const frac = structure.getConstructionFraction();
         const barW = Math.max(hw * 1.6, 16 * scale);
         const barH = Math.max(2, 4 * scale);
-        const barY = cy + hh + barH * 2;
         this.graphics.lineStyle(0);
         this.graphics.beginFill(0x333333, 0.7);
         this.graphics.drawRect(cx - barW / 2, barY, barW, barH);
@@ -136,21 +200,41 @@ export class StructureRenderer implements IRenderer {
         this.graphics.beginFill(CONSTRUCTION_BORDER_COLOR, 0.9);
         this.graphics.drawRect(cx - barW / 2, barY, barW * frac, barH);
         this.graphics.endFill();
+        barY += barH + 2;
 
         // "BUILDING" label above the structure
-        if (scale > 0.4) {
+        if (scale > MIN_TEXT_SCALE) {
           const pct = Math.floor(frac * 100);
           this.placeText(`BUILDING ${pct}%`, cx, cy - hh - 12, BUILDING_LABEL_STYLE, 0.5);
         }
       }
 
-      // Health bar (only if constructed and damaged)
-      if (!isBuilding) {
+      // Deconstruction progress bar (red, starts full, empties)
+      if (isDeconstructing) {
+        const frac = 1 - structure.getDeconstructionFraction();
+        const barW = Math.max(hw * 1.6, 16 * scale);
+        const barH = Math.max(2, 4 * scale);
+        this.graphics.lineStyle(0);
+        this.graphics.beginFill(0x333333, 0.7);
+        this.graphics.drawRect(cx - barW / 2, barY, barW, barH);
+        this.graphics.endFill();
+        this.graphics.beginFill(DECONSTRUCTION_COLOR, 0.9);
+        this.graphics.drawRect(cx - barW / 2, barY, barW * frac, barH);
+        this.graphics.endFill();
+        barY += barH + 2;
+
+        if (scale > MIN_TEXT_SCALE) {
+          const pct = Math.floor(frac * 100);
+          this.placeText(`DECONSTRUCTING ${pct}%`, cx, cy - hh - 12, DECON_LABEL_STYLE, 0.5);
+        }
+      }
+
+      // Health bar (only if constructed and damaged, not deconstructing)
+      if (!isBuilding && !isDeconstructing) {
         const hpFrac = structure.getHealthFraction();
         if (hpFrac < 1) {
           const barW = hw * 1.6;
           const barH = Math.max(2, 4 * scale);
-          const barY = cy + hh + barH * 2;
           this.graphics.lineStyle(0);
           this.graphics.beginFill(0x333333, 0.7);
           this.graphics.drawRect(cx - barW / 2, barY, barW, barH);
@@ -158,6 +242,7 @@ export class StructureRenderer implements IRenderer {
           this.graphics.beginFill(hpFrac > 0.5 ? 0x44cc44 : hpFrac > 0.25 ? 0xcccc44 : 0xcc4444, 0.9);
           this.graphics.drawRect(cx - barW / 2, barY, barW * hpFrac, barH);
           this.graphics.endFill();
+          barY += barH + 2;
         }
       }
 
@@ -182,101 +267,207 @@ export class StructureRenderer implements IRenderer {
           this.graphics.lineTo(cx, cy + iconR);
           this.graphics.lineTo(cx - iconR, cy);
           this.graphics.closePath();
-
-          // World-space readout — power grid summary rendered below the Core
-          if (mgr) {
-            const summary = mgr.getTeamGridSummary(structure.team);
-            if (summary) {
-              const hpFrac = structure.getHealthFraction();
-              this.renderCoreReadout(cx, cy + hh, scale, summary, hpFrac < 1);
-            }
-          }
         } else if (structure.type === 'SolarPanel') {
-          // Sun icon — small circle with rays
           this.drawSolarIcon(cx, cy, Math.min(hw, hh) * 0.5, scale);
         } else if (structure.type === 'Battery') {
-          // Battery icon — stacked horizontal bars
           this.drawBatteryIcon(cx, cy, Math.min(hw, hh) * 0.45, scale);
         } else if (structure.type === 'PowerStation') {
-          // Lightning bolt icon
           this.drawLightningIcon(cx, cy, Math.min(hw, hh) * 0.4, scale);
         } else if (structure instanceof StructureTurret) {
-          // Turret barrel
           this.drawTurretBarrel(cx, cy, structure, scale);
-
-          // "NO POWER" indicator when fully depowered
-          if (mgr && scale > 0.4) {
-            const summary = mgr.getTeamGridSummary(structure.team);
-            if (summary && summary.powerEfficiency <= 0) {
-              this.placeText('NO POWER', cx, cy - hh - 12, NO_POWER_STYLE, 0.5);
-            }
-          }
         } else if (structure instanceof StructureAssemblyYard) {
-          // Assembly Yard icon (wrench/gear)
           this.drawAssemblyYardIcon(cx, cy, Math.min(hw, hh) * 0.35, scale);
 
           // Build progress bar (orange)
           const buildFrac = structure.getBuildFraction();
           if (buildFrac > 0 && buildFrac < 1) {
-            const barW = Math.max(hw * 1.4, 14 * scale);
-            const barH = Math.max(2, 4 * scale);
-            const barY = cy + hh + barH * 2;
+            const bBarW = Math.max(hw * 1.4, 14 * scale);
+            const bBarH = Math.max(2, 4 * scale);
             this.graphics.lineStyle(0);
             this.graphics.beginFill(0x333333, 0.7);
-            this.graphics.drawRect(cx - barW / 2, barY, barW, barH);
+            this.graphics.drawRect(cx - bBarW / 2, barY, bBarW, bBarH);
             this.graphics.endFill();
             this.graphics.beginFill(0xcc8844, 0.9);
-            this.graphics.drawRect(cx - barW / 2, barY, barW * buildFrac, barH);
+            this.graphics.drawRect(cx - bBarW / 2, barY, bBarW * buildFrac, bBarH);
             this.graphics.endFill();
-          }
-
-          // Ship count indicator
-          if (scale > 0.4) {
-            const count = structure.activeShipIds.length;
-            const cap = 3; // ASSEMBLY_YARD_MAX_SHIPS
-            this.placeText(`SHIPS: ${count}/${cap}`, cx, cy - hh - 12, READOUT_STYLE, 0.5);
+            barY += bBarH + 2;
           }
         } else if (structure instanceof StructureManufacturer) {
-          // Manufacturer icon (gear)
           this.drawManufacturerIcon(cx, cy, Math.min(hw, hh) * 0.35, scale);
 
           // Build progress bar (green-yellow)
           const buildFrac = structure.getBuildFraction();
           if (buildFrac > 0 && buildFrac < 1) {
-            const barW = Math.max(hw * 1.4, 14 * scale);
-            const barH = Math.max(2, 4 * scale);
-            const barY = cy + hh + barH * 2;
+            const bBarW = Math.max(hw * 1.4, 14 * scale);
+            const bBarH = Math.max(2, 4 * scale);
             this.graphics.lineStyle(0);
             this.graphics.beginFill(0x333333, 0.7);
-            this.graphics.drawRect(cx - barW / 2, barY, barW, barH);
+            this.graphics.drawRect(cx - bBarW / 2, barY, bBarW, bBarH);
             this.graphics.endFill();
             this.graphics.beginFill(0xaacc44, 0.9);
-            this.graphics.drawRect(cx - barW / 2, barY, barW * buildFrac, barH);
+            this.graphics.drawRect(cx - bBarW / 2, barY, bBarW * buildFrac, bBarH);
             this.graphics.endFill();
-          }
-
-          // Recipe name
-          if (scale > 0.4) {
-            this.placeText(structure.getRecipeName(), cx, cy - hh - 12, READOUT_STYLE, 0.5);
+            barY += bBarH + 2;
           }
         } else if (structure instanceof StructureRecycler) {
-          // Recycler icon (recycle arrows)
           this.drawRecyclerIcon(cx, cy, Math.min(hw, hh) * 0.4, scale);
-
-          // "NO POWER" indicator when fully depowered
-          if (mgr && scale > 0.4) {
-            const summary = mgr.getTeamGridSummary(structure.team);
-            if (summary && summary.powerEfficiency <= 0) {
-              this.placeText('NO POWER', cx, cy - hh - 12, NO_POWER_STYLE, 0.5);
-            }
-          }
         }
+      }
+
+      // ── World-space readouts (power + storage) drawn ON the structure ──
+      if (!SKIP_READOUT_TYPES.has(structure.type)) {
+        this.renderStructureReadout(structure, cx, cy, hw, hh, scale, mgr);
       }
     }
 
     // ── Shield walls ──────────────────────────────────────────────────────
     this.renderShieldWalls(viewport);
   }
+
+  // ── World-space readout drawn ON the structure body ─────────────────
+
+  /**
+   * Render power and storage as text overlaid on the structure face,
+   * like a physical LED billboard mounted on the building.
+   *
+   * All sizes derive from the structure's world dimensions × scale.
+   * fontSize is set directly (not via text.scale) so PIXI rasterises
+   * at the correct resolution — no blur on zoom-in.
+   */
+  private renderStructureReadout(
+    structure: Structure,
+    cx: number,
+    cy: number,
+    hw: number,
+    hh: number,
+    scale: number,
+    mgr: StructureManager | null,
+  ): void {
+    const def = structure.definition;
+
+    // Each row is a sequence of text segments with individual colors
+    interface TextSegment { text: string; color: string }
+    interface ReadoutRow { segments: TextSegment[] }
+    const rows: ReadoutRow[] = [];
+
+    // ── Power row ────────────────────────────────────────────────────
+    const isProducer = def.powerOutput > 0;
+    const isConsumer = def.powerConsumption > 0;
+    if (isProducer || isConsumer) {
+      const active = structure.isPoweredOn && !structure.isDeconstructing;
+      const value = isProducer ? def.powerOutput : def.powerConsumption;
+      let valueColor = active
+        ? (isProducer ? '#44cc44' : '#cc4444')
+        : '#666666';
+      let valueText = formatPower(value);
+
+      // NO POWER override for depowered turrets/recyclers
+      if (!structure.isDeconstructing && mgr && (
+        structure instanceof StructureTurret ||
+        structure instanceof StructureRecycler
+      )) {
+        const summary = mgr.getTeamGridSummary(structure.team);
+        if (summary && summary.powerEfficiency <= 0) {
+          valueText = 'NO POWER';
+          valueColor = '#cc4444';
+        }
+      }
+      rows.push({ segments: [
+        { text: 'PWR  ', color: '#ffffff' },
+        { text: valueText, color: valueColor },
+      ]});
+    }
+
+    // ── Storage row — split into separately colored segments ────────
+    if (def.storageCapacity > 0) {
+      const used = structure.getInventoryTotal();
+      const pct = Math.round((used / def.storageCapacity) * 100);
+
+      let usedColor: string;
+      if (pct >= 90) { usedColor = '#cc4444'; }
+      else if (pct >= 60) { usedColor = '#ccaa44'; }
+      else { usedColor = '#44cc44'; }
+
+      rows.push({ segments: [
+        { text: 'STR  ', color: '#ffffff' },
+        { text: formatWeight(used), color: usedColor },
+        { text: ' / ', color: '#ffffff' },
+        { text: formatWeight(def.storageCapacity), color: '#ffffff' },
+        { text: ` (${pct}%)`, color: usedColor },
+      ]});
+    }
+
+    // ── Type-specific extra row ─────────────────────────────────────
+    if (structure instanceof StructureAssemblyYard && structure.isConstructed) {
+      const count = structure.activeShipIds.length;
+      rows.push({ segments: [
+        { text: 'BLD  ', color: '#ffffff' },
+        { text: `${count}/3 SHIPS`, color: '#cccccc' },
+      ]});
+    } else if (structure instanceof StructureManufacturer && structure.isConstructed) {
+      rows.push({ segments: [
+        { text: 'MFG  ', color: '#ffffff' },
+        { text: structure.getRecipeName(), color: '#aacc44' },
+      ]});
+    }
+
+    if (rows.length === 0) return;
+
+    // ── Layout: black backdrop sized to content, top-left of structure ─
+    const RASTER_FONT = 32;
+    const worldTextH = def.heightPx * 0.035;
+    const textScale = (worldTextH * scale) / RASTER_FONT;
+    const screenTextH = RASTER_FONT * textScale;
+    const charW = screenTextH * 0.6; // monospace char width ≈ 0.6 × height
+    const lineH = screenTextH * 1.4;
+    const margin = 6 * scale;
+    const pad = 4 * scale;
+
+    // Find the longest row in characters to size the backdrop
+    let maxChars = 0;
+    for (const row of rows) {
+      let rowChars = 0;
+      for (const seg of row.segments) rowChars += seg.text.length;
+      if (rowChars > maxChars) maxChars = rowChars;
+    }
+
+    const boxX = cx - hw + margin;
+    const boxY = cy - hh + margin;
+    const boxW = maxChars * charW + pad * 2;
+    const contentH = rows.length * lineH + pad * 2;
+    const minH = contentH * 1.5; // slightly taller than content
+    const boxH = Math.max(contentH, minH);
+    const radius = 2 * scale;
+
+    // Black fill — on readoutGraphics (inside textContainer, affected by CRT filter)
+    this.readoutGraphics.lineStyle(0);
+    this.readoutGraphics.beginFill(0x000000, 0.9);
+    this.readoutGraphics.drawRoundedRect(boxX, boxY, boxW, boxH, radius);
+    this.readoutGraphics.endFill();
+
+    // White border — on main graphics (NOT affected by CRT filter)
+    const borderWidth = Math.max(1, 1.5 * scale);
+    this.graphics.lineStyle(borderWidth, 0xffffff, 0.7);
+    this.graphics.beginFill(0x000000, 0); // transparent fill
+    this.graphics.drawRoundedRect(boxX, boxY, boxW, boxH, radius);
+    this.graphics.endFill();
+
+    let y = boxY + pad;
+    for (const row of rows) {
+      let x = boxX + pad;
+      for (const seg of row.segments) {
+        this.placeText(
+          seg.text, x, y,
+          { ...READOUT_STYLE, fontSize: RASTER_FONT, fill: seg.color } as PIXI.TextStyle,
+          0, 0, textScale,
+        );
+        x += seg.text.length * charW;
+      }
+      y += lineH;
+    }
+  }
+
+  // ── Shield walls ──────────────────────────────────────────────────────
 
   /** Render shield wall barriers between connected ShieldFence posts. */
   private renderShieldWalls(viewport: Viewport): void {
@@ -342,6 +533,8 @@ export class StructureRenderer implements IRenderer {
     }
   }
 
+  // ── Scaffolding cross-hatch ───────────────────────────────────────────
+
   /** Draw diagonal cross-hatch lines clipped to the structure bounds. */
   private drawCrossHatch(
     cx: number, cy: number, hw: number, hh: number,
@@ -362,19 +555,14 @@ export class StructureRenderer implements IRenderer {
     // Diagonal lines (top-left to bottom-right), clipped to the rect bounds
     for (let i = -steps; i <= steps; i++) {
       const offset = i * spacing;
-      // Line from (cx+offset-hh, top) to (cx+offset+hh, bottom) — slope 1:1
       let x1 = cx + offset - hh;
       let y1 = top;
       let x2 = cx + offset + hh;
       let y2 = bottom;
 
-      // Clip to left edge
       if (x1 < left) { y1 += (left - x1); x1 = left; }
-      // Clip to right edge
       if (x2 > right) { y2 -= (x2 - right); x2 = right; }
-      // Clip to top edge
       if (y1 < top) { x1 += (top - y1); y1 = top; }
-      // Clip to bottom edge
       if (y2 > bottom) { x2 -= (y2 - bottom); y2 = bottom; }
 
       if (x1 >= right || x2 <= left || y1 >= bottom || y2 <= top) continue;
@@ -384,40 +572,7 @@ export class StructureRenderer implements IRenderer {
     }
   }
 
-  /** Render the Core's power/storage readout in world-space, anchored below the structure. */
-  private renderCoreReadout(
-    cx: number,
-    bottomY: number,
-    scale: number,
-    summary: GridPowerSummary,
-    hasDamageBar: boolean,
-  ): void {
-    // Don't render text if zoomed out too far (unreadable)
-    if (scale < 0.4) return;
-
-    const lineH = 13;
-    // Offset below the structure (accounting for health bar if present)
-    let y = bottomY + (hasDamageBar ? 14 : 6) * Math.max(1, scale);
-
-    // Title
-    this.placeText('CORE', cx, y, READOUT_LABEL_STYLE, 0.5);
-    y += lineH;
-
-    // Power
-    const netColor = summary.netPower >= 0 ? '#44cc44' : '#cc4444';
-    const netSign = summary.netPower >= 0 ? '+' : '';
-    this.placeText(
-      `PWR: ${netSign}${summary.netPower}  (${summary.totalPowerOutput} out / ${summary.totalPowerConsumption} in)`,
-      cx, y, { ...READOUT_STYLE, fill: netColor } as PIXI.TextStyle, 0.5,
-    );
-    y += lineH;
-
-    // Storage
-    this.placeText(
-      `STR: ${summary.usedCapacity} / ${summary.totalCapacity}`,
-      cx, y, READOUT_STYLE, 0.5,
-    );
-  }
+  // ── Text pooling ──────────────────────────────────────────────────────
 
   /** Acquire a text from the pool or create a new one, position it, and make it visible. */
   private placeText(
@@ -426,6 +581,8 @@ export class StructureRenderer implements IRenderer {
     y: number,
     style: PIXI.TextStyle,
     anchorX: number,
+    anchorY: number = 0,
+    textScale: number = 1,
   ): void {
     let text = this.textPool.find(t => !t.visible);
     if (!text) {
@@ -435,11 +592,14 @@ export class StructureRenderer implements IRenderer {
     }
     text.style = style;
     text.text = content;
+    text.scale.set(textScale);
     text.x = x;
     text.y = y;
-    text.anchor.set(anchorX, 0);
+    text.anchor.set(anchorX, anchorY);
     text.visible = true;
   }
+
+  // ── Structure-type icons ──────────────────────────────────────────────
 
   /** Draw a turret barrel line from center outward in the aim direction. */
   private drawTurretBarrel(
@@ -469,7 +629,6 @@ export class StructureRenderer implements IRenderer {
     const lw = Math.max(1, 1.5 * scale);
     this.graphics.lineStyle(lw, 0x4488cc, 0.8);
     this.graphics.drawCircle(cx, cy, r * 0.4);
-    // 8 rays
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * Math.PI * 2;
       this.graphics.moveTo(cx + Math.cos(a) * r * 0.55, cy + Math.sin(a) * r * 0.55);
@@ -492,7 +651,6 @@ export class StructureRenderer implements IRenderer {
   private drawLightningIcon(cx: number, cy: number, r: number, scale: number): void {
     const lw = Math.max(1, 2 * scale);
     this.graphics.lineStyle(lw, 0x6644cc, 0.9);
-    // Simple zigzag bolt
     this.graphics.moveTo(cx + r * 0.15, cy - r);
     this.graphics.lineTo(cx - r * 0.3, cy - r * 0.1);
     this.graphics.lineTo(cx + r * 0.15, cy + r * 0.1);
@@ -503,12 +661,10 @@ export class StructureRenderer implements IRenderer {
   private drawAssemblyYardIcon(cx: number, cy: number, r: number, scale: number): void {
     const lw = Math.max(1, 1.5 * scale);
     this.graphics.lineStyle(lw, 0xcc8844, 0.8);
-    // Crossed wrenches
     this.graphics.moveTo(cx - r, cy - r);
     this.graphics.lineTo(cx + r, cy + r);
     this.graphics.moveTo(cx + r, cy - r);
     this.graphics.lineTo(cx - r, cy + r);
-    // Wrench heads
     this.graphics.drawCircle(cx - r, cy - r, r * 0.25);
     this.graphics.drawCircle(cx + r, cy + r, r * 0.25);
   }
@@ -517,7 +673,6 @@ export class StructureRenderer implements IRenderer {
   private drawShieldFenceIcon(cx: number, cy: number, r: number, scale: number): void {
     const lw = Math.max(1, 1.5 * scale);
     this.graphics.lineStyle(lw, 0x4488ff, 0.9);
-    // Shield-shaped chevron
     this.graphics.moveTo(cx - r * 0.5, cy - r * 0.6);
     this.graphics.lineTo(cx, cy + r * 0.6);
     this.graphics.lineTo(cx + r * 0.5, cy - r * 0.6);
@@ -528,7 +683,6 @@ export class StructureRenderer implements IRenderer {
     const lw = Math.max(1, 1.5 * scale);
     this.graphics.lineStyle(lw, 0x44cc44, 0.8);
     this.graphics.drawCircle(cx, cy, r * 0.5);
-    // Small upward arrow inside
     this.graphics.moveTo(cx, cy - r * 0.3);
     this.graphics.lineTo(cx, cy + r * 0.3);
     this.graphics.moveTo(cx - r * 0.2, cy);
@@ -540,7 +694,6 @@ export class StructureRenderer implements IRenderer {
   private drawManufacturerIcon(cx: number, cy: number, r: number, scale: number): void {
     const lw = Math.max(1, 1.5 * scale);
     this.graphics.lineStyle(lw, 0xaacc44, 0.8);
-    // Simple gear — outer circle with 4 teeth
     this.graphics.drawCircle(cx, cy, r * 0.4);
     const teeth = 4;
     for (let i = 0; i < teeth; i++) {
@@ -558,7 +711,6 @@ export class StructureRenderer implements IRenderer {
   private drawRecyclerIcon(cx: number, cy: number, r: number, scale: number): void {
     const lw = Math.max(1, 1.5 * scale);
     this.graphics.lineStyle(lw, 0x44ccaa, 0.8);
-    // Three arrows forming a triangle loop
     const sides = 3;
     for (let i = 0; i < sides; i++) {
       const a1 = (Math.PI * 2 / sides) * i - Math.PI / 2;
@@ -574,7 +726,7 @@ export class StructureRenderer implements IRenderer {
 
   private drawHexagon(cx: number, cy: number, radius: number): void {
     for (let i = 0; i < 6; i++) {
-      const angle = (Math.PI / 3) * i - Math.PI / 6; // flat-top orientation
+      const angle = (Math.PI / 3) * i - Math.PI / 6;
       const px = cx + radius * Math.cos(angle);
       const py = cy + radius * Math.sin(angle);
       if (i === 0) {

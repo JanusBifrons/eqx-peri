@@ -35,6 +35,7 @@ import { StructureRenderer } from '../rendering/StructureRenderer';
 import { ConnectionRenderer } from '../rendering/ConnectionRenderer';
 import { StructurePlacementSystem } from '../systems/StructurePlacementSystem';
 import { StructurePlacementRenderer } from '../rendering/StructurePlacementRenderer';
+import { useGameStore } from '../../stores/gameStore';
 
 export class GameEngine {
   private engine: Matter.Engine;
@@ -1226,6 +1227,9 @@ export class GameEngine {
     // Record game-loop tick duration (excludes rendering, which runs in RenderSystem)
     this.perfLastTickMs = performance.now() - tickStart;
 
+    // ── Push frame state to Zustand store (one write per frame) ────
+    this.pushStoreFrame();
+
     // Continue loop
     requestAnimationFrame(() => this.gameLoop());
   }
@@ -1606,9 +1610,13 @@ export class GameEngine {
         this.setHoveredAssembly(hoveredAssembly);
         this.hoveredStructure = hoveredAssembly ? null : this.getStructureAtPosition(this.mousePosition.x, this.mousePosition.y);
 
-        // Cursor style: grab hand over pickable blocks, crosshair otherwise
+        // Cursor style: pointer over selectable targets, grab over pickable blocks
         if (hoveredAssembly && !hoveredAssembly.hasControlCenter() && hoveredAssembly !== this.playerAssembly) {
+          // Loose block (no cockpit) — draggable
           this.render.canvas.style.cursor = 'grab';
+        } else if (hoveredAssembly && hoveredAssembly.hasControlCenter() && hoveredAssembly !== this.playerAssembly) {
+          // Selectable ship — pointer
+          this.render.canvas.style.cursor = 'pointer';
         } else if (hoveredAssembly === this.playerAssembly && this.playerAssembly) {
           // Check if hovering a detachable block on the player's own ship
           const cursorWorld = this.screenToWorld(this.mousePosition.x, this.mousePosition.y);
@@ -1619,6 +1627,9 @@ export class GameEngine {
                    this.playerAssembly!.canDetachEntity(e);
           });
           this.render.canvas.style.cursor = isDetachable ? 'grab' : 'crosshair';
+        } else if (this.hoveredStructure) {
+          // Selectable structure — pointer
+          this.render.canvas.style.cursor = 'pointer';
         } else if (!this.playerAssembly) {
           // Observer mode, hovering empty space — hint that panning is available
           this.render.canvas.style.cursor = 'grab';
@@ -2183,7 +2194,7 @@ export class GameEngine {
 
     // Spawn a ring of connectors around the Core and link them
     const connectorCount = 4;
-    const connectorDist = 150;
+    const connectorDist = 350;
     const connectors: Structure[] = [];
     for (let i = 0; i < connectorCount; i++) {
       const angle = (i / connectorCount) * Math.PI * 2;
@@ -2431,6 +2442,42 @@ export class GameEngine {
   /** Cancel the current structure placement mode. */
   public cancelStructurePlacement(): void {
     this.structurePlacementSystem?.cancel();
+  }
+
+  /** Begin or cancel deconstruction of a structure. */
+  public toggleDeconstruction(structure: Structure): void {
+    if (structure.isDeconstructing) {
+      structure.cancelDeconstruction();
+    } else {
+      structure.beginDeconstruction();
+    }
+  }
+
+  /** Toggle power on/off for a structure. */
+  public toggleStructurePower(structure: Structure): void {
+    structure.isPoweredOn = !structure.isPoweredOn;
+  }
+
+  /**
+   * Convert a world-space position to screen-space pixel coordinates.
+   * Returns null if render is not initialized.
+   */
+  public worldToScreen(wx: number, wy: number): { x: number; y: number } | null {
+    if (!this.render) return null;
+    const b = this.render.bounds;
+    const bw = b.max.x - b.min.x;
+    const bh = b.max.y - b.min.y;
+    return {
+      x: (wx - b.min.x) / bw * this.render.canvas.width,
+      y: (wy - b.min.y) / bh * this.render.canvas.height,
+    };
+  }
+
+  /** Get current zoom scale (screen pixels per world unit). */
+  public getViewportScale(): number {
+    if (!this.render) return 1;
+    const bw = this.render.bounds.max.x - this.render.bounds.min.x;
+    return this.render.canvas.width / bw;
   }
 
   private spawnTeamLine(team: number, cfg: ScenarioConfig): void {
@@ -2706,6 +2753,60 @@ export class GameEngine {
       missileCount: this.missileSystem.getMissiles().filter(m => !m.destroyed).length,
       collisionsPerSecond: this.perfCollisionsPerSecond,
     };
+  }
+
+  // ── Zustand store push — called once per game frame ──────────────
+  private pushStoreFrame(): void {
+    const store = useGameStore.getState();
+    const sel = this.selectedStructure;
+    let structureScreen = null as { screenX: number; screenY: number; scale: number } | null;
+    if (sel && !sel.isDestroyed()) {
+      const scale = this.getViewportScale();
+      const hw = sel.definition.widthPx / 2;
+      const hh = sel.definition.heightPx / 2;
+      const sp = this.worldToScreen(sel.body.position.x - hw, sel.body.position.y - hh);
+      if (sp) {
+        structureScreen = { screenX: Math.round(sp.x), screenY: Math.round(sp.y), scale };
+      }
+    }
+
+    // Power system state
+    let powerState = null as { totalPower: number; availablePower: number; systems: { name: string; key: string; maxPower: number; currentPower: number }[] } | null;
+    const ps = PowerSystem.getInstance();
+    if (this.playerAssembly && !this.playerAssembly.destroyed) {
+      const alloc = ps.getPowerAllocation();
+      const systems = Object.keys(alloc).map(key => ({
+        name: key.charAt(0).toUpperCase() + key.slice(1),
+        key,
+        maxPower: ps.getMaxPowerForSystem(key as keyof typeof alloc),
+        currentPower: alloc[key as keyof typeof alloc],
+      }));
+      powerState = {
+        totalPower: ps.getTotalPowerCells(),
+        availablePower: ps.getAvailablePower(),
+        systems,
+      };
+    }
+
+    store.pushFrame({
+      isObserverMode: this.isObserverMode(),
+      playerAssembly: this.playerAssembly,
+      selectedAssembly: this.selectedAssembly,
+      hoveredAssembly: this.hoveredAssembly,
+      selectedStructure: this.selectedStructure,
+      viewportScale: this.getViewportScale(),
+      currentZoom: this.zoomLevel,
+      speedBasedZoom: this.speedBasedZoomEnabled,
+      playerSpeed: this.playerAssembly ? Matter.Vector.magnitude(this.playerAssembly.rootBody.velocity) : 0,
+      inertialDampening: this.inertialDampeningEnabled,
+      canEject: this.canPlayerEject(),
+      playerDamagePercent: this.getPlayerDamagePercentage(),
+      structureScreen,
+      selectedAssemblyAIEnabled: this.selectedAssembly ? this.isAIEnabled(this.selectedAssembly) : false,
+      placingStructureType: this.structurePlacementSystem?.getPlacingType() ?? null,
+      performanceMetrics: this.getPerformanceMetrics(),
+      powerState,
+    });
   }
 
   /** Show or hide the stats.js FPS widget. Hide it when PerformanceBar is active. */

@@ -36,6 +36,22 @@ HUD overlay components rendered on top of the game canvas. Components receive `g
 - Do not import from `../game/` deeply-nested internals; access game state through `GameEngine`'s public interface
 - Do not use CSS files or inline `style={{}}` props — use MUI `styled()` or `sx` prop consistently
 
+## GenericModal
+
+- Reusable draggable, resizable modal component (`GenericModal.tsx`).
+- Props: `title`, `open`, `onClose`, `onOk?`, `showOkCancel?`, `okLabel?`, `cancelLabel?`, `initialWidth?`, `initialHeight?`, `children`.
+- Drag via title bar, resize via bottom-right handle.
+- Dark themed, fixed z-index 2000.
+
+## Structure Action Panel
+
+- `StructureActionPanel.tsx` — world-space-tracking MUI icon buttons shown when a structure is selected.
+- Polls `gameEngine.getSelectedStructure()` at ~30fps; uses `gameEngine.worldToScreen()` to position buttons.
+- Buttons scale with viewport zoom level (world-space feel).
+- Generic actions: Deconstruct, Power toggle, Open Cargo, Settings/Drill-down.
+- `CargoModal.tsx` — shows structure inventory in an MUI Table inside GenericModal.
+- Settings modal is currently a placeholder for future per-type configuration.
+
 ---
 
 MAINTENANCE MANDATE: If you establish a new pattern, change a library, or fix a systemic bug within the scope of this directory, you must update this CLAUDE.md file to reflect the new standard before concluding your task.

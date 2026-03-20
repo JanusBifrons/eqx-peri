@@ -30,7 +30,7 @@ interface IRenderer {
 | 5  | `StarfieldRenderer` | Infinitely tiling parallax star field (4 depth layers) |
 | 10 | `GridRenderer` | Background grid lines |
 | 13 | `ConnectionRenderer` | Network connection lines between structures (flash on transfer) |
-| 15 | `StructureRenderer` | Base-building structures (Core, Connector, future types) |
+| 15 | `StructureRenderer` | Structure bodies, icons, progress bars, world-space power/storage readouts, deconstruction visuals |
 | 20 | `BlockBodyRenderer` | Block bodies with glow; bullets/missiles without glow |
 | 21 | `StrategicIconRenderer` | Diamond/circle icons for objects too small to render at zoom; greedy group-badge clustering |
 | 22 | `ParticleRenderer` | Drives `ParticleSystem` thrust puffs per engine each frame |

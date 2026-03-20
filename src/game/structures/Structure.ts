@@ -31,6 +31,14 @@ export class Structure {
   /** Whether the structure is fully built and operational. */
   public isConstructed: boolean = false;
 
+  /** Whether the player has manually toggled power off on this structure. */
+  public isPoweredOn: boolean = true;
+
+  /** Whether this structure is currently deconstructing (reverse of construction). */
+  public isDeconstructing: boolean = false;
+  /** Resources returned to the grid so far during deconstruction. */
+  public deconstructionReturned: number = 0;
+
   /** Temporary power consumption spike (e.g. shield wall absorbing damage). */
   private powerSpikeAmount: number = 0;
   /** Timestamp (ms) when the current power spike expires. */
@@ -269,11 +277,12 @@ export class Structure {
   // ── Power & storage ───────────────────────────────────────────────────
 
   public getPowerOutput(): number {
-    return this.isConstructed ? this.definition.powerOutput : 0;
+    if (!this.isConstructed || !this.isPoweredOn || this.isDeconstructing) return 0;
+    return this.definition.powerOutput;
   }
 
   public getPowerConsumption(): number {
-    if (!this.isConstructed) return 0;
+    if (!this.isConstructed || !this.isPoweredOn || this.isDeconstructing) return 0;
     let consumption = this.definition.powerConsumption;
     if (this.powerSpikeAmount > 0 && Date.now() < this.powerSpikeUntil) {
       consumption += this.powerSpikeAmount;
@@ -300,6 +309,69 @@ export class Structure {
   public getStorageUtilization(): number {
     const cap = this.getStorageCapacity();
     return cap > 0 ? this.getInventoryTotal() / cap : 0;
+  }
+
+  // ── Deconstruction ──────────────────────────────────────────────────
+
+  /** Total resources that must be returned during deconstruction. */
+  public getDeconstructionTotal(): number {
+    return this.definition.constructionCost + this.getInventoryTotal();
+  }
+
+  /** 0–1 fraction of deconstruction progress (1 = fully deconstructed). */
+  public getDeconstructionFraction(): number {
+    const total = this.getDeconstructionTotal();
+    if (total <= 0) return 1;
+    return Math.min(1, this.deconstructionReturned / total);
+  }
+
+  /** Start deconstruction — halts normal operation. */
+  public beginDeconstruction(): void {
+    if (this.isDeconstructing) return;
+    this.isDeconstructing = true;
+    this.deconstructionReturned = 0;
+  }
+
+  /** Cancel deconstruction — structure returns to construction mode if incomplete. */
+  public cancelDeconstruction(): void {
+    if (!this.isDeconstructing) return;
+    this.isDeconstructing = false;
+    this.deconstructionReturned = 0;
+    // If we returned some resources, the structure may no longer be fully constructed.
+    // Re-enter construction state if construction cost > 0.
+    if (this.definition.constructionCost > 0) {
+      this.isConstructed = false;
+    }
+  }
+
+  /**
+   * Tick deconstruction — returns resources to the network.
+   * Returns the kg of resources released this tick (for the grid to absorb).
+   * Returns -1 when deconstruction is complete (caller should remove the structure).
+   */
+  public tickDeconstruction(rateKg: number): number {
+    if (!this.isDeconstructing) return 0;
+    const total = this.getDeconstructionTotal();
+    if (total <= 0) return -1; // nothing to deconstruct
+
+    const remaining = total - this.deconstructionReturned;
+    if (remaining <= 0) return -1; // done
+
+    const amount = Math.min(rateKg, remaining);
+    this.deconstructionReturned += amount;
+
+    // Drain inventory proportionally as we deconstruct
+    if (this.getInventoryTotal() > 0) {
+      this.removeAnyMaterials(Math.min(amount, this.getInventoryTotal()));
+    }
+
+    if (this.deconstructionReturned >= total) return -1; // complete
+    return amount;
+  }
+
+  /** Whether this structure is fully operational (constructed, powered on, not deconstructing). */
+  public isOperational(): boolean {
+    return this.isConstructed && this.isPoweredOn && !this.isDeconstructing;
   }
 
   // ── Type guard helpers ────────────────────────────────────────────────

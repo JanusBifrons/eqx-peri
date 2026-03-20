@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import {
     Box,
     Tooltip
@@ -12,6 +12,7 @@ import {
 import { styled } from '@mui/material/styles';
 import { GameEngine } from '../game/core/GameEngine';
 import { PowerSystem as GamePowerSystem } from '../game/systems/PowerSystem';
+import { useGameStore } from '../stores/gameStore';
 
 interface PowerManagementProps {
     gameEngine: GameEngine | null;
@@ -155,97 +156,35 @@ const PowerBarSegment = styled(Box, {
 
 
 
-const PowerManagement: React.FC<PowerManagementProps> = ({ gameEngine }) => {
+const SYSTEM_META: Record<string, { name: string; icon: React.ReactNode; color: string; description: string }> = {
+    engines:  { name: 'ENGINES',  icon: <RocketLaunch />, color: '#00BFFF', description: 'Engines: Click to allocate/deallocate power' },
+    weapons:  { name: 'WEAPONS',  icon: <FlashOn />,      color: '#FF4444', description: 'Weapons & Missiles: Click to allocate/deallocate power' },
+    sensors:  { name: 'SENSORS',  icon: <Radar />,        color: '#00FF00', description: 'Sensors: Click to allocate/deallocate power' },
+};
+
+const PowerManagement: React.FC<PowerManagementProps> = ({ gameEngine: _gameEngine }) => {
     const powerSystem = GamePowerSystem.getInstance();
-    const [powerState, setPowerState] = useState<PowerState>({
-        totalPower: 0,
-        availablePower: 0,
-        systems: [
-            {
-                id: 'engines',
-                name: 'ENGINES',
-                icon: <RocketLaunch />,
-                maxPower: 0,
-                currentPower: 0,
-                color: '#00BFFF',
-                description: 'Engines: Click to allocate/deallocate power'
-            },            {
-                id: 'weapons',
-                name: 'WEAPONS',
-                icon: <FlashOn />,
-                maxPower: 0,
-                currentPower: 0,
-                color: '#FF4444',
-                description: 'Weapons & Missiles: Click to allocate/deallocate power'
-            },
-            {
-                id: 'sensors',
-                name: 'SENSORS',
-                icon: <Radar />,
-                maxPower: 0,
-                currentPower: 0,
-                color: '#00FF00',
-                description: 'Sensors: Click to allocate/deallocate power'
-            }
-        ]
-    });
+    const storePower = useGameStore(s => s.powerState);
+    const playerAssembly = useGameStore(s => s.playerAssembly);
+    const playerExists = !!playerAssembly && !playerAssembly.destroyed;
 
-    const [playerExists, setPlayerExists] = useState(false);
-
-    useEffect(() => {
-        if (!gameEngine) return;
-
-        const checkPlayerStatus = () => {
-            const playerAssembly = gameEngine.getPlayerAssembly();
-            const exists = !!playerAssembly && !playerAssembly.destroyed;
-            setPlayerExists(exists);
-
-            if (exists) {
-                powerSystem.setPlayerAssembly(playerAssembly);
-                updatePowerState();
-            }
-        };
-
-        const interval = setInterval(checkPlayerStatus, 100);
-        return () => clearInterval(interval);
-    }, [gameEngine]);
-
-    const updatePowerState = () => {
-        const allocation = powerSystem.getPowerAllocation();
-        setPowerState({
-            totalPower: powerSystem.getTotalPowerCells(),
-            availablePower: powerSystem.getAvailablePower(),
-            systems: [
-                {
-                    id: 'engines',
-                    name: 'ENGINES',
-                    icon: <RocketLaunch />,
-                    maxPower: powerSystem.getMaxPowerForSystem('engines'),
-                    currentPower: allocation.engines,
-                    color: '#00BFFF',
-                    description: 'Engines: Click to allocate/deallocate power'
-                },
-                {
-                    id: 'weapons',
-                    name: 'WEAPONS',
-                    icon: <FlashOn />,
-                    maxPower: powerSystem.getMaxPowerForSystem('weapons'),
-                    currentPower: allocation.weapons,
-                    color: '#FF4444',
-                    description: 'Weapons: Click to allocate/deallocate power'
-                },
-                {
-                    id: 'sensors',
-                    name: 'SENSORS',
-                    icon: <Radar />,
-                    maxPower: powerSystem.getMaxPowerForSystem('sensors'),
-                    currentPower: allocation.sensors,
-                    color: '#00FF00',
-                    description: 'Sensors: Click to allocate/deallocate power'
-                }
-            ]
-        });
-    };    const allocatePower = (systemId: string, amount: number) => {
+    // Build UI-enriched power state from store data
+    const powerState: PowerState = storePower ? {
+        totalPower: storePower.totalPower,
+        availablePower: storePower.availablePower,
+        systems: storePower.systems.map(s => {
+            const meta = SYSTEM_META[s.key] ?? { name: s.name, icon: null, color: '#aaa', description: '' };
+            return {
+                id: s.key,
+                name: meta.name,
+                icon: meta.icon,
+                maxPower: s.maxPower,
+                currentPower: s.currentPower,
+                color: meta.color,
+                description: meta.description,
+            };
+        }),
+    } : { totalPower: 0, availablePower: 0, systems: [] };    const allocatePower = (systemId: string, amount: number) => {
         const currentAllocation = powerSystem.getPowerAllocation();
         const system = powerState.systems.find(s => s.id === systemId);
         if (!system) return;
@@ -253,7 +192,6 @@ const PowerManagement: React.FC<PowerManagementProps> = ({ gameEngine }) => {
         const newPower = Math.max(0, Math.min(system.maxPower, system.currentPower + amount));
         const powerChange = newPower - system.currentPower;
 
-        // Only check available power for positive changes (allocation)
         if (powerChange > 0 && powerChange > powerSystem.getAvailablePower()) return;
 
         const newAllocation = {
@@ -261,7 +199,6 @@ const PowerManagement: React.FC<PowerManagementProps> = ({ gameEngine }) => {
             [systemId]: newPower
         };
         powerSystem.setPowerAllocation(newAllocation);
-        updatePowerState();
     };
 
     const allocatePowerToLevel = (systemId: string, targetLevel: number) => {
@@ -272,7 +209,6 @@ const PowerManagement: React.FC<PowerManagementProps> = ({ gameEngine }) => {
         const clampedTarget = Math.max(0, Math.min(system.maxPower, targetLevel));
         const powerChange = clampedTarget - system.currentPower;
 
-        // Only check available power for positive changes (allocation)
         if (powerChange > 0 && powerChange > powerSystem.getAvailablePower()) return;
 
         const newAllocation = {
@@ -280,7 +216,6 @@ const PowerManagement: React.FC<PowerManagementProps> = ({ gameEngine }) => {
             [systemId]: clampedTarget
         };
         powerSystem.setPowerAllocation(newAllocation);
-        updatePowerState();
     };
 
     const handleIconButtonClick = (systemId: string, isRightClick: boolean) => {

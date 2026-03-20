@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Box, styled } from '@mui/material';
 import { GameEngine } from '../game/core/GameEngine';
-import { PerformanceMetrics } from '../types/GameTypes';
+import { useGameStore } from '../stores/gameStore';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -97,24 +97,10 @@ interface Props {
   visible: boolean;
 }
 
-const POLL_INTERVAL_MS = 250;
+const PerformanceBar: React.FC<Props> = ({ gameEngine: _gameEngine, visible }) => {
+  const metrics = useGameStore(s => s.performanceMetrics);
 
-const PerformanceBar: React.FC<Props> = ({ gameEngine, visible }) => {
-  const [metrics, setMetrics] = useState<PerformanceMetrics | null>(null);
-
-  useEffect(() => {
-    if (!visible || !gameEngine) {
-      setMetrics(null);
-      return;
-    }
-    setMetrics(gameEngine.getPerformanceMetrics());
-    const id = setInterval(() => {
-      setMetrics(gameEngine.getPerformanceMetrics());
-    }, POLL_INTERVAL_MS);
-    return () => clearInterval(id);
-  }, [gameEngine, visible]);
-
-  if (!visible || !metrics) return null;
+  if (!visible) return null;
 
   return (
     <Bar>

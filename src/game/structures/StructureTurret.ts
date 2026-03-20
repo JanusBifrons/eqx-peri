@@ -41,8 +41,8 @@ export class StructureTurret extends Structure {
     assemblies: Assembly[],
     gridSummary: GridPowerSummary | null,
   ): Matter.Body[] {
-    // Not operational until fully constructed
-    if (!this.isConstructed || this.isDestroyed()) return [];
+    // Not operational until fully constructed, powered on, and not deconstructing
+    if (!this.isOperational() || this.isDestroyed()) return [];
 
     // Power efficiency: turret fires slower when underpowered, stops at 0
     const efficiency = gridSummary?.powerEfficiency ?? 0;

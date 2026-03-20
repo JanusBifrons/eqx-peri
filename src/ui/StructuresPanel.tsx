@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Box, Button, Tooltip, Typography } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import { STRUCTURE_DEFINITIONS, StructureType } from '../types/GameTypes';
 import { GameEngine } from '../game/core/GameEngine';
+import { useGameStore } from '../stores/gameStore';
 
 interface Props {
   gameEngine: GameEngine | null;
@@ -67,31 +68,14 @@ const BuildButton = styled(Button)(() => ({
 const COMING_SOON: string[] = [];
 
 const StructuresPanel: React.FC<Props> = ({ gameEngine }) => {
-  const [activeType, setActiveType] = useState<StructureType | null>(null);
-
-  // Poll placement system to sync active button highlight
-  useEffect(() => {
-    if (!gameEngine) return;
-    const interval = setInterval(() => {
-      const ps = gameEngine.getStructurePlacementSystem();
-      if (ps) {
-        setActiveType(ps.getPlacingType());
-      } else {
-        setActiveType(null);
-      }
-    }, 100);
-    return () => clearInterval(interval);
-  }, [gameEngine]);
+  const activeType = useGameStore(s => s.placingStructureType);
 
   const handleBuildClick = (type: StructureType): void => {
     if (!gameEngine) return;
     if (activeType === type) {
-      // Clicking the same type again cancels placement
       gameEngine.cancelStructurePlacement();
-      setActiveType(null);
     } else {
       gameEngine.enterStructurePlaceMode(type);
-      setActiveType(type);
     }
   };
 

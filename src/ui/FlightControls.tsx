@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Box, Tooltip } from '@mui/material';
 import { Air, Eject, ExitToApp } from '@mui/icons-material';
 import { styled, keyframes } from '@mui/material/styles';
 import { GameEngine } from '../game/core/GameEngine';
+import { useGameStore } from '../stores/gameStore';
 
 interface FlightControlsProps {
     gameEngine: GameEngine | null;
@@ -85,25 +86,12 @@ const EjectIconButton = styled(Box, {
 }));
 
 const FlightControls: React.FC<FlightControlsProps> = ({ gameEngine }) => {
-    const [dampeningEnabled, setDampeningEnabled] = useState<boolean>(true);
-    const [canEject, setCanEject] = useState<boolean>(false);
-    const [damagePercentage, setDamagePercentage] = useState<number>(0);
-    const [playerExists, setPlayerExists] = useState<boolean>(false);
+    const playerAssembly = useGameStore(s => s.playerAssembly);
+    const dampeningEnabled = useGameStore(s => s.inertialDampening);
+    const canEject = useGameStore(s => s.canEject);
+    const damagePercentage = useGameStore(s => s.playerDamagePercent);
 
-    useEffect(() => {
-        if (!gameEngine) return;
-
-        const interval = setInterval(() => {
-            const player = gameEngine.getPlayerAssembly();
-            setPlayerExists(!!player && !player.destroyed);
-            setDampeningEnabled(gameEngine.isInertialDampeningEnabled());
-            setCanEject(gameEngine.canPlayerEject());
-            setDamagePercentage(gameEngine.getPlayerDamagePercentage());
-        }, 100);
-
-        return () => clearInterval(interval);
-    }, [gameEngine]);
-
+    const playerExists = !!playerAssembly && !playerAssembly.destroyed;
     if (!playerExists) return null;
 
     const dampeningColor = dampeningEnabled ? DAMPENING_ON_COLOR : DAMPENING_OFF_COLOR;

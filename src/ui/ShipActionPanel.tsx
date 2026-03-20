@@ -1,17 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Box, Button, Typography, LinearProgress, styled } from '@mui/material';
 import { FlightTakeoff, SmartToy, SmartToyOutlined } from '@mui/icons-material';
 import { GameEngine } from '../game/core/GameEngine';
+import { useGameStore } from '../stores/gameStore';
 
 interface ShipActionPanelProps {
     gameEngine: GameEngine | null;
-}
-
-interface PanelState {
-    shipName: string;
-    damagePercent: number;
-    isFriendly: boolean;
-    hasAI: boolean;
 }
 
 // bottom-center HUD panel — shown when an enemy or friendly ship is selected (but not piloted)
@@ -34,38 +28,18 @@ const PanelContainer = styled(Box)(() => ({
 }));
 
 const ShipActionPanel: React.FC<ShipActionPanelProps> = ({ gameEngine }) => {
-    const [panelState, setPanelState] = useState<PanelState | null>(null);
-    const [selectedId, setSelectedId] = useState<string | null>(null);
+    const selectedAssembly = useGameStore(s => s.selectedAssembly);
+    const playerAssembly = useGameStore(s => s.playerAssembly);
+    const hasAI = useGameStore(s => s.selectedAssemblyAIEnabled);
+    // frameTick ensures we re-render each frame to pick up damage changes
+    useGameStore(s => s.frameTick);
 
-    useEffect(() => {
-        if (!gameEngine) return;
+    // Hide when nothing selected or selected ship is the one being piloted
+    if (!selectedAssembly || selectedAssembly === playerAssembly) return null;
 
-        const interval = setInterval(() => {
-            const selected = gameEngine.getSelectedAssembly();
-            const player = gameEngine.getPlayerAssembly();
-
-            // Show panel when something is selected and it's not the ship being piloted
-            if (!selected || selected === player) {
-                setPanelState(null);
-                setSelectedId(null);
-                return;
-            }
-
-            setSelectedId(selected.id);
-            setPanelState({
-                shipName: selected.shipName,
-                damagePercent: selected.getDamagePercentage(),
-                isFriendly: selected.team === 0,
-                hasAI: gameEngine.isAIEnabled(selected),
-            });
-        }, 100);
-
-        return () => clearInterval(interval);
-    }, [gameEngine]);
-
-    if (!panelState || !selectedId) return null;
-
-    const { shipName, damagePercent, isFriendly, hasAI } = panelState;
+    const shipName = selectedAssembly.shipName;
+    const damagePercent = selectedAssembly.getDamagePercentage();
+    const isFriendly = selectedAssembly.team === 0;
     const healthPercent = 100 - damagePercent;
     const healthColor = healthPercent > 60 ? '#00ff00' : healthPercent > 30 ? '#ffaa00' : '#ff4444';
 

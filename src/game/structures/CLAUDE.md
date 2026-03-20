@@ -71,6 +71,25 @@ Defined in `GameTypes.ts` as `STRUCTURE_DEFINITIONS: Record<StructureType, Struc
 - Constants: `CONSTRUCTION_PULSE_AMOUNT` (5/pulse), `REPAIR_PULSE_AMOUNT` (3/pulse), `REPAIR_COST_PER_HP` (0.1).
 - Disconnected structures cannot receive resources and remain as scaffolding until connected.
 
+## Deconstruction System
+
+- `Structure.isDeconstructing` / `Structure.deconstructionReturned` track deconstruction state.
+- `beginDeconstruction()` starts; `cancelDeconstruction()` stops (structure returns to construction mode).
+- `tickDeconstruction(rateKg)` returns kg released per tick, or `-1` when complete (caller removes structure).
+- `DECONSTRUCTION_RATE_KG` (100 kg/pulse) in `GameTypes.ts`.
+- Deconstruction halts all structure operations: `getPowerOutput()` / `getPowerConsumption()` return 0; turrets stop; economy structures stop ticking.
+- `StructureManager.update()` ticks deconstruction before the grid update; removes completed structures and severs connections.
+- Progress bar renders red (starts full, empties) via `StructureRenderer`.
+- `GameEngine.toggleDeconstruction(structure)` is the public API.
+
+## Power Toggle
+
+- `Structure.isPoweredOn` (default `true`) — player-toggled power gate.
+- When off: `getPowerOutput()` / `getPowerConsumption()` return 0; turrets/economy structures skip their tick.
+- `Structure.isOperational()` = `isConstructed && isPoweredOn && !isDeconstructing` — preferred gate for subclass ticks.
+- `GameEngine.toggleStructurePower(structure)` is the public API.
+- Visual: dimmed fill alpha (0.5) + red X overlay drawn by `StructureRenderer`.
+
 ## GridManager
 
 - **Connections**: `connect(a, b)`, `disconnect(conn)`, `canConnect(a, b)` — checks range (`CONNECTION_MAX_RANGE`), max connections, connection type rules, and duplicates.
