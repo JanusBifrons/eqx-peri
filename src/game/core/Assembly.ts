@@ -298,7 +298,9 @@ export class Assembly {
     // Only engines whose thrust direction has a component aligned with the
     // requested thrustInput should fire.  Retro-thrusters, lateral thrusters,
     // etc. stay silent when their thrust opposes the movement direction.
+    // Cockpit engines are omnidirectional RCS — they always pass the filter.
     const alignedEngines = engines.filter(engine => {
+      if (engine.isControlCenter()) return true; // Cockpit RCS: omnidirectional
       const dir = getEngineLocalThrustDir(engine.rotation);
       const dot = dir.x * thrustInput.x + dir.y * thrustInput.y;
       return dot > ENGINE_ALIGNMENT_THRESHOLD;
