@@ -19,6 +19,8 @@ export class GridManager {
   private connections: Connection[] = [];
   /** adjacency: structureId → set of connections */
   private adjacency: Map<string, Connection[]> = new Map();
+  /** All registered structures by ID (for line-of-sight checks). */
+  private structures: Map<string, Structure> = new Map();
   /** Connected component ID per structure (structureId → componentId) */
   private componentOf: Map<string, number> = new Map();
   /** All structures in each component (componentId → structure[]) */
@@ -86,6 +88,10 @@ export class GridManager {
     const dx = a.body.position.x - b.body.position.x;
     const dy = a.body.position.y - b.body.position.y;
     if (Math.sqrt(dx * dx + dy * dy) > CONNECTION_MAX_RANGE) return false;
+
+    // Reject if the connection line passes through another structure
+    if (this.isConnectionLineBlocked(a.body.position, b.body.position, a, b)) return false;
+
     return true;
   }
 
@@ -135,6 +141,7 @@ export class GridManager {
       }
     }
     this.adjacency.delete(structure.id);
+    this.structures.delete(structure.id);
     this.topologyDirty = true;
   }
 
@@ -144,6 +151,7 @@ export class GridManager {
       this.adjacency.set(structure.id, []);
       this.topologyDirty = true;
     }
+    this.structures.set(structure.id, structure);
   }
 
   // ── Topology / connected components ────────────────────────────────────
@@ -636,6 +644,72 @@ export class GridManager {
   /** Force topology rebuild on next update (e.g., after external structure removal). */
   public markTopologyDirty(): void {
     this.topologyDirty = true;
+  }
+
+  // ── Line-of-sight / occlusion ──────────────────────────────────────────
+
+  /**
+   * Check whether a connection line between two points is blocked by any
+   * registered structure (excluding the two endpoints).
+   * Public so StructurePlacementSystem can use it for preview rendering.
+   */
+  public isConnectionLineBlocked(
+    posA: { x: number; y: number },
+    posB: { x: number; y: number },
+    excludeA?: Structure,
+    excludeB?: Structure,
+  ): boolean {
+    for (const structure of this.structures.values()) {
+      if (structure === excludeA || structure === excludeB) continue;
+      if (GridManager.lineSegmentIntersectsAABB(
+        posA.x, posA.y, posB.x, posB.y,
+        structure.body.bounds.min.x, structure.body.bounds.min.y,
+        structure.body.bounds.max.x, structure.body.bounds.max.y,
+      )) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Line-segment vs axis-aligned bounding box intersection (slab method).
+   * Returns true if the segment from (x1,y1)→(x2,y2) intersects the AABB.
+   */
+  private static lineSegmentIntersectsAABB(
+    x1: number, y1: number, x2: number, y2: number,
+    minX: number, minY: number, maxX: number, maxY: number,
+  ): boolean {
+    let tMin = 0;
+    let tMax = 1;
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+
+    // X slab
+    if (Math.abs(dx) < 1e-10) {
+      if (x1 < minX || x1 > maxX) return false;
+    } else {
+      let t1 = (minX - x1) / dx;
+      let t2 = (maxX - x1) / dx;
+      if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+      tMin = Math.max(tMin, t1);
+      tMax = Math.min(tMax, t2);
+      if (tMin > tMax) return false;
+    }
+
+    // Y slab
+    if (Math.abs(dy) < 1e-10) {
+      if (y1 < minY || y1 > maxY) return false;
+    } else {
+      let t1 = (minY - y1) / dy;
+      let t2 = (maxY - y1) / dy;
+      if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+      tMin = Math.max(tMin, t1);
+      tMax = Math.min(tMax, t2);
+      if (tMin > tMax) return false;
+    }
+
+    return true;
   }
 
   // ── Internal helpers ───────────────────────────────────────────────────

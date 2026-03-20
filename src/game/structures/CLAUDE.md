@@ -162,6 +162,7 @@ Defined in `GameTypes.ts` as `STRUCTURE_DEFINITIONS: Record<StructureType, Struc
 - **Non-connector structures** have `maxConnections: 1` — single link to one Connector.
 - **ShieldFence**: `maxConnections: 3`; can ONLY connect to Connectors or other ShieldFences.
 - **Fence-to-fence connection** creates a physical ShieldWall barrier between the two posts.
+- **Line-of-sight**: connections are rejected if the straight line between the two structures passes through any other structure's bounding box. `isConnectionLineBlocked(posA, posB, excludeA?, excludeB?)` is the public API (used by both `canConnect` and `StructurePlacementSystem` preview).
 - `canConnect()` enforces all these rules before allowing a link.
 
 ## Connection

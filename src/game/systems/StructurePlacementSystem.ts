@@ -272,7 +272,9 @@ export class StructurePlacementSystem {
       const existingCanAccept = this.gridManager.canAddConnection(s);
       // Would the new structure still have connection slots?
       const newCanAccept = validCount < maxConns;
-      const valid = existingCanAccept && newCanAccept;
+      // Is the line blocked by another structure?
+      const lineBlocked = this.gridManager.isConnectionLineBlocked(cursor, s.body.position, s);
+      const valid = existingCanAccept && newCanAccept && !lineBlocked;
 
       results.push({ structure: s, valid });
       if (valid) validCount++;
