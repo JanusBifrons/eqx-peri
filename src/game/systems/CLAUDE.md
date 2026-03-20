@@ -79,6 +79,8 @@ Constructor: `(addBodyToWorld, removeBodyFromWorld)`.
 - Bodies are `isStatic: true` plain `Matter.Body` objects — **not entities or assemblies**. Rendered automatically by `BlockBodyRenderer`'s non-entity world-body loop.
 - Deterministic PRNG (mulberry32 seeded from chunk coords) so chunks regenerate identically on re-entry.
 - `body.label = 'asteroid'` tags bodies for collision routing in `GameEngine`.
+- **Asteroid classification**: three classes (`C-Type`, `S-Type`, `M-Type`) with distinct color palettes. Class is deterministically chosen per-chunk from the seeded PRNG and tagged on the body as `(body as unknown as Record<string, unknown>).asteroidClass`.
+- `spawnAsteroid(wx, wy, radius, asteroidClass)` — public method for scenario hand-placement of specific typed asteroids.
 
 ---
 

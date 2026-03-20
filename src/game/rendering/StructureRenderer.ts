@@ -320,6 +320,9 @@ export class StructureRenderer implements IRenderer {
       }
     }
 
+    // ── Sensor areas (e.g. Refinery ore deposit zone) ──────────────────
+    this.renderSensorAreas(viewport);
+
     // ── Shield walls ──────────────────────────────────────────────────────
     this.renderShieldWalls(viewport);
   }
@@ -464,6 +467,60 @@ export class StructureRenderer implements IRenderer {
         x += seg.text.length * charW;
       }
       y += lineH;
+    }
+  }
+
+  // ── Sensor areas ──────────────────────────────────────────────────────
+
+  /** Render sensor area zones (dashed circle + floating text). */
+  private renderSensorAreas(viewport: Viewport): void {
+    const sm = this.getStructureManager();
+    if (!sm) return;
+    const states = sm.getSensorAreaStates();
+    if (states.length === 0) return;
+
+    for (const { structure, assemblyInside, depositing, sensorRadius } of states) {
+      const pos = viewport.worldToScreen(structure.body.position.x, structure.body.position.y);
+      const r = sensorRadius * viewport.scale;
+
+      // Draw dashed circle outline
+      const color = depositing ? 0x44cc44 : (assemblyInside ? 0xcccc44 : 0x448844);
+      const alpha = depositing ? 0.5 : 0.25;
+      this.graphics.lineStyle(2, color, alpha);
+      const segments = 32;
+      for (let i = 0; i < segments; i++) {
+        // Draw every other segment for dashed effect
+        if (i % 2 === 0) {
+          const a0 = (i / segments) * Math.PI * 2;
+          const a1 = ((i + 1) / segments) * Math.PI * 2;
+          this.graphics.moveTo(pos.x + Math.cos(a0) * r, pos.y + Math.sin(a0) * r);
+          this.graphics.lineTo(pos.x + Math.cos(a1) * r, pos.y + Math.sin(a1) * r);
+        }
+      }
+
+      // Floating text
+      if (viewport.scale > MIN_TEXT_SCALE * 0.5) {
+        const label = depositing ? 'DEPOSITING...' : 'DROP ORE HERE';
+        const style = new PIXI.TextStyle({
+          fontFamily: 'monospace',
+          fontSize: depositing ? 12 : 10,
+          fill: depositing ? '#44ff44' : '#88cc88',
+          fontWeight: 'bold',
+        });
+        let text = this.textPool.find(t => !t.visible);
+        if (!text) {
+          text = new PIXI.Text('', style);
+          this.textContainer.addChild(text);
+          this.textPool.push(text);
+        }
+        text.style = style;
+        text.text = label;
+        text.anchor.set(0.5, 0.5);
+        text.x = pos.x;
+        text.y = pos.y - r - 12;
+        text.scale.set(1);
+        text.visible = true;
+      }
     }
   }
 

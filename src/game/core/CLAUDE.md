@@ -80,6 +80,22 @@ Matter.js compound bodies are created via `Matter.Body.create({ parts: [...] })`
 | 70 | `BlockPickupRenderer` | Block pickup ghost/snap overlay |
 | 71 | `StructurePlacementRenderer` | Structure placement hologram + connection preview lines |
 
+## Cargo System (Per-Entity Inventory)
+
+- `Entity` has optional `cargo: Map<InventoryItemType, number> | null` and `cargoCapacity: number`, initialized when `EntityTypeDefinition.cargoCapacity` exists.
+- Cargo hold block types: `CargoHold` (1×1, 5000 capacity), `LargeCargoHold` (2×2, 20000 capacity).
+- Entity methods: `isCargoHold()`, `getCargoTotal()`, `addToCargo(type, amount)`, `removeFromCargo(type, amount)`, `getCargoItems()`.
+- **Assembly-level aggregation**: `Assembly.addToCargo()` distributes across cargo hold entities sequentially (fills first hold, then next). `getCargoCapacity()`, `getCargoTotal()`, `getCargoItems()` aggregate across all cargo entities.
+- **Destruction consequence**: destroying a cargo hold entity loses its contents — inventory is per-entity, not per-assembly.
+
+## Mining Laser (Assembly Weapon)
+
+- `MiningLaser` is a 1×1 beam weapon block — `Entity.isMiningLaser()` returns true, `Entity.isBeamWeapon()` includes it.
+- Fires via `Assembly.getBeamFires()` like other beam weapons, but with `weaponType: 'MiningLaser'`.
+- Low combat DPS (`MINING_LASER_DPS = 5`), short range (`MINING_LASER_RANGE = 350`), but extracts ore from asteroids.
+- Mining rate (`MINING_LASER_RATE = 50` kg/s) is separate from combat DPS — set as `miningRate` on the `EntityTypeDefinition`.
+- `BeamSystem` detects mining hits and routes through `GameEngine.handleMiningHit()` → `Assembly.addToCargo()`.
+
 ## Projectile Collision Detection (Tunneling Prevention)
 
 Fast-moving projectiles (lasers, missiles) can "tunnel" through targets if they move farther than the target's width in a single physics tick. Two mechanisms prevent this:

@@ -1,5 +1,5 @@
 import * as Matter from 'matter-js';
-import { EntityType, BEAM_DISPLAY_DURATION_MS } from '../../types/GameTypes';
+import { EntityType, ENTITY_DEFINITIONS, BEAM_DISPLAY_DURATION_MS, AsteroidClass } from '../../types/GameTypes';
 import { Assembly } from '../core/Assembly';
 import { Entity } from '../core/Entity';
 import { SoundSystem } from '../systems/SoundSystem';
@@ -70,11 +70,15 @@ function rayPolygonEntry(
 /** Callback for resolving shield wall damage through the grid power system. */
 type ShieldWallDamageCallback = (wall: unknown, damage: number) => void;
 
+/** Callback for mining laser hitting an asteroid — returns ore to the source assembly's cargo. */
+type MiningCallback = (sourceAssemblyId: string, asteroidClass: AsteroidClass, oreKg: number) => void;
+
 export class BeamSystem {
   // Keyed by weapon entity ID so each weapon has exactly one active beam record
   private readonly activeBeams: Map<string, ActiveBeam> = new Map();
   private readonly onEntityDestroyed: EntityDestroyedCallback;
   private onShieldWallDamage: ShieldWallDamageCallback | null = null;
+  private onMiningHit: MiningCallback | null = null;
 
   constructor(onEntityDestroyed: EntityDestroyedCallback) {
     this.onEntityDestroyed = onEntityDestroyed;
@@ -83,6 +87,11 @@ export class BeamSystem {
   /** Set the callback for resolving shield wall damage via the grid power system. */
   public setShieldWallDamageCallback(cb: ShieldWallDamageCallback): void {
     this.onShieldWallDamage = cb;
+  }
+
+  /** Set the callback for mining laser asteroid hits. */
+  public setMiningCallback(cb: MiningCallback): void {
+    this.onMiningHit = cb;
   }
 
   /**
@@ -213,6 +222,17 @@ export class BeamSystem {
         // Beam hit a structure body — apply DPS damage directly
         const structure = (closestBody as any).structure;
         structure.takeDamage(spec.damagePerSecond * deltaTime);
+      } else if (closestBody.label === 'asteroid') {
+        // Beam hit an asteroid — mining lasers extract ore, combat beams do nothing
+        const isMiningLaser = ENTITY_DEFINITIONS[spec.weaponType]?.miningRate != null;
+        if (isMiningLaser && this.onMiningHit) {
+          const asteroidClass = (closestBody as unknown as Record<string, unknown>).asteroidClass as AsteroidClass | undefined;
+          if (asteroidClass) {
+            const miningRate = ENTITY_DEFINITIONS[spec.weaponType].miningRate!;
+            const oreKg = miningRate * deltaTime;
+            this.onMiningHit(spec.sourceAssemblyId, asteroidClass, oreKg);
+          }
+        }
       } else if ((closestBody as any).entity) {
         // Beam hit an entity block body — same path as handleLaserHit
         const entity = (closestBody as any).entity as Entity;

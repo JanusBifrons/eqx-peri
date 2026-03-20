@@ -1,6 +1,6 @@
 import * as Matter from 'matter-js';
 import { Entity } from './Entity';
-import { EntityConfig, Vector2, EntityType, ENTITY_DEFINITIONS, ShieldState, SHIELD_REGEN_DELAY_MS, SHIELD_REGEN_DURATION_MS, SHIELD_COLLAPSE_COOLDOWN_MS, getEntityOccupiedGridCells, getEntityBodyOffset, getBlockedConnectionDirs, canTypesConnect } from '../../types/GameTypes';
+import { EntityConfig, Vector2, EntityType, ENTITY_DEFINITIONS, ShieldState, SHIELD_REGEN_DELAY_MS, SHIELD_REGEN_DURATION_MS, SHIELD_COLLAPSE_COOLDOWN_MS, getEntityOccupiedGridCells, getEntityBodyOffset, getBlockedConnectionDirs, canTypesConnect, InventoryItemType } from '../../types/GameTypes';
 import { MissileType } from '../weapons/Missile';
 
 // Interface for missile launch requests
@@ -701,6 +701,7 @@ export class Assembly {
       case 'Gun':
       case 'Cockpit':
       case 'Beam':
+      case 'MiningLaser':
         return Math.PI; // 180 degrees total arc (90 degrees each side)
       case 'LargeGun':
       case 'LargeCockpit':
@@ -1423,6 +1424,71 @@ export class Assembly {
 
   public getTeam(): number {
     return this.team;
+  }
+
+  // ── Cargo system (aggregates across all CargoHold entities) ────────────
+
+  /** Total cargo capacity across all non-destroyed cargo hold entities. */
+  public getCargoCapacity(): number {
+    let total = 0;
+    for (const e of this.entities) {
+      if (!e.destroyed && e.isCargoHold()) total += e.cargoCapacity;
+    }
+    return total;
+  }
+
+  /** Total cargo currently stored across all cargo hold entities. */
+  public getCargoTotal(): number {
+    let total = 0;
+    for (const e of this.entities) {
+      if (!e.destroyed && e.isCargoHold()) total += e.getCargoTotal();
+    }
+    return total;
+  }
+
+  /** All cargo items aggregated from all cargo holds. */
+  public getCargoItems(): [InventoryItemType, number][] {
+    const aggregated = new Map<InventoryItemType, number>();
+    for (const e of this.entities) {
+      if (e.destroyed || !e.isCargoHold()) continue;
+      for (const [type, amount] of e.getCargoItems()) {
+        aggregated.set(type, (aggregated.get(type) ?? 0) + amount);
+      }
+    }
+    return Array.from(aggregated.entries());
+  }
+
+  /**
+   * Add ore/material to the assembly's cargo holds. Fills holds sequentially.
+   * Returns the total amount actually added.
+   */
+  public addToCargo(type: InventoryItemType, amount: number): number {
+    let remaining = amount;
+    for (const e of this.entities) {
+      if (remaining <= 0) break;
+      if (e.destroyed || !e.isCargoHold()) continue;
+      remaining -= e.addToCargo(type, remaining);
+    }
+    return amount - remaining;
+  }
+
+  /**
+   * Remove ore/material from the assembly's cargo holds. Drains holds sequentially.
+   * Returns the total amount actually removed.
+   */
+  public removeFromCargo(type: InventoryItemType, amount: number): number {
+    let remaining = amount;
+    for (const e of this.entities) {
+      if (remaining <= 0) break;
+      if (e.destroyed || !e.isCargoHold()) continue;
+      remaining -= e.removeFromCargo(type, remaining);
+    }
+    return amount - remaining;
+  }
+
+  /** Whether this assembly has any non-destroyed cargo holds. */
+  public hasCargoHold(): boolean {
+    return this.entities.some(e => !e.destroyed && e.isCargoHold());
   }
   private updateTeamColors(): void {
     // Set MUCH more obvious team-based colors for all entities

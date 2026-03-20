@@ -36,7 +36,7 @@ interface IRenderer {
 | 22 | `ParticleRenderer` | Drives `ParticleSystem` thrust puffs per engine each frame |
 | 30 | `BlockFrillsRenderer` | Decorative edge frills on blocks |
 | 40 | `ShieldRenderer` | Shield gradient ring + collapse flash |
-| 45 | `BeamRenderer` | Continuous beam visuals (glow + core line + impact flash) |
+| 45 | `BeamRenderer` | Continuous beam visuals (glow + core line + impact flash); mining laser uses red style |
 | 46 | `ShockwaveRenderer` | Expanding ring when an assembly is fully destroyed |
 | 50 | `ShipHighlightRenderer` | Hover/selected bounding boxes, lock-on brackets |
 | 60 | `AimingDebugRenderer` | Weapon arc, distance rings, aim line |
@@ -62,6 +62,8 @@ interface IRenderer {
 **`PIXI.BLEND_MODES.ADD`** — used by `ParticleSystem`'s `ParticleContainer` and `ShockwaveRenderer` for additive glow blending.
 
 **`pixi-filters@5`** is installed but no filters are currently active.
+
+**Sensor area rendering** — `StructureRenderer.renderSensorAreas()` draws dashed circles + status text for Refinery deposit zones. `StructurePlacementRenderer` previews sensor radius when placing structures with `sensorRadius`.
 
 ## Import Paths
 

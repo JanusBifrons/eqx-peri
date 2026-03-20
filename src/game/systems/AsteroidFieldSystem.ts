@@ -1,4 +1,5 @@
 import * as Matter from 'matter-js';
+import { AsteroidClass } from '../../types/GameTypes';
 
 // ── Biome / zone constants ─────────────────────────────────────────────────
 /**
@@ -31,10 +32,14 @@ const ASTEROID_MAX_RADIUS   = 800;
 /** Number of candidate points fed into the convex hull to shape each asteroid. */
 const HULL_CANDIDATE_POINTS = 16;
 
-// ── Render appearance ──────────────────────────────────────────────────────
+// ── Render appearance (per asteroid class) ───────────────────────────────
 // All colors must be 6-digit hex — PIXI.Graphics.beginFill rejects 8-digit (alpha) hex.
-const ASTEROID_FILL_COLORS   = ['#3a3530', '#3d3833', '#2e2b28', '#423933', '#352f2b'] as const;
-const ASTEROID_STROKE_COLORS = ['#6b5e52', '#7a6a5c', '#58504a', '#7d6d60'] as const;
+const ASTEROID_CLASS_COLORS: Record<AsteroidClass, { fill: string[]; stroke: string[] }> = {
+  'C-Type': { fill: ['#3a3530', '#3d3833', '#2e2b28', '#423933', '#352f2b'], stroke: ['#6b5e52', '#7a6a5c', '#58504a', '#7d6d60'] },
+  'S-Type': { fill: ['#3a3535', '#3d3338', '#2e282e', '#42333d', '#352b35'], stroke: ['#8a6a72', '#7a5c6c', '#6e505a', '#8d607d'] },
+  'M-Type': { fill: ['#30353a', '#33383d', '#282b2e', '#334042', '#2b2f35'], stroke: ['#52606b', '#5c6a7a', '#4a5058', '#60707d'] },
+};
+const ASTEROID_CLASSES: AsteroidClass[] = ['C-Type', 'S-Type', 'M-Type'];
 
 // ── Seeded PRNG (mulberry32) ────────────────────────────────────────────────
 
@@ -106,9 +111,16 @@ export class AsteroidFieldSystem {
   /** chunk key (`"cx,cy"`) → asteroid bodies currently in the world */
   private readonly activeChunks = new Map<string, Matter.Body[]>();
 
+  /**
+   * @param streaming  When false, `update()` is a no-op — only manually
+   *   spawned asteroids (via `spawnAsteroid`) exist.  Useful for sandbox
+   *   scenarios that want a few hand-placed rocks without the full
+   *   procedural chunk system.
+   */
   constructor(
     private readonly addBodyToWorld:      (body: Matter.Body) => void,
     private readonly removeBodyFromWorld: (body: Matter.Body) => void,
+    private readonly streaming: boolean = true,
   ) {}
 
   /**
@@ -121,6 +133,7 @@ export class AsteroidFieldSystem {
    *   preventing chunks that are on-screen from being unloaded and popping out.
    */
   public update(cameraCenter: Vec2, viewportHalfDiag: number = 0): void {
+    if (!this.streaming) return;
     const { x: cx, y: cy } = cameraCenter;
 
     // Grow with the viewport so on-screen chunks aren't culled, but cap hard
@@ -250,7 +263,9 @@ export class AsteroidFieldSystem {
       // Radius scales linearly with influence: small at edges, huge at core.
       const radius = ASTEROID_MIN_RADIUS + influence * (ASTEROID_MAX_RADIUS - ASTEROID_MIN_RADIUS);
 
-      const body = this.generateAsteroidBody(wx, wy, radius, rng);
+      // Deterministically pick asteroid class from RNG
+      const asteroidClass = ASTEROID_CLASSES[Math.floor(rng() * ASTEROID_CLASSES.length)];
+      const body = this.generateAsteroidBody(wx, wy, radius, rng, asteroidClass);
       if (body) {
         this.addBodyToWorld(body);
         bodies.push(body);
@@ -280,6 +295,7 @@ export class AsteroidFieldSystem {
     wy:     number,
     radius: number,
     rng:    () => number,
+    asteroidClass: AsteroidClass = 'C-Type',
   ): Matter.Body | null {
     // Generate candidate points scattered in an annulus [50%–100%] of radius.
     const candidates: Vec2[] = [];
@@ -292,8 +308,9 @@ export class AsteroidFieldSystem {
     const hull = convexHull(candidates);
     if (hull.length < 3) return null;
 
-    const fillColor   = ASTEROID_FILL_COLORS[Math.floor(rng() * ASTEROID_FILL_COLORS.length)];
-    const strokeColor = ASTEROID_STROKE_COLORS[Math.floor(rng() * ASTEROID_STROKE_COLORS.length)];
+    const palette = ASTEROID_CLASS_COLORS[asteroidClass];
+    const fillColor   = palette.fill[Math.floor(rng() * palette.fill.length)];
+    const strokeColor = palette.stroke[Math.floor(rng() * palette.stroke.length)];
 
     const body = Matter.Body.create({
       isStatic:    true,
@@ -308,11 +325,30 @@ export class AsteroidFieldSystem {
       },
     });
 
+    // Tag the body with its asteroid class for mining/resource lookup
+    (body as unknown as Record<string, unknown>).asteroidClass = asteroidClass;
+
     // setVertices recentres around centroid (relative to current body.position = {0,0}),
     // then setPosition translates the body + vertices to world coords.
     Matter.Body.setVertices(body, hull);
     Matter.Body.setPosition(body, { x: wx, y: wy });
 
+    return body;
+  }
+
+  /**
+   * Spawn a single asteroid at a specific position with a given class and radius.
+   * Used by scenarios to place hand-crafted asteroids.
+   */
+  public spawnAsteroid(wx: number, wy: number, radius: number, asteroidClass: AsteroidClass): Matter.Body | null {
+    const rng = mulberry32(gridSeed(Math.floor(wx), Math.floor(wy)));
+    const body = this.generateAsteroidBody(wx, wy, radius, rng, asteroidClass);
+    if (body) {
+      this.addBodyToWorld(body);
+      // Track in a synthetic chunk key so dispose() cleans them up
+      const key = `manual_${wx}_${wy}`;
+      this.activeChunks.set(key, [body]);
+    }
     return body;
   }
 }

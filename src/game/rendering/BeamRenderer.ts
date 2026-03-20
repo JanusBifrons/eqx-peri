@@ -15,8 +15,9 @@ interface BeamStyle {
 }
 
 const BEAM_STYLES: Record<string, BeamStyle> = {
-  Beam:      { coreColor: 0xffffff, glowColor: 0x00ddff, arcColor: 0x88ffff, coreWidth: 2, glowWidth: 8,  arcCount: 3 },
-  LargeBeam: { coreColor: 0xffffff, glowColor: 0x4488ff, arcColor: 0x99ccff, coreWidth: 4, glowWidth: 14, arcCount: 5 },
+  Beam:        { coreColor: 0xffffff, glowColor: 0x00ddff, arcColor: 0x88ffff, coreWidth: 2, glowWidth: 8,  arcCount: 3 },
+  LargeBeam:   { coreColor: 0xffffff, glowColor: 0x4488ff, arcColor: 0x99ccff, coreWidth: 4, glowWidth: 14, arcCount: 5 },
+  MiningLaser: { coreColor: 0xffcccc, glowColor: 0xcc3333, arcColor: 0xff6666, coreWidth: 1.5, glowWidth: 6, arcCount: 1 },
 };
 
 const DEFAULT_STYLE = BEAM_STYLES['Beam'];

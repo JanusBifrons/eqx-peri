@@ -1,6 +1,6 @@
 import * as Matter from 'matter-js';
 import * as PIXI from 'pixi.js';
-import { EntityConfig, EntityType, ENTITY_DEFINITIONS, Vector2, GRID_SIZE, AttachmentConnection, getEntityBodyOffset, getTriHullVertices, isStructuralBlock } from '../../types/GameTypes';
+import { EntityConfig, EntityType, ENTITY_DEFINITIONS, Vector2, GRID_SIZE, AttachmentConnection, getEntityBodyOffset, getTriHullVertices, isStructuralBlock, InventoryItemType } from '../../types/GameTypes';
 import { Viewport } from '../rendering/Viewport';
 
 export class Entity {
@@ -27,6 +27,10 @@ export class Entity {
   // Radians per second; set per weapon type in constructor. Small fast guns track quickly,
   // large/capital weapons track slowly for a weighty feel.
   public aimRotationSpeed: number = 0;
+
+  // Per-entity cargo inventory (CargoHold blocks only). Items keyed by type, values in kg.
+  public cargo: Map<InventoryItemType, number> | null = null;
+  public cargoCapacity: number = 0;
 
   // Connection tracking system
   public attachmentConnections: AttachmentConnection[] = [];
@@ -57,6 +61,12 @@ export class Entity {
     this.maxHealth = config.maxHealth || definition.defaultHealth;
     this.health = config.health || this.maxHealth;
     this.aimRotationSpeed = this.defaultAimRotationSpeed();
+
+    // Initialize cargo for cargo hold blocks
+    if (definition.cargoCapacity) {
+      this.cargo = new Map();
+      this.cargoCapacity = definition.cargoCapacity;
+    }
 
     // Debug logging for cockpits
     if (this.type === 'Cockpit' || this.type === 'LargeCockpit' || this.type === 'CapitalCore') {
@@ -211,7 +221,51 @@ export class Entity {
   }
 
   public isBeamWeapon(): boolean {
-    return this.type === 'Beam' || this.type === 'LargeBeam';
+    return this.type === 'Beam' || this.type === 'LargeBeam' || this.type === 'MiningLaser';
+  }
+
+  public isMiningLaser(): boolean {
+    return this.type === 'MiningLaser';
+  }
+
+  public isCargoHold(): boolean {
+    return this.type === 'CargoHold' || this.type === 'LargeCargoHold';
+  }
+
+  /** Total kg currently stored in this entity's cargo. */
+  public getCargoTotal(): number {
+    if (!this.cargo) return 0;
+    let total = 0;
+    for (const v of this.cargo.values()) total += v;
+    return total;
+  }
+
+  /** Add ore/material to this entity's cargo. Returns amount actually added. */
+  public addToCargo(type: InventoryItemType, amount: number): number {
+    if (!this.cargo || amount <= 0) return 0;
+    const space = this.cargoCapacity - this.getCargoTotal();
+    const added = Math.min(amount, Math.max(0, space));
+    if (added <= 0) return 0;
+    this.cargo.set(type, (this.cargo.get(type) ?? 0) + added);
+    return added;
+  }
+
+  /** Remove ore/material from this entity's cargo. Returns amount actually removed. */
+  public removeFromCargo(type: InventoryItemType, amount: number): number {
+    if (!this.cargo || amount <= 0) return 0;
+    const current = this.cargo.get(type) ?? 0;
+    const removed = Math.min(amount, current);
+    if (removed <= 0) return 0;
+    const remaining = current - removed;
+    if (remaining <= 0) this.cargo.delete(type);
+    else this.cargo.set(type, remaining);
+    return removed;
+  }
+
+  /** Get all non-zero cargo entries as [type, amount] pairs. */
+  public getCargoItems(): [InventoryItemType, number][] {
+    if (!this.cargo) return [];
+    return Array.from(this.cargo.entries()).filter(([, v]) => v > 0);
   }
 
   public canProvideThrust(): boolean {

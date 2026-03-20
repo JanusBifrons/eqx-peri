@@ -87,6 +87,21 @@ export class StructurePlacementRenderer implements IRenderer {
       this.graphics.drawRect(cx - hw, cy - hh, hw * 2, hh * 2);
       this.graphics.endFill();
     }
+
+    // Draw sensor area preview if this structure type has one
+    if (def.sensorRadius) {
+      const sensorR = def.sensorRadius * scale;
+      this.graphics.lineStyle(Math.max(1, scale), valid ? 0x448844 : 0x664444, 0.3);
+      const segments = 24;
+      for (let i = 0; i < segments; i++) {
+        if (i % 2 === 0) {
+          const a0 = (i / segments) * Math.PI * 2;
+          const a1 = ((i + 1) / segments) * Math.PI * 2;
+          this.graphics.moveTo(cx + Math.cos(a0) * sensorR, cy + Math.sin(a0) * sensorR);
+          this.graphics.lineTo(cx + Math.cos(a1) * sensorR, cy + Math.sin(a1) * sensorR);
+        }
+      }
+    }
   }
 
   private drawHexagon(cx: number, cy: number, radius: number): void {

@@ -2,7 +2,7 @@ import * as Matter from 'matter-js';
 import Stats from 'stats.js';
 import { Assembly } from './Assembly';
 import { Entity } from './Entity';
-import { EntityConfig, GRID_SIZE, ENTITY_DEFINITIONS, EntityType, ScenarioConfig, SCENARIOS, SHIP_SPAWN_SPACING, Vector2, PerformanceMetrics, isStructuralBlock, StructureType } from '../../types/GameTypes';
+import { EntityConfig, GRID_SIZE, ENTITY_DEFINITIONS, EntityType, ScenarioConfig, SCENARIOS, SHIP_SPAWN_SPACING, Vector2, PerformanceMetrics, isStructuralBlock, StructureType, ASTEROID_ORE_MAP, AsteroidClass } from '../../types/GameTypes';
 import shipsData from '../../data/ships.json';
 import { ControllerManager } from '../ai/ControllerManager';
 import { FlightController } from '../ai/FlightController';
@@ -230,6 +230,9 @@ export class GameEngine {
           wall as ShieldWall, damage, this.structureManager.getStructures(),
         );
       }
+    });
+    this.beamSystem.setMiningCallback((sourceAssemblyId: string, asteroidClass: AsteroidClass, oreKg: number) => {
+      this.handleMiningHit(sourceAssemblyId, asteroidClass, oreKg);
     });
     this.controllerManager.setBeamSystem(this.beamSystem);
 
@@ -860,6 +863,26 @@ export class GameEngine {
     this.processEntityDestruction(entity, hitAssembly);
   }
 
+  /** Callback invoked by BeamSystem when a mining laser hits an asteroid. */
+  private handleMiningHit(sourceId: string, asteroidClass: AsteroidClass, oreKg: number): void {
+    const oreType = ASTEROID_ORE_MAP[asteroidClass];
+
+    // Check if source is an assembly (ship mining laser)
+    const assembly = this.assemblies.find(a => a.id === sourceId);
+    if (assembly && !assembly.destroyed && assembly.hasCargoHold()) {
+      assembly.addToCargo(oreType, oreKg);
+      return;
+    }
+
+    // Check if source is a structure (structure mining laser)
+    if (this.structureManager) {
+      const structure = this.structureManager.getStructures().find(s => s.id === sourceId);
+      if (structure && !structure.isDestroyed()) {
+        structure.addToInventory(oreType, oreKg);
+      }
+    }
+  }
+
   private handleMissileHit(missile: any, entity: Entity): void {
     const hitX: number = missile.body.position.x;
     const hitY: number = missile.body.position.y;
@@ -1106,10 +1129,11 @@ export class GameEngine {
     this.updateCursorWorldPosition();
     this.structurePlacementSystem?.updateCursor(this.mouseWorldPos);
 
-    // Provide structure + shield wall bodies to beam system for hit detection
+    // Provide structure + shield wall + asteroid bodies to beam system for hit detection
     const beamExtraBodies = [
       ...(this.structureManager?.getStructures().map(s => s.body) ?? []),
       ...(this.structureManager?.gridManager.getShieldWalls().map(w => w.body) ?? []),
+      ...(this.asteroidFieldSystem?.getAllBodies() ?? []),
     ];
     this.controllerManager.setBeamExtraBodies(beamExtraBodies);
 
@@ -1200,6 +1224,14 @@ export class GameEngine {
       for (const laser of turretLasers) {
         this.lasers.push(laser);
         Matter.World.add(this.world, laser);
+      }
+
+      // Route structure mining laser beams through BeamSystem
+      const miningSpecs = this.structureManager.getMiningBeamSpecs();
+      for (const spec of miningSpecs) {
+        this.beamSystem.processBeamFire(spec, this.assemblies, deltaTime, [
+          ...(this.asteroidFieldSystem?.getAllBodies() ?? []),
+        ]);
       }
     }
 
@@ -2176,6 +2208,11 @@ export class GameEngine {
       this.spawnShipFromYard(yard);
     });
 
+    // Wire up asteroid body access for structure mining lasers
+    this.structureManager.setAsteroidBodiesGetter(() =>
+      this.asteroidFieldSystem?.getAllBodies() ?? [],
+    );
+
     // Create the placement system for player interaction
     this.structurePlacementSystem = new StructurePlacementSystem(
       this.structureManager,
@@ -2217,12 +2254,14 @@ export class GameEngine {
     this.assemblies.push(playerShip);
     Matter.World.add(this.world, playerShip.rootBody);
 
-    // Give the scout some basic blocks to attach (engines + gun)
+    // Give the scout some basic blocks to attach (engines + gun + mining/cargo)
     const starterBlocks: EntityConfig[] = [
       { type: 'Engine', x: 0, y: 0, rotation: 180 },
       { type: 'Engine', x: 0, y: 0, rotation: 180 },
       { type: 'Gun', x: 0, y: 0, rotation: 0 },
       { type: 'PowerCell', x: 0, y: 0, rotation: 0 },
+      { type: 'MiningLaser', x: 0, y: 0, rotation: 0 },
+      { type: 'CargoHold', x: 0, y: 0, rotation: 0 },
     ];
     for (let i = 0; i < starterBlocks.length; i++) {
       const angle = (i / starterBlocks.length) * Math.PI * 2 + Math.PI * 0.25;
@@ -2237,7 +2276,23 @@ export class GameEngine {
       Matter.World.add(this.world, block.rootBody);
     }
 
-
+    // Spawn three small asteroids (one per type) near the core for mining.
+    // streaming=false prevents the procedural chunk system from filling the
+    // sandbox with a full asteroid field — only the hand-placed rocks exist.
+    this.asteroidFieldSystem = new AsteroidFieldSystem(
+      (body) => Matter.World.add(this.world, body),
+      (body) => Matter.World.remove(this.world, body),
+      false,
+    );
+    const asteroidTypes: AsteroidClass[] = ['C-Type', 'S-Type', 'M-Type'];
+    const asteroidRadius = 120;
+    for (let i = 0; i < asteroidTypes.length; i++) {
+      const angle = ((i / asteroidTypes.length) * Math.PI * 2) + Math.PI * 0.5; // spread around
+      const dist = 800;
+      const ax = Math.cos(angle) * dist;
+      const ay = Math.sin(angle) * dist;
+      this.asteroidFieldSystem.spawnAsteroid(ax, ay, asteroidRadius, asteroidTypes[i]);
+    }
   }
 
   private spawnSandboxScenario(): void {

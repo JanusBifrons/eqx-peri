@@ -171,6 +171,15 @@ export class StructurePlacementSystem {
       if (dx < hw + sHw && dy < hh + sHh) return true;
     }
 
+    // Check overlap with sensor areas (e.g. Refinery deposit zone)
+    for (const s of this.structureManager.getStructures()) {
+      const sensorR = s.definition.sensorRadius;
+      if (!sensorR) continue;
+      const dx = s.body.position.x - worldPos.x;
+      const dy = s.body.position.y - worldPos.y;
+      if (Math.sqrt(dx * dx + dy * dy) < sensorR + Math.max(hw, hh)) return true;
+    }
+
     // Check overlap with active shield walls (inactive walls have no physics body)
     for (const wall of this.gridManager.getShieldWalls()) {
       if (!wall.isActive()) continue;

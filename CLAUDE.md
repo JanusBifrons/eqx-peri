@@ -142,11 +142,24 @@ src/
 **Beam weapon system (`BeamSystem` + `BeamRenderer`):**
 - `Beam` (1×1) and `LargeBeam` (2×2) are block types that fire instant-hit continuous beams — no physics body is spawned.
 - Beam constants (`BEAM_SMALL_RANGE`, `BEAM_SMALL_DPS`, `BEAM_LARGE_RANGE`, `BEAM_LARGE_DPS`, `BEAM_DISPLAY_DURATION_MS`) live in `GameTypes.ts`. `beamRange` and `beamDps` optional fields added to `EntityTypeDefinition`.
-- `Entity.isBeamWeapon()` returns `true` for Beam/LargeBeam. `Assembly.fireWeapons()` excludes beam weapons (they are not projectiles); `Assembly.getBeamFires()` returns `BeamFireSpec[]` each tick while the trigger is held.
+- `Entity.isBeamWeapon()` returns `true` for Beam/LargeBeam/MiningLaser. `Assembly.fireWeapons()` excludes beam weapons (they are not projectiles); `Assembly.getBeamFires()` returns `BeamFireSpec[]` each tick while the trigger is held.
 - `ControllerManager.applyInput()` calls `assembly.getBeamFires()` and routes each spec to `BeamSystem.processBeamFire(spec, assemblies, deltaTime)`, which performs ray-convex-polygon intersection against all entity bodies, applies `DPS × deltaTime` damage, handles shield interception, and invokes an `onEntityDestroyed` callback when an entity is killed.
 - Entity destruction is routed through `GameEngine.processEntityDestruction()` — the shared cascade method now used by both `handleBulletHit` and `handleBeamEntityDestroyed`.
 - `BeamRenderer` (priority 45, between ShieldRenderer and ShipHighlightRenderer) draws active beams as a two-layer glow (outer halo + bright core) with an impact flash at the hit point. Beams fade over `BEAM_DISPLAY_DURATION_MS` (80 ms) after the last firing tick.
 - Active beams are stored in a `Map<weaponId, ActiveBeam>` in `BeamSystem`, overwritten each tick the weapon fires (so each weapon has at most one beam record at a time).
+- **Mining callback**: `BeamSystem.setMiningCallback()` wires asteroid ore extraction. When a beam hits an asteroid body and the weapon has `miningRate`, calls `onMiningHit(sourceAssemblyId, asteroidClass, oreKg)`. `GameEngine.handleMiningHit()` routes ore to assembly cargo or structure inventory. Details in `src/game/weapons/CLAUDE.md`.
+
+**Cargo system (per-entity inventory):**
+- `CargoHold` (1×1, 5000 capacity) and `LargeCargoHold` (2×2, 20000 capacity) are block types with `cargoCapacity` in their definition.
+- Inventory is **per-entity** — `Entity.cargo: Map<InventoryItemType, number>`. Destroying a cargo hold loses its contents.
+- `Assembly.addToCargo()` / `getCargoTotal()` / `getCargoItems()` aggregate across all cargo entities. Details in `src/game/core/CLAUDE.md`.
+
+**Mining laser (assembly weapon):**
+- `MiningLaser` is a 1×1 beam weapon. Low combat DPS (`MINING_LASER_DPS=5`), short range (`MINING_LASER_RANGE=350`), but extracts ore at `MINING_LASER_RATE=50` kg/s into cargo holds.
+- Mining rate is separate from DPS — set as `miningRate` on `EntityTypeDefinition`. Details in `src/game/core/CLAUDE.md`.
+
+**Structure mining laser + sensor areas:**
+- `StructureMiningLaser` autonomously targets asteroids; `Refinery` has a sensor area for ore deposit (3s dwell). Details in `src/game/structures/CLAUDE.md`.
 
 **Structure system (`src/game/structures/`):**
 - Static base-building structures with construction + networking. Details in `src/game/structures/CLAUDE.md`.

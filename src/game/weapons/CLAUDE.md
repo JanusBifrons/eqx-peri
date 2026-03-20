@@ -15,6 +15,16 @@ Missiles use Matter.js for collision detection:
 1. **Matter.js CCD**: Bodies are created with `bullet: true` for continuous collision detection to prevent tunneling.
 2. **Matter.js collision events**: `collisionStart` events trigger `MissileSystem.handleMissileHit()`.
 
+## Mining Callback (BeamSystem)
+
+- `BeamSystem` has an optional `onMiningHit: MiningCallback` set via `setMiningCallback(cb)`.
+- When a beam hits an asteroid body (`body.label === 'asteroid'`), `processBeamFire` checks if the weapon type has `miningRate` in its `EntityTypeDefinition`.
+- If it does, calls `onMiningHit(sourceAssemblyId, asteroidClass, oreKg)` where `oreKg = miningRate * deltaTime`.
+- `GameEngine.handleMiningHit()` receives this callback and routes ore to:
+  - **Assembly cargo**: if `sourceAssemblyId` matches an assembly, calls `assembly.addToCargo(oreType, oreKg)`.
+  - **Structure inventory**: if `sourceAssemblyId` matches a structure ID, adds to `structure.storedResources`.
+- Asteroid class → ore type mapping uses `ASTEROID_ORE_MAP` from `GameTypes.ts`.
+
 ## Friendly Shield Pass-Through
 
 - `Missile` stores `sourceTeam: number` (set at construction from `MissileLaunchRequest.sourceTeam`).

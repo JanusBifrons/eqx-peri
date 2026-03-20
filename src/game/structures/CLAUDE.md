@@ -156,6 +156,30 @@ Defined in `GameTypes.ts` as `STRUCTURE_DEFINITIONS: Record<StructureType, Struc
 - Currently uses simplified single-resource model. Will output specific `MaterialType` quantities once inventory system is live.
 - Rendered by `StructureRenderer`: triangular recycle-arrows icon, NO POWER indicator when brownout.
 
+## StructureMiningLaser (Autonomous Mining)
+
+- Extends `Structure` with autonomous asteroid targeting + barrel rotation.
+- `updateMiningLaser(deltaTimeMs, now, asteroidBodies, gridSummary)` — called each frame by `StructureManager`; returns `BeamFireSpec | null`.
+- **Power-gated**: requires `gridSummary.powerEfficiency > 0` and `isOperational()`.
+- **Targeting**: finds closest asteroid body (label `'asteroid'`) within `miningRange` (from definition); re-scans every `ASTEROID_SCAN_INTERVAL_MS` (1s). Drops target at 1.2× range.
+- **Barrel rotation**: smoothly rotates `currentAimAngle` at 1.5 rad/s; fires only when within `AIM_THRESHOLD_RAD` (0.2 rad).
+- **Beam spec**: `weaponType: 'MiningLaser'` so `BeamSystem` triggers the mining callback. `sourceAssemblyId` = structure ID (not an assembly).
+- `getBarrelEndpoint()` — world-space barrel tip for beam origin.
+- `getTargetAsteroidClass()` — returns the current target's `AsteroidClass` (for UI).
+- `StructureManager` routes `'StructureMiningLaser'` to this subclass in `spawnStructure()`.
+- `StructureManager` collects beam specs from all mining lasers in `update()` and exposes them via `getMiningBeamSpecs()`. `GameEngine` routes these to `BeamSystem.processBeamFire()`.
+
+## Sensor Areas (Refinery Ore Deposit)
+
+- Refineries have `sensorRadius` in their `StructureDefinition` (`REFINERY_SENSOR_RADIUS = 350` world units).
+- **Non-physics zone**: no Matter.js body — purely a distance check in `StructureManager.processSensorAreas()`.
+- **Dwell-time trigger**: when an assembly with ore cargo remains inside a sensor zone for `SENSOR_DEPOSIT_DWELL_MS` (3s), its ore is transferred to the structure's `storedResources`.
+- `SensorDwellState` interface tracks `{ assemblyId, enteredAt }` per structure. Reset when assembly leaves zone.
+- `StructureManager.getSensorAreaStates()` — returns sensor area positions + active dwell states for rendering.
+- Rendered by `StructureRenderer.renderSensorAreas()`: dashed circle + "DROP ORE HERE" / "DEPOSITING..." text with color changes (green depositing, yellow assembly inside, dim green idle).
+- `StructurePlacementRenderer` draws a dashed circle preview when placing a structure with `sensorRadius`.
+- `StructurePlacementSystem.isPlacementBlocked()` prevents placing structures inside existing sensor zones.
+
 ## Connection Rules
 
 - **General rule**: at least one side must be a Connector (or Core), OR both sides are ShieldFence.

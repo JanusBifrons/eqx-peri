@@ -1,13 +1,15 @@
 import Matter from 'matter-js';
-import { DECONSTRUCTION_RATE_KG, GridPowerSummary, StructureType, Vector2 } from '../../types/GameTypes';
+import { DECONSTRUCTION_RATE_KG, GridPowerSummary, StructureType, Vector2, SENSOR_DEPOSIT_DWELL_MS, STRUCTURE_DEFINITIONS, OreType } from '../../types/GameTypes';
 import { Structure } from './Structure';
 import { StructureCore } from './StructureCore';
 import { StructureTurret } from './StructureTurret';
 import { StructureAssemblyYard } from './StructureAssemblyYard';
 import { StructureManufacturer } from './StructureManufacturer';
 import { StructureRecycler } from './StructureRecycler';
+import { StructureMiningLaser } from './StructureMiningLaser';
 import { GridManager } from './GridManager';
 import { Assembly } from '../core/Assembly';
+import { BeamFireSpec } from '../weapons/BeamSystem';
 
 /** Structure types that are turrets and need the StructureTurret subclass. */
 const TURRET_TYPES: ReadonlySet<StructureType> = new Set(['SmallTurret', 'MediumTurret', 'LargeTurret']);
@@ -20,12 +22,27 @@ const TURRET_TYPES: ReadonlySet<StructureType> = new Set(['SmallTurret', 'Medium
 /** Callback invoked when an Assembly Yard has built a ship. */
 export type ShipSpawnCallback = (yard: StructureAssemblyYard) => void;
 
+/** Sensor area deposit state — tracks how long an assembly has been inside a structure's sensor zone. */
+interface SensorDwellState {
+  structureId: string;
+  assemblyId: string;
+  enterTime: number;    // ms timestamp when assembly first entered
+  depositing: boolean;  // true when dwell threshold reached and actively transferring
+}
+
 export class StructureManager {
   private structures: Structure[] = [];
   private addBodyToWorld: (body: Matter.Body) => void;
   private removeBodyFromWorld: (body: Matter.Body) => void;
   public readonly gridManager: GridManager = new GridManager();
   private onShipSpawn: ShipSpawnCallback | null = null;
+  private asteroidBodiesGetter: (() => Matter.Body[]) | null = null;
+
+  /** Tracks assemblies dwelling inside sensor areas (key = `structureId:assemblyId`). */
+  private sensorDwells: Map<string, SensorDwellState> = new Map();
+
+  /** Mining beam fire specs produced this frame — read by GameEngine to route to BeamSystem. */
+  private miningBeamSpecs: BeamFireSpec[] = [];
 
   constructor(
     addBodyToWorld: (body: Matter.Body) => void,
@@ -39,6 +56,11 @@ export class StructureManager {
   /** Set the callback for when an Assembly Yard completes a ship build. */
   public setShipSpawnCallback(callback: ShipSpawnCallback): void {
     this.onShipSpawn = callback;
+  }
+
+  /** Set the getter for asteroid bodies (for mining laser targeting). */
+  public setAsteroidBodiesGetter(getter: () => Matter.Body[]): void {
+    this.asteroidBodiesGetter = getter;
   }
 
   /** Spawn the Core structure for a team at the given position. */
@@ -63,6 +85,8 @@ export class StructureManager {
       structure = new StructureManufacturer(position, team);
     } else if (type === 'Recycler') {
       structure = new StructureRecycler(position, team);
+    } else if (type === 'StructureMiningLaser') {
+      structure = new StructureMiningLaser(position, team);
     } else {
       structure = new Structure(type, position, team);
     }
@@ -146,7 +170,110 @@ export class StructureManager {
       }
     }
 
+    // Tick mining lasers — acquire asteroids and produce beam specs
+    this.miningBeamSpecs = [];
+    const asteroidBodies = this.asteroidBodiesGetter?.() ?? [];
+    for (const s of this.structures) {
+      if (s instanceof StructureMiningLaser) {
+        const summary = this.gridManager.getGridPowerSummary(s, this.structures);
+        const spec = s.updateMiningLaser(deltaTimeMs, now, asteroidBodies, summary);
+        if (spec) this.miningBeamSpecs.push(spec);
+      }
+    }
+
+    // Process sensor area deposits (Refinery ore drop-off)
+    this.processSensorAreas(assemblies);
+
     return newLasers;
+  }
+
+  // ── Sensor area deposit logic ──────────────────────────────────────────
+
+  /**
+   * Check which assemblies are inside a structure's sensor area.
+   * When an assembly with cargo dwells for SENSOR_DEPOSIT_DWELL_MS, transfer ore.
+   */
+  private processSensorAreas(assemblies: Assembly[]): void {
+    const now = Date.now();
+    const activeKeys = new Set<string>();
+
+    for (const s of this.structures) {
+      const def = STRUCTURE_DEFINITIONS[s.type];
+      if (!def.sensorRadius || !s.isOperational()) continue;
+
+      const sensorRadius = def.sensorRadius;
+      const sx = s.body.position.x;
+      const sy = s.body.position.y;
+
+      for (const assembly of assemblies) {
+        if (assembly.destroyed || assembly.getTeam() !== s.team) continue;
+        if (!assembly.hasCargoHold() || assembly.getCargoTotal() <= 0) continue;
+
+        const ax = assembly.rootBody.position.x;
+        const ay = assembly.rootBody.position.y;
+        const dist = Math.hypot(ax - sx, ay - sy);
+        if (dist > sensorRadius) continue;
+
+        const key = `${s.id}:${assembly.id}`;
+        activeKeys.add(key);
+
+        let state = this.sensorDwells.get(key);
+        if (!state) {
+          state = { structureId: s.id, assemblyId: assembly.id, enterTime: now, depositing: false };
+          this.sensorDwells.set(key, state);
+        }
+
+        // Check dwell threshold
+        if (now - state.enterTime >= SENSOR_DEPOSIT_DWELL_MS) {
+          state.depositing = true;
+          // Transfer all ore from assembly cargo to structure inventory
+          const cargoItems = assembly.getCargoItems();
+          for (const [type, amount] of cargoItems) {
+            if (Structure.isOreType(type)) {
+              const removed = assembly.removeFromCargo(type, amount);
+              if (removed > 0) {
+                s.addToInventory(type as OreType, removed);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Prune stale entries (assembly left the sensor area)
+    for (const key of this.sensorDwells.keys()) {
+      if (!activeKeys.has(key)) {
+        this.sensorDwells.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Get the current sensor dwell state for rendering.
+   * Returns entries with structure position, sensor radius, and depositing flag.
+   */
+  public getSensorAreaStates(): { structure: Structure; assemblyInside: boolean; depositing: boolean; sensorRadius: number }[] {
+    const results: { structure: Structure; assemblyInside: boolean; depositing: boolean; sensorRadius: number }[] = [];
+    for (const s of this.structures) {
+      const def = STRUCTURE_DEFINITIONS[s.type];
+      if (!def.sensorRadius || !s.isOperational()) continue;
+
+      let assemblyInside = false;
+      let depositing = false;
+      for (const state of this.sensorDwells.values()) {
+        if (state.structureId === s.id) {
+          assemblyInside = true;
+          if (state.depositing) depositing = true;
+        }
+      }
+      results.push({ structure: s, assemblyInside, depositing, sensorRadius: def.sensorRadius });
+    }
+    return results;
+  }
+
+  /** Return mining beam specs generated this frame. */
+  public getMiningBeamSpecs(): BeamFireSpec[] {
+    return this.miningBeamSpecs;
   }
 
   /** Return all structures (for rendering and UI). */
