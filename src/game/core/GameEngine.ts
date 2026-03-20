@@ -1200,6 +1200,9 @@ export class GameEngine {
     // Execute player commands (follow, orbit, lockOn, etc.)
     this.executePlayerCommands();
 
+    // Update zoom before camera so render.bounds reflects the latest zoom level
+    this.updateSpeedBasedZoom();
+
     // Update camera — pilot mode or observer mode
     this.updateCamera(deltaTime);
 
@@ -1220,9 +1223,6 @@ export class GameEngine {
       const viewportHalfDiag = Math.hypot(halfW, halfH);
       this.asteroidFieldSystem.update(this.getCameraCenter(), viewportHalfDiag);
     }
-
-    // Update zoom based on speed
-    this.updateSpeedBasedZoom();
 
     // Record game-loop tick duration (excludes rendering, which runs in RenderSystem)
     this.perfLastTickMs = performance.now() - tickStart;
@@ -1588,6 +1588,8 @@ export class GameEngine {
           this.observerPos.x -= curr.x - prev.x;
           this.observerPos.y -= curr.y - prev.y;
           this.observerDragLastScreenPos = { x: sx, y: sy };
+          // Immediately apply camera so render.bounds is current for downstream reads
+          this.applyObserverCameraBounds();
         }
       }
 
@@ -1921,6 +1923,12 @@ export class GameEngine {
     if (my < this.EDGE_SCROLL_MARGIN)     this.observerPos.y -= edgeSpeed * deltaTime;
     if (my > h - this.EDGE_SCROLL_MARGIN) this.observerPos.y += edgeSpeed * deltaTime;
 
+    this.applyObserverCameraBounds();
+  }
+
+  /** Set render.bounds from current observerPos + zoomLevel. Called from updateObserverCamera and mousemove drag. */
+  private applyObserverCameraBounds(): void {
+    const canvas = this.render.canvas;
     const viewW = canvas.width / this.zoomLevel;
     const viewH = canvas.height / this.zoomLevel;
     Matter.Render.lookAt(this.render, {
@@ -2755,20 +2763,22 @@ export class GameEngine {
     };
   }
 
+  /** Compute screen-space position for the selected structure's top-left corner. */
+  private computeStructureScreen(): { screenX: number; screenY: number; scale: number } | null {
+    const sel = this.selectedStructure;
+    if (!sel || sel.isDestroyed()) return null;
+    const scale = this.getViewportScale();
+    const hw = sel.definition.widthPx / 2;
+    const hh = sel.definition.heightPx / 2;
+    const sp = this.worldToScreen(sel.body.position.x - hw, sel.body.position.y - hh);
+    if (!sp) return null;
+    return { screenX: Math.round(sp.x), screenY: Math.round(sp.y), scale };
+  }
+
   // ── Zustand store push — called once per game frame ──────────────
   private pushStoreFrame(): void {
     const store = useGameStore.getState();
-    const sel = this.selectedStructure;
-    let structureScreen = null as { screenX: number; screenY: number; scale: number } | null;
-    if (sel && !sel.isDestroyed()) {
-      const scale = this.getViewportScale();
-      const hw = sel.definition.widthPx / 2;
-      const hh = sel.definition.heightPx / 2;
-      const sp = this.worldToScreen(sel.body.position.x - hw, sel.body.position.y - hh);
-      if (sp) {
-        structureScreen = { screenX: Math.round(sp.x), screenY: Math.round(sp.y), scale };
-      }
-    }
+    const structureScreen = this.computeStructureScreen();
 
     // Power system state
     let powerState = null as { totalPower: number; availablePower: number; systems: { name: string; key: string; maxPower: number; currentPower: number }[] } | null;

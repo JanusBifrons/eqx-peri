@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Box, IconButton, Tooltip } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import DeconstructIcon from '@mui/icons-material/DeleteForever';
@@ -41,16 +41,54 @@ interface ActionButton {
 }
 
 const StructureActionPanel: React.FC<Props> = ({ gameEngine }) => {
-  // Read from Zustand store — component re-renders only when these slices change
   const structure = useGameStore(s => s.selectedStructure);
-  const structureScreen = useGameStore(s => s.structureScreen);
   const viewportScale = useGameStore(s => s.viewportScale);
-  // frameTick forces re-render each game frame so we pick up structure state changes
-  // (e.g. isDeconstructing, isPoweredOn) without extra polling
   useGameStore(s => s.frameTick);
 
   const [cargoOpen, setCargoOpen] = useState(false);
   const [drillDownOpen, setDrillDownOpen] = useState(false);
+
+  // Direct DOM ref for lag-free position updates
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Own RAF loop reads worldToScreen directly from the game engine each display frame,
+  // so buttons track the canvas with zero frame delay (no store intermediary for position).
+  useEffect(() => {
+    if (!gameEngine) return;
+    let rafId = 0;
+    const tick = (): void => {
+      const el = containerRef.current;
+      const sel = useGameStore.getState().selectedStructure;
+      if (el && sel && !sel.isDestroyed()) {
+        const scale = gameEngine.getViewportScale();
+        if (scale < MIN_ACTION_SCALE) {
+          el.style.visibility = 'hidden';
+        } else {
+          const hw = sel.definition.widthPx / 2;
+          const hh = sel.definition.heightPx / 2;
+          const sp = gameEngine.worldToScreen(
+            sel.body.position.x - hw,
+            sel.body.position.y - hh,
+          );
+          if (sp) {
+            const btnScale = Math.max(0.5, Math.min(1.5, scale));
+            const scaledSize = BUTTON_BASE_SIZE * btnScale;
+            el.style.left = `${Math.round(sp.x)}px`;
+            el.style.top = `${Math.round(sp.y) - scaledSize - 6}px`;
+            el.style.gap = `${BUTTON_SPACING * btnScale}px`;
+            el.style.visibility = 'visible';
+          } else {
+            el.style.visibility = 'hidden';
+          }
+        }
+      } else if (el) {
+        el.style.visibility = 'hidden';
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [gameEngine]);
 
   const handleDeconstruct = useCallback(() => {
     if (!gameEngine || !structure) return;
@@ -70,12 +108,11 @@ const StructureActionPanel: React.FC<Props> = ({ gameEngine }) => {
     setDrillDownOpen(true);
   }, []);
 
-  if (!structure || !structureScreen || structureScreen.scale < MIN_ACTION_SCALE) return null;
+  if (!structure) return null;
 
   // Build action button list
   const actions: ActionButton[] = [];
 
-  // 1. Deconstruct / Cancel deconstruction
   if (structure.isDeconstructing) {
     actions.push({
       key: 'cancel-decon',
@@ -92,7 +129,6 @@ const StructureActionPanel: React.FC<Props> = ({ gameEngine }) => {
     });
   }
 
-  // 2. Power toggle — green when on, red when off
   actions.push({
     key: 'power',
     icon: <BoltIcon fontSize="inherit" />,
@@ -103,7 +139,6 @@ const StructureActionPanel: React.FC<Props> = ({ gameEngine }) => {
     color: structure.isPoweredOn ? '#44cc44' : '#cc4444',
   });
 
-  // 3. Open cargo
   if (structure.definition.storageCapacity > 0) {
     actions.push({
       key: 'cargo',
@@ -113,7 +148,6 @@ const StructureActionPanel: React.FC<Props> = ({ gameEngine }) => {
     });
   }
 
-  // 4. Drill-down / Settings
   actions.push({
     key: 'settings',
     icon: <SettingsIcon fontSize="inherit" />,
@@ -123,17 +157,10 @@ const StructureActionPanel: React.FC<Props> = ({ gameEngine }) => {
 
   const btnScale = Math.max(0.5, Math.min(1.5, viewportScale));
   const scaledSize = BUTTON_BASE_SIZE * btnScale;
-  const scaledSpacing = BUTTON_SPACING * btnScale;
 
   return (
     <>
-      <ActionContainer
-        sx={{
-          left: structureScreen.screenX,
-          top: structureScreen.screenY - scaledSize - 6,
-          gap: `${scaledSpacing}px`,
-        }}
-      >
+      <ActionContainer ref={containerRef} sx={{ visibility: 'hidden' }}>
         {actions.map((action) => {
           const hasColor = !!action.color;
           return (
@@ -164,14 +191,12 @@ const StructureActionPanel: React.FC<Props> = ({ gameEngine }) => {
         })}
       </ActionContainer>
 
-      {/* Cargo modal */}
       <CargoModal
         open={cargoOpen}
         structure={structure}
         onClose={() => setCargoOpen(false)}
       />
 
-      {/* Drill-down / Settings modal (placeholder) */}
       <GenericModal
         title={`${structure.definition.label} — Settings`}
         open={drillDownOpen}
