@@ -61,7 +61,7 @@ interface IRenderer {
 
 **`PIXI.BLEND_MODES.ADD`** — used by `ParticleSystem`'s `ParticleContainer` and `ShockwaveRenderer` for additive glow blending.
 
-**`pixi-filters@5`** is installed but no filters are currently active.
+**`pixi-filters@5`** — active filters: `CRTFilter` (per-structure readout panels in `StructureRenderer`, one filter instance per structure), `GlowFilter` + `AdvancedBloomFilter` (beam glow in `BeamRenderer`), `ShockwaveFilter` (destruction rings in `ShockwaveRenderer`).
 
 **Sensor area rendering** — `StructureRenderer.renderSensorAreas()` draws dashed circles + status text for Refinery deposit zones. `StructurePlacementRenderer` previews sensor radius when placing structures with `sensorRadius`.
 

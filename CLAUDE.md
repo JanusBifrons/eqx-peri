@@ -199,7 +199,7 @@ src/
 - **Rotated rectangles**: `BlockPickupSystem` uses a module-level `drawRotatedRect(gfx, cx, cy, w, h, angle)` helper (manually computes rotated corners) since PIXI.Graphics has no transform stack equivalent.
 - **Radial gradients**: `ShieldRenderer` approximates them with concentric `drawCircle()` calls at varying alpha.
 - **Dashed lines**: approximated as solid semi-transparent lines (PIXI v7 has no native dash support).
-- `pixi-filters@5` is installed but no filters are currently active.
+- `pixi-filters@5` — active filters: `CRTFilter` (per-structure readout panels), `GlowFilter`/`AdvancedBloomFilter` (beams), `ShockwaveFilter` (destruction rings). See `src/game/rendering/CLAUDE.md`.
 
 ---
 

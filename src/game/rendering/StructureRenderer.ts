@@ -69,14 +69,27 @@ function formatWeight(kg: number): string {
 
 /** Pad a string to a fixed width (right-align numbers for consistency). */
 
+/** Per-structure readout display with its own CRT filter. */
+interface ReadoutEntry {
+  container: PIXI.Container;
+  graphics: PIXI.Graphics;
+  filter: CRTFilter;
+  texts: PIXI.Text[];
+  active: boolean;  // marked true each frame if used
+}
+
 export class StructureRenderer implements IRenderer {
   readonly renderPriority = 15;
 
   private graphics!: PIXI.Graphics;
-  private textContainer!: PIXI.Container;
-  private readoutGraphics!: PIXI.Graphics;  // backdrop rects drawn inside textContainer
-  private crtFilter!: CRTFilter;
-  private textPool: PIXI.Text[] = [];
+  /** Parent container for all per-structure readout containers. */
+  private readoutParent!: PIXI.Container;
+  /** One readout entry per structure, keyed by structure ID. */
+  private readoutMap = new Map<string, ReadoutEntry>();
+  /** Container for non-CRT labels (BUILDING, sensor, shield wall text). */
+  private labelContainer!: PIXI.Container;
+  private labelPool: PIXI.Text[] = [];
+  private crtTime = 0;
 
   constructor(
     private readonly getStructures: () => Structure[],
@@ -87,34 +100,24 @@ export class StructureRenderer implements IRenderer {
   init(stage: PIXI.Container): void {
     this.graphics = new PIXI.Graphics();
     stage.addChild(this.graphics);
-    this.textContainer = new PIXI.Container();
-    // Readout backdrops are drawn inside textContainer so the CRT filter covers them
-    this.readoutGraphics = new PIXI.Graphics();
-    this.textContainer.addChild(this.readoutGraphics);
-    // Subtle CRT / LCD scanline effect on all readout panels
-    this.crtFilter = new CRTFilter({
-      curvature: 4,
-      lineWidth: 4,
-      lineContrast: 0.6,
-      noise: 0.25,
-      noiseSize: 1.0,
-      vignetting: 0.3,
-      vignettingAlpha: 0.8,
-      vignettingBlur: 0.4,
-      verticalLine: false,
-    });
-    this.textContainer.filters = [this.crtFilter];
-    stage.addChild(this.textContainer);
+    this.readoutParent = new PIXI.Container();
+    stage.addChild(this.readoutParent);
+    this.labelContainer = new PIXI.Container();
+    stage.addChild(this.labelContainer);
   }
 
   render(viewport: Viewport): void {
     this.graphics.clear();
-    this.readoutGraphics.clear();
-    // Animate CRT scanlines
-    this.crtFilter.time += 0.04;
-    this.crtFilter.seed = Math.random();
-    // Hide all pooled texts — only the ones needed this frame will be shown
-    for (const t of this.textPool) t.visible = false;
+    // Advance shared CRT time
+    this.crtTime += 0.04;
+    // Mark all readout entries as inactive; hide their contents
+    for (const entry of this.readoutMap.values()) {
+      entry.active = false;
+      entry.graphics.clear();
+      for (const t of entry.texts) t.visible = false;
+    }
+    // Hide all label pool texts
+    for (const t of this.labelPool) t.visible = false;
 
     const { bounds, canvas } = viewport;
     const bw = bounds.max.x - bounds.min.x;
@@ -205,7 +208,7 @@ export class StructureRenderer implements IRenderer {
         // "BUILDING" label above the structure
         if (scale > MIN_TEXT_SCALE) {
           const pct = Math.floor(frac * 100);
-          this.placeText(`BUILDING ${pct}%`, cx, cy - hh - 12, BUILDING_LABEL_STYLE, 0.5);
+          this.placeLabel(`BUILDING ${pct}%`, cx, cy - hh - 12, BUILDING_LABEL_STYLE, 0.5);
         }
       }
 
@@ -225,7 +228,7 @@ export class StructureRenderer implements IRenderer {
 
         if (scale > MIN_TEXT_SCALE) {
           const pct = Math.floor(frac * 100);
-          this.placeText(`DECONSTRUCTING ${pct}%`, cx, cy - hh - 12, DECON_LABEL_STYLE, 0.5);
+          this.placeLabel(`DECONSTRUCTING ${pct}%`, cx, cy - hh - 12, DECON_LABEL_STYLE, 0.5);
         }
       }
 
@@ -320,11 +323,52 @@ export class StructureRenderer implements IRenderer {
       }
     }
 
+    // Hide readout containers for structures that weren't rendered this frame;
+    // remove stale entries for structures that no longer exist.
+    for (const [_id, entry] of this.readoutMap) {
+      if (entry.active) {
+        entry.container.visible = true;
+        entry.filter.time = this.crtTime;
+        entry.filter.seed = Math.random();
+      } else {
+        entry.container.visible = false;
+      }
+    }
+
     // ── Sensor areas (e.g. Refinery ore deposit zone) ──────────────────
     this.renderSensorAreas(viewport);
 
     // ── Shield walls ──────────────────────────────────────────────────────
     this.renderShieldWalls(viewport);
+  }
+
+  // ── Per-structure readout management ─────────────────────────────────
+
+  /** Get or create a readout entry (container + CRT filter) for a structure. */
+  private getReadoutEntry(structureId: string): ReadoutEntry {
+    let entry = this.readoutMap.get(structureId);
+    if (!entry) {
+      const container = new PIXI.Container();
+      const graphics = new PIXI.Graphics();
+      container.addChild(graphics);
+      const filter = new CRTFilter({
+        curvature: 4,
+        lineWidth: 4,
+        lineContrast: 0.6,
+        noise: 0.25,
+        noiseSize: 1.0,
+        vignetting: 0.3,
+        vignettingAlpha: 0.8,
+        vignettingBlur: 0.4,
+        verticalLine: false,
+      });
+      container.filters = [filter];
+      this.readoutParent.addChild(container);
+      entry = { container, graphics, filter, texts: [], active: false };
+      this.readoutMap.set(structureId, entry);
+    }
+    entry.active = true;
+    return entry;
   }
 
   // ── World-space readout drawn ON the structure body ─────────────────
@@ -416,6 +460,9 @@ export class StructureRenderer implements IRenderer {
 
     if (rows.length === 0) return;
 
+    // Get (or create) this structure's dedicated readout container + CRT filter
+    const entry = this.getReadoutEntry(structure.id);
+
     // ── Layout: black backdrop sized to content, top-left of structure ─
     const RASTER_FONT = 32;
     const worldTextH = def.heightPx * 0.035;
@@ -442,11 +489,11 @@ export class StructureRenderer implements IRenderer {
     const boxH = Math.max(contentH, minH);
     const radius = 2 * scale;
 
-    // Black fill — on readoutGraphics (inside textContainer, affected by CRT filter)
-    this.readoutGraphics.lineStyle(0);
-    this.readoutGraphics.beginFill(0x000000, 0.9);
-    this.readoutGraphics.drawRoundedRect(boxX, boxY, boxW, boxH, radius);
-    this.readoutGraphics.endFill();
+    // Black fill — on per-structure readout graphics (affected by CRT filter)
+    entry.graphics.lineStyle(0);
+    entry.graphics.beginFill(0x000000, 0.9);
+    entry.graphics.drawRoundedRect(boxX, boxY, boxW, boxH, radius);
+    entry.graphics.endFill();
 
     // White border — on main graphics (NOT affected by CRT filter)
     const borderWidth = Math.max(1, 1.5 * scale);
@@ -459,8 +506,8 @@ export class StructureRenderer implements IRenderer {
     for (const row of rows) {
       let x = boxX + pad;
       for (const seg of row.segments) {
-        this.placeText(
-          seg.text, x, y,
+        this.placeReadoutText(
+          entry, seg.text, x, y,
           { ...READOUT_STYLE, fontSize: RASTER_FONT, fill: seg.color } as PIXI.TextStyle,
           0, 0, textScale,
         );
@@ -507,19 +554,7 @@ export class StructureRenderer implements IRenderer {
           fill: depositing ? '#44ff44' : '#88cc88',
           fontWeight: 'bold',
         });
-        let text = this.textPool.find(t => !t.visible);
-        if (!text) {
-          text = new PIXI.Text('', style);
-          this.textContainer.addChild(text);
-          this.textPool.push(text);
-        }
-        text.style = style;
-        text.text = label;
-        text.anchor.set(0.5, 0.5);
-        text.x = pos.x;
-        text.y = pos.y - r - 12;
-        text.scale.set(1);
-        text.visible = true;
+        this.placeLabel(label, pos.x, pos.y - r - 12, style, 0.5, 0.5);
       }
     }
   }
@@ -584,7 +619,7 @@ export class StructureRenderer implements IRenderer {
           const midX = (ax + bx) / 2;
           const midY = (ay + by) / 2;
           const label = wall.isStunned ? 'STUNNED' : 'NO POWER';
-          this.placeText(label, midX, midY - wallWidth - 10, NO_POWER_STYLE, 0.5);
+          this.placeLabel(label, midX, midY - wallWidth - 10, NO_POWER_STYLE, 0.5);
         }
       }
     }
@@ -631,8 +666,9 @@ export class StructureRenderer implements IRenderer {
 
   // ── Text pooling ──────────────────────────────────────────────────────
 
-  /** Acquire a text from the pool or create a new one, position it, and make it visible. */
-  private placeText(
+  /** Place text inside a per-structure readout container (affected by CRT filter). */
+  private placeReadoutText(
+    entry: ReadoutEntry,
     content: string,
     x: number,
     y: number,
@@ -641,11 +677,36 @@ export class StructureRenderer implements IRenderer {
     anchorY: number = 0,
     textScale: number = 1,
   ): void {
-    let text = this.textPool.find(t => !t.visible);
+    let text = entry.texts.find(t => !t.visible);
     if (!text) {
       text = new PIXI.Text('', style);
-      this.textContainer.addChild(text);
-      this.textPool.push(text);
+      entry.container.addChild(text);
+      entry.texts.push(text);
+    }
+    text.style = style;
+    text.text = content;
+    text.scale.set(textScale);
+    text.x = x;
+    text.y = y;
+    text.anchor.set(anchorX, anchorY);
+    text.visible = true;
+  }
+
+  /** Place text in the non-CRT label container (BUILDING, sensor, shield wall text). */
+  private placeLabel(
+    content: string,
+    x: number,
+    y: number,
+    style: PIXI.TextStyle,
+    anchorX: number,
+    anchorY: number = 0,
+    textScale: number = 1,
+  ): void {
+    let text = this.labelPool.find(t => !t.visible);
+    if (!text) {
+      text = new PIXI.Text('', style);
+      this.labelContainer.addChild(text);
+      this.labelPool.push(text);
     }
     text.style = style;
     text.text = content;
