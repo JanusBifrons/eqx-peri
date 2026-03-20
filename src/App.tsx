@@ -1,10 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { GameEngine } from './game/core/GameEngine';
-import Radar from './ui/Radar';
-import LockedTargets from './ui/LockedTargets';
-import PowerManagement from './ui/PowerManagement';
 import FlightControls from './ui/FlightControls';
 import MainMenu from './ui/MainMenu';
+import MiniDrawer from './ui/MiniDrawer';
+import ModeToggle from './ui/ModeToggle';
 import SettingsPanel from './ui/SettingsPanel';
 import ShipActionPanel from './ui/ShipActionPanel';
 import ShipBuilderPanel from './ui/ShipBuilderPanel';
@@ -13,13 +12,11 @@ import StructureActionPanel from './ui/StructureActionPanel';
 import ConfirmDialog from './ui/ConfirmDialog';
 import PerformanceBar from './ui/PerformanceBar';
 import {
-  Box,
-  Button,
   ThemeProvider,
   createTheme
 } from '@mui/material';
 import { ScenarioConfig } from './types/GameTypes';
-import { PERF_BAR_HEIGHT } from './ui/PerformanceBar';
+import { useGameStore } from './stores/gameStore';
 
 // Create a dark theme for the space game
 const darkTheme = createTheme({
@@ -64,9 +61,19 @@ const App: React.FC = () => {
   const [gameEngine, setGameEngine] = useState<GameEngine | null>(null);
   const [screen, setScreen] = useState<AppScreen>('main-menu');
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [showPerfBar, setShowPerfBar] = useState(false);
   const [isShipBuilder, setIsShipBuilder] = useState(false);
   const [isStructuresSandbox, setIsStructuresSandbox] = useState(false);
+
+  const interactionMode = useGameStore(s => s.interactionMode);
+
+  // Cancel active structure placement when switching to select mode
+  useEffect(() => {
+    if (interactionMode === 'select' && gameEngine) {
+      gameEngine.cancelStructurePlacement();
+    }
+  }, [interactionMode, gameEngine]);
 
   const handlePerfBarChange = (visible: boolean): void => {
     setShowPerfBar(visible);
@@ -115,6 +122,8 @@ const App: React.FC = () => {
     };
   }, []);
 
+  const isPlaying = screen === 'playing';
+
   return (
     <ThemeProvider theme={darkTheme}>
       <div style={{
@@ -133,69 +142,35 @@ const App: React.FC = () => {
         {/* Main Menu overlay */}
         {screen === 'main-menu' && <MainMenu onStart={handleScenarioStart} />}
 
-        {/* Menu button — top-left, always visible during gameplay */}
-        {screen === 'playing' && (
-          <Button
-            variant="outlined"
-            size="small"
-            onClick={() => setConfirmOpen(true)}
-            sx={{
-              position: 'absolute',
-              top: showPerfBar ? PERF_BAR_HEIGHT + 10 : 10,
-              left: 10,
-              zIndex: 1100,
-              fontSize: '0.7rem',
-              color: '#888',
-              borderColor: '#555',
-              pointerEvents: 'auto',
-              minWidth: 'unset',
-              px: 1.5,
-              py: 0.5,
-              '&:hover': { borderColor: '#00ccff', color: '#00ccff' },
-            }}
-          >
-            ☰ Menu
-          </Button>
-        )}
+        {/* MUI Mini Variant Drawer — left side navigation */}
+        <MiniDrawer
+          visible={isPlaying}
+          onSettingsClick={() => setSettingsOpen(true)}
+          onExitClick={() => setConfirmOpen(true)}
+        />
 
         {/* Ship builder palette — shown only in ship builder mode */}
-        {screen === 'playing' && isShipBuilder && (
+        {isPlaying && isShipBuilder && (
           <ShipBuilderPanel gameEngine={gameEngine} />
         )}
 
-        {/* Structures build menu — shown only in structures sandbox mode */}
-        {screen === 'playing' && isStructuresSandbox && (
+        {/* Structures build menu — shown only in build mode within structures sandbox */}
+        {isPlaying && isStructuresSandbox && interactionMode === 'build' && (
           <>
             <StructuresPanel gameEngine={gameEngine} />
             <StructureActionPanel gameEngine={gameEngine} />
           </>
         )}
 
+        {/* Structure action panel — always visible when a structure is selected */}
+        {isPlaying && isStructuresSandbox && interactionMode === 'select' && (
+          <StructureActionPanel gameEngine={gameEngine} />
+        )}
+
         {/* Combat HUD — hidden in ship builder mode */}
-        {screen === 'playing' && !isShipBuilder && (
+        {isPlaying && !isShipBuilder && (
           <>
-            {/* Right-side UI Container */}
-            <Box
-              sx={{
-                position: 'absolute',
-                top: showPerfBar ? PERF_BAR_HEIGHT + 10 : 10,
-                right: 10,
-                display: 'flex',
-                flexDirection: 'row',
-                gap: 1,
-                alignItems: 'flex-start',
-                zIndex: 1000,
-                pointerEvents: 'none'
-              }}
-            >
-              <LockedTargets gameEngine={gameEngine} />
-              <Radar gameEngine={gameEngine} />
-            </Box>
-
-            {/* Power Management - bottom */}
-            <PowerManagement gameEngine={gameEngine} />
-
-            {/* Ship action panel - bottom center */}
+            {/* Ship action panel - bottom center (offset right for mode toggle) */}
             <ShipActionPanel gameEngine={gameEngine} />
 
             {/* Flight Controls - bottom right */}
@@ -203,12 +178,19 @@ const App: React.FC = () => {
           </>
         )}
 
-        {/* Settings panel - bottom left */}
-        <SettingsPanel gameEngine={gameEngine} onPerfBarChange={handlePerfBarChange} />
+        {/* Select / Build mode toggle — bottom center */}
+        {isPlaying && !isShipBuilder && <ModeToggle />}
+
+        {/* Settings dialog (no gear button — opened via MiniDrawer) */}
+        <SettingsPanel
+          gameEngine={gameEngine}
+          onPerfBarChange={handlePerfBarChange}
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+        />
 
         {/* Performance bar - top of screen, toggled via Settings */}
         <PerformanceBar gameEngine={gameEngine} visible={showPerfBar} />
-
 
         {/* Return-to-menu confirm dialog */}
         <ConfirmDialog

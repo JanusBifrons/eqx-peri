@@ -28,13 +28,36 @@ HUD overlay components rendered on top of the game canvas. Components receive `g
 **Imports:**
 - Import `GameEngine` from `../game/core/GameEngine`
 - Import `Assembly` from `../game/core/Assembly`
-- Import `PowerSystem` from `../game/systems/PowerSystem`
 
 ## Anti-Patterns to Avoid
 
 - Do not manipulate game engine state from a component — components are read-only observers
 - Do not import from `../game/` deeply-nested internals; access game state through `GameEngine`'s public interface
 - Do not use CSS files or inline `style={{}}` props — use MUI `styled()` or `sx` prop consistently
+
+## Navigation: MiniDrawer
+
+- `MiniDrawer.tsx` — persistent MUI Mini Variant Drawer on the left side of the screen.
+- Toggle: hamburger icon at top switches between collapsed (icons only, 52px) and expanded (icons + text labels, 180px).
+- **Top section** (gameplay actions): Research, Builder, Crew — currently placeholders.
+- **Bottom section** (system actions): Settings (opens SettingsPanel dialog), Exit (opens return-to-menu confirm dialog). Separated from gameplay actions by a MUI Divider.
+- Props: `visible`, `onSettingsClick`, `onExitClick`.
+
+## Settings Panel
+
+- `SettingsPanel.tsx` — MUI Dialog with General/Audio/Debug tabs. No longer has its own gear button; opened externally via `open`/`onOpenChange` props (controlled by App.tsx, triggered from MiniDrawer).
+- General tab: Physics Debug, Performance Bar toggles.
+- Audio tab: Music enable, Master/Music/SFX volume sliders with live preview.
+- Debug tab: Spawn scrap/enemies, ship spawner with team toggle.
+
+## Select / Build Mode Toggle
+
+- `ModeToggle.tsx` — MUI ToggleButtonGroup positioned at bottom-center.
+- Two modes: **Select** (camera pan, ship selection, piloting) and **Build** (block drag, structure placement, construction).
+- State: `interactionMode` in `gameStore` (`'select' | 'build'`).
+- In select mode: `BlockPickupSystem.tryPickUp()` and `StructurePlacementSystem.handleClick()` are skipped by `GameEngine`'s mouse handlers. Cursor shows pointer instead of grab for loose blocks.
+- In build mode: StructuresPanel is shown, block drag/snap/detach work normally.
+- Switching to select cancels any active structure placement.
 
 ## GenericModal
 
@@ -51,6 +74,11 @@ HUD overlay components rendered on top of the game canvas. Components receive `g
 - Generic actions: Deconstruct, Power toggle, Open Cargo, Settings/Drill-down.
 - `CargoModal.tsx` — shows structure inventory in an MUI Table inside GenericModal.
 - Settings modal is currently a placeholder for future per-type configuration.
+
+## Removed Components (deprecated)
+
+- `Radar.tsx`, `LockedTargets.tsx`, `PowerManagement.tsx` — removed during UI refactor.
+- `PowerSystem` singleton — removed. Player ships now use the same `computeAIWeaponPowerEfficiency()` as AI ships; engines always operate at full efficiency.
 
 ---
 

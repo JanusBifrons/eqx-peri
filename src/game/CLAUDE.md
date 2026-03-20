@@ -10,7 +10,7 @@ All game logic, physics, AI, and entity management. No React imports here — th
 | `ai/`         | `AIController`, `FlightController`, `ControllerManager`, `Controller` |
 | `weapons/`    | `Missile`, `MissileSystem`, `BeamSystem` |
 | `ship/`       | `BlockSystem`, `ShipDesigner`, `ShipDesignManager` |
-| `systems/`    | `PowerSystem`, `ToastSystem`, `SoundSystem`, `AsteroidFieldSystem` — singletons and support services |
+| `systems/`    | `ToastSystem`, `SoundSystem`, `BlockPickupSystem`, `AsteroidFieldSystem` — singletons and support services |
 | `rendering/`  | `IRenderer` interface, `Viewport`, and one renderer class per visual concern (grid, blocks, frills, shields, highlights, aiming, block-pickup, structures) |
 | `structures/` | `Structure`, `StructureCore`, `StructureManager` — static base-building structures (Phase 0+) |
 
@@ -30,7 +30,6 @@ All game logic, physics, AI, and entity management. No React imports here — th
 - Destruction cascades: when an entity is destroyed, call `Assembly.removeEntity()` — do not manipulate bodies directly
 
 **Singletons:**
-- `PowerSystem` — access via `PowerSystem.getInstance()`; never instantiate directly
 - `ToastSystem` — access via the instance on `GameEngine`
 - `MissileSystem` — accessed via `GameEngine.missileSystem`
 - `SoundSystem` — access via `SoundSystem.getInstance()`; call `init()` after user interaction, uses Web Audio API for procedural sounds

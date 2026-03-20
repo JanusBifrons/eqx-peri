@@ -23,7 +23,6 @@ These scripts are **living documentation** for physics tuning decisions and atta
 |--------|-------|
 | `test-missiles.js` | Missile trajectory and phase timing |
 | `test-missile-phases.js` | Phase transition thresholds |
-| `test-missile-power.js` | Missile thrust at each power level |
 | `test-missile-steering.js` | Proportional navigation math |
 | `test-50x-scaling.js` | 50× unit scaling sanity check |
 | `test-force-fix.js` | Engine force application correctness |

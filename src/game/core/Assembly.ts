@@ -1,7 +1,6 @@
 import * as Matter from 'matter-js';
 import { Entity } from './Entity';
 import { EntityConfig, Vector2, EntityType, ENTITY_DEFINITIONS, ShieldState, SHIELD_REGEN_DELAY_MS, SHIELD_REGEN_DURATION_MS, SHIELD_COLLAPSE_COOLDOWN_MS, getEntityOccupiedGridCells, getEntityBodyOffset, getBlockedConnectionDirs, canTypesConnect } from '../../types/GameTypes';
-import { PowerSystem } from '../systems/PowerSystem';
 import { MissileType } from '../weapons/Missile';
 
 // Interface for missile launch requests
@@ -69,7 +68,6 @@ export class Assembly {
   public team: number = 0;
 
   // Targeting system properties
-  public lockedTargets: Set<string> = new Set();
   public primaryTarget: Assembly | null = null;
   public cursorPosition: Vector2 | null = null;
 
@@ -175,13 +173,6 @@ export class Assembly {
       // Some entities were destroyed - we need to rebuild completely
       this.entities = activeEntities;
 
-      // Update power system if this is the player ship
-      if (this.isPlayerControlled) {
-        const powerSystem = PowerSystem.getInstance();
-        powerSystem.setPlayerAssembly(this);
-        powerSystem.updatePowerAfterDamage();
-      }
-
       if (this.entities.length === 0) {
         this.destroy();
         return;
@@ -222,17 +213,6 @@ export class Assembly {
    */
   public applyThrust(thrustInput: Vector2, rotationInput: number = 0): boolean {
     if (this.destroyed) return false;
-
-    // Check if this is the player assembly and if engines have power
-    if (this.isPlayerControlled) {
-      const powerSystem = PowerSystem.getInstance();
-      if (!powerSystem.canUseThrusters()) {
-        // No engine power - disable all thrust
-        const engines = this.entities.filter(e => e.canProvideThrust());
-        engines.forEach(engine => engine.setThrustLevel(0));
-        return false;
-      }
-    }
 
     const engines = this.entities.filter(e => e.canProvideThrust());
     if (engines.length === 0) return false;
@@ -288,10 +268,7 @@ export class Assembly {
         engines.forEach(engine => {
           const isCorrectSide = correctSideEngines.includes(engine);
           if (isCorrectSide) {
-            let engineThrust = this.getEngineThrust(engine.type);
-            if (this.isPlayerControlled) {
-              engineThrust *= PowerSystem.getInstance().getEngineEfficiency();
-            }
+            const engineThrust = this.getEngineThrust(engine.type);
             // Always thrust in the ship-forward direction; the positional offset
             // generates torque automatically via Matter.js.
             const worldForce = {
@@ -340,17 +317,13 @@ export class Assembly {
     // Aligned engines start at BASE_THRUST_LEVEL (50 %); individual engines are boosted
     // up to 100 % to cancel natural torque imbalance and to add intentional turning bias.
     if (this.isPlayerControlled && this.hasDedicatedEngines()) {
-      const powerEfficiency = PowerSystem.getInstance().getEngineEfficiency();
+      const powerEfficiency = 1.0;
       return this.applyBalancedThrust(alignedEngines, thrustInput, thrustMagnitude, rotationInput, powerEfficiency);
     }
 
     // Uniform thrust for AI ships and cockpit-only ships (original algorithm).
     alignedEngines.forEach((engine) => {
-      let engineThrust = this.getEngineThrust(engine.type);
-
-      if (this.isPlayerControlled) {
-        engineThrust *= PowerSystem.getInstance().getEngineEfficiency();
-      }
+      const engineThrust = this.getEngineThrust(engine.type);
 
       engine.setThrustLevel(thrustMagnitude);
 
@@ -573,18 +546,10 @@ export class Assembly {
   public fireWeapons(): Matter.Body[] {
     if (this.destroyed) return [];
 
-    let weaponEfficiency: number;
-    if (this.isPlayerControlled) {
-      // Player ships use the managed power system.
-      const powerSystem = PowerSystem.getInstance();
-      if (!powerSystem.canFireWeapons()) return [];
-      weaponEfficiency = powerSystem.getWeaponEfficiency();
-    } else {
-      // AI ships compute their own weapon power from on-board power cells.
-      // Destroying an AI ship's power cells will degrade their firing rate.
-      weaponEfficiency = this.computeAIWeaponPowerEfficiency();
-      if (weaponEfficiency === 0) return [];
-    }
+    // All ships compute weapon power from on-board power cells.
+    // Destroying power cells degrades firing rate.
+    const weaponEfficiency = this.computeAIWeaponPowerEfficiency();
+    if (weaponEfficiency === 0) return [];
 
     const currentTime = Date.now();
 
@@ -617,15 +582,8 @@ export class Assembly {
   }  public getMissileLaunchRequests(): MissileLaunchRequest[] {
     if (this.destroyed) return [];
 
-    let weaponEfficiency: number;
-    if (this.isPlayerControlled) {
-      const powerSystem = PowerSystem.getInstance();
-      if (!powerSystem.canFireMissiles()) return [];
-      weaponEfficiency = powerSystem.getWeaponEfficiency();
-    } else {
-      weaponEfficiency = this.computeAIWeaponPowerEfficiency();
-      if (weaponEfficiency === 0) return [];
-    }
+    const weaponEfficiency = this.computeAIWeaponPowerEfficiency();
+    if (weaponEfficiency === 0) return [];
 
     const currentTime = Date.now();
     const effectiveFireRate = this.fireRate * (3 - 2 * weaponEfficiency);
@@ -691,12 +649,7 @@ export class Assembly {
   public getBeamFires(): BeamFireSpec[] {
     if (this.destroyed) return [];
 
-    if (this.isPlayerControlled) {
-      const powerSystem = PowerSystem.getInstance();
-      if (!powerSystem.canFireWeapons()) return [];
-    } else {
-      if (this.computeAIWeaponPowerEfficiency() === 0) return [];
-    }
+    if (this.computeAIWeaponPowerEfficiency() === 0) return [];
 
     const beamWeapons = this.entities.filter(e => e.isBeamWeapon() && !e.destroyed);
     const specs: BeamFireSpec[] = [];
@@ -1261,12 +1214,6 @@ export class Assembly {
     this.buildConnectionGraph();
     this.createFreshBody();
 
-    if (this.isPlayerControlled) {
-      const powerSystem = PowerSystem.getInstance();
-      powerSystem.setPlayerAssembly(this);
-      powerSystem.updatePowerAfterDamage();
-    }
-
     // Build detached single-entity assembly at the block's world position
     const detached = new Assembly([config], entityWorldPos);
     Matter.Body.setAngle(detached.rootBody, shipAngle);
@@ -1723,38 +1670,6 @@ export class Assembly {
     const bounds = this.getShipBounds();
     // Return the radius as half the diagonal of the bounding box
     return Math.sqrt(bounds.width * bounds.width + bounds.height * bounds.height) / 2;
-  }
-
-  public lockTarget(target: Assembly): void {
-    this.lockedTargets.add(target.id);
-    console.log(`🔒 ${this.shipName} locked onto ${target.shipName} `);
-  }
-
-  public unlockTarget(target: Assembly): void {
-    this.lockedTargets.delete(target.id);
-    if (this.primaryTarget?.id === target.id) {
-      this.primaryTarget = null;
-    }
-    console.log(`🔓 ${this.shipName} unlocked ${target.shipName} `);
-  }
-
-  public setPrimaryTarget(target: Assembly | null): void {
-    this.primaryTarget = target;
-    if (target) {
-      this.lockTarget(target);
-      console.log(`🎯 ${this.shipName} set primary target: ${target.shipName} `);
-    } else {
-      console.log(`🎯 ${this.shipName} cleared primary target`);
-    }
-  }
-
-  public isTargetLocked(target: Assembly): boolean {
-    return this.lockedTargets.has(target.id);
-  }
-  public getLockedTargets(): Assembly[] {
-    // This method will be called by GameEngine which should provide the current assemblies
-    // For now, return empty array - GameEngine will handle the mapping
-    return [];
   }
 
   // Auto-fire at primary target if weapons can aim at it

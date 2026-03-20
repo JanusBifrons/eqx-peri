@@ -7,7 +7,6 @@ import shipsData from '../../data/ships.json';
 import { ControllerManager } from '../ai/ControllerManager';
 import { FlightController } from '../ai/FlightController';
 import { ControlInput } from '../ai/Controller';
-import { PowerSystem } from '../systems/PowerSystem';
 import { ToastSystem } from '../systems/ToastSystem';
 import { SoundSystem } from '../systems/SoundSystem';
 import { MissileSystem } from '../weapons/MissileSystem';
@@ -356,15 +355,6 @@ export class GameEngine {
           if (this.selectedAssembly && !this.selectedAssembly.isPlayerControlled) {
             this.pilotAssembly(this.selectedAssembly);
           }
-          break;
-        case 't':
-          this.selectNearestEnemy();
-          break;
-        case 'y':
-          this.clearAllTargets();
-          break;
-        case 'u':
-          this.cycleTargets();
           break;
         case 'escape':
           if (this.structurePlacementSystem?.isActive()) {
@@ -832,7 +822,6 @@ export class GameEngine {
           this.controllerManager.removeController(assembly.id);
           this.flightController = new FlightController(newPlayerAssembly);
           this.controllerManager.createPlayerController(newPlayerAssembly);
-          PowerSystem.getInstance().setPlayerAssembly(newPlayerAssembly);
         }
       }
     } else if (newAssemblies.length === 1) {
@@ -1193,7 +1182,6 @@ export class GameEngine {
       }
       this.playerAssembly = null;
       this.flightController = null;
-      PowerSystem.getInstance().setPlayerAssembly(null);
       this.toastSystem.showWarning('Ship destroyed — observer mode');
     }
 
@@ -1612,23 +1600,28 @@ export class GameEngine {
         this.setHoveredAssembly(hoveredAssembly);
         this.hoveredStructure = hoveredAssembly ? null : this.getStructureAtPosition(this.mousePosition.x, this.mousePosition.y);
 
-        // Cursor style: pointer over selectable targets, grab over pickable blocks
+        // Cursor style depends on interaction mode
+        const cursorBuildMode = useGameStore.getState().interactionMode === 'build';
         if (hoveredAssembly && !hoveredAssembly.hasControlCenter() && hoveredAssembly !== this.playerAssembly) {
-          // Loose block (no cockpit) — draggable
-          this.render.canvas.style.cursor = 'grab';
+          // Loose block — draggable in build mode, selectable pointer in select mode
+          this.render.canvas.style.cursor = cursorBuildMode ? 'grab' : 'pointer';
         } else if (hoveredAssembly && hoveredAssembly.hasControlCenter() && hoveredAssembly !== this.playerAssembly) {
           // Selectable ship — pointer
           this.render.canvas.style.cursor = 'pointer';
         } else if (hoveredAssembly === this.playerAssembly && this.playerAssembly) {
-          // Check if hovering a detachable block on the player's own ship
-          const cursorWorld = this.screenToWorld(this.mousePosition.x, this.mousePosition.y);
-          const isDetachable = this.playerAssembly.entities.some(e => {
-            const b = e.body.bounds;
-            return cursorWorld.x >= b.min.x && cursorWorld.x <= b.max.x &&
-                   cursorWorld.y >= b.min.y && cursorWorld.y <= b.max.y &&
-                   this.playerAssembly!.canDetachEntity(e);
-          });
-          this.render.canvas.style.cursor = isDetachable ? 'grab' : 'crosshair';
+          if (cursorBuildMode) {
+            // Check if hovering a detachable block on the player's own ship
+            const cursorWorld = this.screenToWorld(this.mousePosition.x, this.mousePosition.y);
+            const isDetachable = this.playerAssembly.entities.some(e => {
+              const b = e.body.bounds;
+              return cursorWorld.x >= b.min.x && cursorWorld.x <= b.max.x &&
+                     cursorWorld.y >= b.min.y && cursorWorld.y <= b.max.y &&
+                     this.playerAssembly!.canDetachEntity(e);
+            });
+            this.render.canvas.style.cursor = isDetachable ? 'grab' : 'crosshair';
+          } else {
+            this.render.canvas.style.cursor = 'crosshair';
+          }
         } else if (this.hoveredStructure) {
           // Selectable structure — pointer
           this.render.canvas.style.cursor = 'pointer';
@@ -1652,15 +1645,20 @@ export class GameEngine {
         const worldPos = this.screenToWorld(screenX, screenY);
 
         // In observer mode, allow pre-detach from any friendly (team-0) cockpit ship under the cursor
-        let pickupSource = this.playerAssembly;
-        if (!pickupSource) {
-          const hovered = this.getAssemblyAtPosition(screenX, screenY);
-          if (hovered && hovered.team === 0 && hovered.hasControlCenter()) {
-            pickupSource = hovered;
+        const isBuildMode = useGameStore.getState().interactionMode === 'build';
+        let pickupHandled = false;
+        if (isBuildMode) {
+          let pickupSource = this.playerAssembly;
+          if (!pickupSource) {
+            const hovered = this.getAssemblyAtPosition(screenX, screenY);
+            if (hovered && hovered.team === 0 && hovered.hasControlCenter()) {
+              pickupSource = hovered;
+            }
           }
+          // BlockPickupSystem intercepts clicks on non-cockpit assemblies (or pre-detach from source)
+          pickupHandled = this.blockPickupSystem.tryPickUp(worldPos, { x: screenX, y: screenY }, this.assemblies, pickupSource);
         }
-        // BlockPickupSystem intercepts clicks on non-cockpit assemblies (or pre-detach from source)
-        if (this.blockPickupSystem.tryPickUp(worldPos, { x: screenX, y: screenY }, this.assemblies, pickupSource)) {
+        if (pickupHandled) {
           this.mouseDown = false; // suppress weapon fire while holding
         } else {
           this.mouseDown = true;
@@ -1697,18 +1695,6 @@ export class GameEngine {
       this.handleCanvasClick(event);
     });
 
-    // Double-click locks on target (same as right-click targeting)
-    this.render.canvas.addEventListener('dblclick', (event) => {
-      if (this.blockPickupSystem.isHolding()) return;
-      const rect = this.render.canvas.getBoundingClientRect();
-      const screenX = event.clientX - rect.left;
-      const screenY = event.clientY - rect.top;
-      const clickedAssembly = this.getAssemblyAtPosition(screenX, screenY);
-      if (clickedAssembly && clickedAssembly !== this.playerAssembly) {
-        this.handleTargetClick(clickedAssembly);
-      }
-    });
-
     // Mouse wheel for zoom
     this.render.canvas.addEventListener('wheel', (event) => {
       event.preventDefault();
@@ -1739,12 +1725,14 @@ export class GameEngine {
         const screenY = touch.clientY - rect.top;
         this.touchStartPos = { x: screenX, y: screenY };
         const worldPos = this.screenToWorld(screenX, screenY);
-        let touchPickupSource = this.playerAssembly;
-        if (!touchPickupSource) {
-          const hovered = this.getAssemblyAtPosition(screenX, screenY);
-          if (hovered && hovered.team === 0 && hovered.hasControlCenter()) touchPickupSource = hovered;
+        if (useGameStore.getState().interactionMode === 'build') {
+          let touchPickupSource = this.playerAssembly;
+          if (!touchPickupSource) {
+            const hovered = this.getAssemblyAtPosition(screenX, screenY);
+            if (hovered && hovered.team === 0 && hovered.hasControlCenter()) touchPickupSource = hovered;
+          }
+          this.blockPickupSystem.tryPickUp(worldPos, { x: screenX, y: screenY }, this.assemblies, touchPickupSource);
         }
-        this.blockPickupSystem.tryPickUp(worldPos, { x: screenX, y: screenY }, this.assemblies, touchPickupSource);
       } else if (event.touches.length === 2) {
         const dx = event.touches[0].clientX - event.touches[1].clientX;
         const dy = event.touches[0].clientY - event.touches[1].clientY;
@@ -1980,7 +1968,7 @@ export class GameEngine {
       () => this.playerAssembly,
       () => this.hoveredAssembly,
       () => this.getSelectedAssembly(),
-      (assembly) => this.getLockedTargets(assembly),
+      () => [],
       (assembly) => this.controllerManager.getAIStateLabelForAssembly(assembly.id),
       () => this.getHoveredStructure(),
       () => this.getSelectedStructure(),
@@ -2524,48 +2512,6 @@ export class GameEngine {
         ai.setAggressionLevel(0.8 + Math.random() * 0.4);
       }
     }
-  }  // Method to get radar data for the UI
-  public getRadarData() {
-    const radarData: any[] = [];
-
-    // Add all assemblies (ships and debris)
-    this.assemblies.forEach(assembly => {
-      radarData.push({
-        x: assembly.rootBody.position.x,
-        y: assembly.rootBody.position.y,
-        team: assembly.team,
-        isPlayer: assembly.isPlayerControlled,
-        id: assembly.id,
-        shipName: assembly.shipName,
-        shipType: assembly.isPlayerControlled ? 'Player Ship' :
-          assembly.team === -1 ? 'Debris' :
-            'AI Ship',
-        isDebris: assembly.entities.length === 1 && !assembly.hasControlCenter() || assembly.team === -1, // Single part without cockpit OR neutral team = debris
-        objectType: 'ship'
-      });
-    });
-
-    // Add all missiles
-    const missiles = this.missileSystem.getMissiles();
-    missiles.forEach((missile, index) => {
-      if (!missile.destroyed) {
-        radarData.push({
-          x: missile.body.position.x,
-          y: missile.body.position.y,
-          team: -2, // Special team for missiles
-          isPlayer: false,
-          id: `missile-${index}-${missile.sourceAssemblyId}`,
-          shipName: `${missile.config.type.toUpperCase()} Missile`,
-          shipType: 'Missile',
-          isDebris: false,
-          isMissile: true,
-          objectType: 'missile',
-          sourceAssemblyId: missile.sourceAssemblyId
-        });
-      }
-    });
-
-    return radarData;
   }
   // Ship selection methods
   private getAssemblyAtPosition(x: number, y: number): Assembly | null {
@@ -2780,24 +2726,6 @@ export class GameEngine {
     const store = useGameStore.getState();
     const structureScreen = this.computeStructureScreen();
 
-    // Power system state
-    let powerState = null as { totalPower: number; availablePower: number; systems: { name: string; key: string; maxPower: number; currentPower: number }[] } | null;
-    const ps = PowerSystem.getInstance();
-    if (this.playerAssembly && !this.playerAssembly.destroyed) {
-      const alloc = ps.getPowerAllocation();
-      const systems = Object.keys(alloc).map(key => ({
-        name: key.charAt(0).toUpperCase() + key.slice(1),
-        key,
-        maxPower: ps.getMaxPowerForSystem(key as keyof typeof alloc),
-        currentPower: alloc[key as keyof typeof alloc],
-      }));
-      powerState = {
-        totalPower: ps.getTotalPowerCells(),
-        availablePower: ps.getAvailablePower(),
-        systems,
-      };
-    }
-
     store.pushFrame({
       isObserverMode: this.isObserverMode(),
       playerAssembly: this.playerAssembly,
@@ -2815,7 +2743,6 @@ export class GameEngine {
       selectedAssemblyAIEnabled: this.selectedAssembly ? this.isAIEnabled(this.selectedAssembly) : false,
       placingStructureType: this.structurePlacementSystem?.getPlacingType() ?? null,
       performanceMetrics: this.getPerformanceMetrics(),
-      powerState,
     });
   }
 
@@ -2881,17 +2808,6 @@ export class GameEngine {
           break;
         case 'keepDistance':
           console.log('📏 Setting player to maintain distance from target:', this.playerCommandTarget?.shipName);
-          break; case 'lockOn':
-          console.log('🔒 Setting player to lock onto target:', this.playerCommandTarget?.shipName);
-          // Also add target to weapon targeting system
-          if (this.playerCommandTarget) {
-            this.playerAssembly.lockTarget(this.playerCommandTarget);
-            // Set as primary target if it's the first lock
-            if (this.playerAssembly.primaryTarget === null) {
-              this.playerAssembly.setPrimaryTarget(this.playerCommandTarget);
-            }
-            this.toastSystem.showSuccess(`🔒 Locked: ${this.playerCommandTarget.shipName}`);
-          }
           break;
         case 'stop':
           console.log('🛑 Clearing all player commands');
@@ -2934,9 +2850,6 @@ export class GameEngine {
         break;
       case 'keepDistance':
         this.executeKeepDistanceCommand(playerPos, targetPos, distance);
-        break;
-      case 'lockOn':
-        this.executeLockOnCommand(playerPos, targetPos, distance);
         break;
     }
   } private executeFollowCommand(): void {
@@ -3003,30 +2916,6 @@ export class GameEngine {
     if (Math.abs(angleDiff) > 0.1) {
       const torque = Math.sign(angleDiff) * Math.min(0.6, Math.abs(angleDiff) * 1.5); // Reduced from 0.8 and 2
       this.playerAssembly!.applyTorque(torque);
-    }
-  }
-  private executeLockOnCommand(playerPos: Matter.Vector, targetPos: Matter.Vector, distance: number): void {
-    // Lock on keeps the player facing the target and potentially moves closer
-    const targetAngle = Math.atan2(targetPos.y - playerPos.y, targetPos.x - playerPos.x);
-    const currentAngle = this.playerAssembly!.rootBody.angle;
-    let angleDiff = targetAngle - currentAngle;
-
-    // Normalize angle difference
-    while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-    while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;    // Apply torque to face target
-    if (Math.abs(angleDiff) > 0.05) { // More precise aiming for lock on
-      const torque = Math.sign(angleDiff) * Math.min(0.8, Math.abs(angleDiff) * 2.0); // Slightly higher for lock-on precision
-      this.playerAssembly!.applyTorque(torque);
-    }
-
-    // Move closer if very far using proper thrusters
-    if (distance > 400) {
-      const dirX = (targetPos.x - playerPos.x) / distance;
-      const dirY = (targetPos.y - playerPos.y) / distance; const thrustInput = {
-        x: dirX * 0.1, // Reduced from 0.4 to 0.1 (moderate approach speed)
-        y: dirY * 0.1
-      };
-      this.playerAssembly!.applyThrust(thrustInput);
     }
   }
   // Zoom control methods
@@ -3231,11 +3120,6 @@ export class GameEngine {
       this.controllerManager.createPlayerController(cockpitAssembly);
       console.log('� Player control transferred to ejected cockpit'); console.log('🎮 New cockpit controller created');
 
-      // Update power system for the new cockpit assembly
-      const powerSystem = PowerSystem.getInstance();
-      powerSystem.setPlayerAssembly(cockpitAssembly);
-      console.log('⚡ Power system updated for cockpit');
-
       this.toastSystem.showWarning("🚀 Emergency ejection! Cockpit separated");
     } else {
       this.toastSystem.showError("💀 Critical failure! No cockpit available");
@@ -3316,8 +3200,8 @@ export class GameEngine {
     const worldX = screenX + this.render.bounds.min.x;
     const worldY = screenY + this.render.bounds.min.y;
 
-    // Structure placement system intercepts clicks when active
-    if (this.structurePlacementSystem?.isActive()) {
+    // Structure placement system intercepts clicks when active (build mode only)
+    if (useGameStore.getState().interactionMode === 'build' && this.structurePlacementSystem?.isActive()) {
       const worldPos = this.screenToWorld(screenX, screenY);
       if (this.structurePlacementSystem.handleClick(worldPos)) return;
     }
@@ -3330,9 +3214,6 @@ export class GameEngine {
       if (clickedAssembly === this.playerAssembly) {
         // Clicking the currently piloted ship deselects
         this.selectAssembly(null);
-      } else if (this.playerAssembly && (event.button === 2 || event.ctrlKey)) {
-        // Right-click / Ctrl+click targets (only when piloting a ship)
-        this.handleTargetClick(clickedAssembly);
       } else {
         // Left-click selects any ship
         this.selectAssembly(clickedAssembly);
@@ -3353,92 +3234,6 @@ export class GameEngine {
         this.selectAssembly(null);
       }
     }
-  } private handleTargetClick(assembly: Assembly): void {
-    if (!this.playerAssembly || this.playerAssembly.destroyed) return;
-
-    // Toggle target lock
-    if (this.playerAssembly.isTargetLocked(assembly)) {
-      this.playerAssembly.unlockTarget(assembly);
-      this.toastSystem.showGameEvent(`🔓 Unlocked: ${assembly.shipName}`);
-    } else {
-      this.playerAssembly.lockTarget(assembly);
-      this.toastSystem.showSuccess(`🔒 Locked: ${assembly.shipName}`);
-
-      // Set as primary target if it's the first lock
-      if (this.playerAssembly.primaryTarget === null) {
-        this.playerAssembly.setPrimaryTarget(assembly);
-        this.toastSystem.showSuccess(`🎯 Primary target: ${assembly.shipName}`);
-      }
-    }
-  }
-
-  public getLockedTargets(assembly: Assembly): Assembly[] {
-    const lockedIds = Array.from(assembly.lockedTargets);
-    return this.assemblies.filter(a => lockedIds.includes(a.id) && !a.destroyed);
-  }
-
-  private selectNearestEnemy(): void {
-    if (!this.playerAssembly || this.playerAssembly.destroyed) return;
-
-    const playerPos = this.playerAssembly.rootBody.position;
-    let nearestEnemy: Assembly | null = null;
-    let nearestDistance = Infinity;
-
-    this.assemblies.forEach(assembly => {
-      if (assembly.destroyed || assembly === this.playerAssembly || assembly.team === this.playerAssembly!.team) return;
-
-      const distance = Math.sqrt(
-        Math.pow(assembly.rootBody.position.x - playerPos.x, 2) +
-        Math.pow(assembly.rootBody.position.y - playerPos.y, 2)
-      );
-
-      if (distance < nearestDistance) {
-        nearestDistance = distance;
-        nearestEnemy = assembly;
-      }
-    }); if (nearestEnemy) {
-      this.playerAssembly.setPrimaryTarget(nearestEnemy);
-      this.toastSystem.showSuccess(`🎯 Targeting: ${(nearestEnemy as Assembly).shipName}`);
-      console.log(`🎯 Selected nearest enemy: ${(nearestEnemy as Assembly).shipName} (${nearestDistance.toFixed(0)} units away)`);
-    } else {
-      this.toastSystem.showWarning("🎯 No enemies in range");
-      console.log('🎯 No enemies found to target');
-    }
-  }
-  private clearAllTargets(): void {
-    if (!this.playerAssembly || this.playerAssembly.destroyed) return;
-
-    // Clear all locked targets
-    const lockedTargets = this.getLockedTargets(this.playerAssembly);
-    lockedTargets.forEach(target => {
-      this.playerAssembly!.unlockTarget(target);
-    });
-
-    this.playerAssembly.setPrimaryTarget(null);
-    this.toastSystem.showGameEvent("🎯 All targets cleared");
-    console.log('🎯 Cleared all targets');
-  }
-
-  private cycleTargets(): void {
-    if (!this.playerAssembly || this.playerAssembly.destroyed) return;
-
-    const lockedTargets = this.getLockedTargets(this.playerAssembly);
-    if (lockedTargets.length === 0) {
-      this.selectNearestEnemy();
-      return;
-    }
-
-    // Find current primary target index
-    const currentIndex = this.playerAssembly.primaryTarget
-      ? lockedTargets.findIndex(t => t.id === this.playerAssembly!.primaryTarget!.id)
-      : -1;
-
-    // Select next target in the list
-    const nextIndex = (currentIndex + 1) % lockedTargets.length;
-    const nextTarget = lockedTargets[nextIndex];
-
-    this.playerAssembly.setPrimaryTarget(nextTarget);
-    console.log(`🎯 Cycled to target: ${nextTarget.shipName}`);
   }
 
   /**
@@ -3480,7 +3275,6 @@ export class GameEngine {
     assembly.isPlayerControlled = true;
     this.flightController = new FlightController(assembly);
     this.controllerManager.createPlayerController(assembly);
-    PowerSystem.getInstance().setPlayerAssembly(assembly);
     this.toastSystem.showSuccess(`Piloting ${assembly.shipName}`);
 
     // Smoothly zoom to a ship-appropriate level (eases in over ~1 second)
@@ -3498,7 +3292,6 @@ export class GameEngine {
     ai.setAggressionLevel(0.8);
     this.playerAssembly = null;
     this.flightController = null;
-    PowerSystem.getInstance().setPlayerAssembly(null);
     this.toastSystem.showGameEvent('Returned to observer mode');
   }
 

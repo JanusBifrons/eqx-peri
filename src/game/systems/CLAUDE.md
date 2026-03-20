@@ -6,7 +6,6 @@ Cross-cutting runtime systems that are not pure game-logic (physics, AI, weapons
 
 | System | Pattern | Accessed via |
 |--------|---------|--------------|
-| `PowerSystem` | Singleton | `PowerSystem.getInstance()` |
 | `SoundSystem` | Singleton | `SoundSystem.getInstance()` |
 | `ToastSystem` | Instance | `GameEngine.toastSystem` |
 | `ParticleSystem` | Instance | `GameEngine.particleSystem` |
@@ -15,17 +14,6 @@ Cross-cutting runtime systems that are not pure game-logic (physics, AI, weapons
 | `StructurePlacementSystem` | Instance | `GameEngine` (conditional, structures sandbox only) |
 
 Do not create additional singletons without documenting them here and in `/src/game/CLAUDE.md`.
-
----
-
-## PowerSystem
-
-Manages the **player ship's** power allocation (engines / weapons / sensors). AI ships use `Assembly.computeAIWeaponPowerEfficiency()` — `PowerSystem` is player-only.
-
-- `setPlayerAssembly(assembly | null)` — called by `GameEngine` on pilot/exit-pilot. Auto-allocates power on assignment.
-- `getEngineEfficiency()`, `getWeaponEfficiency()`, `getSensorEfficiency()` — return `[0, 1]` multipliers; read by `Assembly.applyThrust()` and `Assembly.fireWeapons()`.
-- Power allocation is integer counts (number of power cells allocated per system), not percentages.
-- Access only via `getInstance()`. Never instantiate directly.
 
 ---
 

@@ -1,6 +1,6 @@
 # EQX Peri
 
-A 2D space combat game built with React, TypeScript, and Matter.js physics. Ships are assembled from modular block components; players and AI fight in zero-gravity environments with missiles, guns, and power management.
+A 2D space combat game built with React, TypeScript, and Matter.js physics. Ships are assembled from modular block components; players and AI fight in zero-gravity environments with missiles, guns, and base-building structures.
 
 ## Commands
 
@@ -17,13 +17,13 @@ node scripts/<name>.js  # Run individual physics/logic test scripts
 ```
 scripts/        # Node.js test/debug scripts (node scripts/<name>.js)
 src/
-  ui/           # React UI overlay (HUD, radar, power management, SettingsPanel)
+  ui/           # React UI overlay (HUD, MiniDrawer navigation, ModeToggle, SettingsPanel)
   game/
     core/       # Fundamental physics objects: GameEngine, Assembly, Entity, RenderSystem
     ai/         # Control & decision-making: AIController, FlightController, ControllerManager, Controller
     weapons/    # Missile, MissileSystem, BeamSystem
     ship/       # Ship design: BlockSystem, ShipDesigner, ShipDesignManager
-    systems/    # Singletons & services: PowerSystem, ToastSystem, BlockPickupSystem
+    systems/    # Singletons & services: ToastSystem, BlockPickupSystem, SoundSystem
     rendering/  # IRenderer, Viewport, and individual renderer classes
     structures/ # Base-building: Structure, StructureCore, StructureTurret, StructureManager
   types/        # Shared TypeScript interfaces and enums (GameTypes.ts)
@@ -79,6 +79,12 @@ src/
 - **Triangle hull body creation**: blocks with `shape === 'triangle'` use `Matter.Bodies.fromVertices([verts], opts)` followed immediately by `Matter.Body.setPosition(body, {bodyX, bodyY})` to defeat Matter.js's internal centroid re-centering. `getTriHullVertices(type, rotation)` returns vertices **centred at the geometric centroid** (centroid = {0,0}); each 90° CW step applies `(x,y)→(−y,x)`. `getEntityBodyOffset` returns a rotation-dependent offset: `{W/3−GRID_SIZE/2, H/3−GRID_SIZE/2}` at rot 0, so the bounding-box edges land exactly on grid-cell borders for flush snapping. `Matter.Body.rotate` is NOT called (rotation baked into vertices). RA progression: rot 0 = NW, rot 90 = NE, rot 180 = SE, rot 270 = SW. Blocked sides: east+south at rot 0 (hypotenuse). **Free-sides quick reference** (where other blocks can attach to the triangle): rot 0 → free=north+west; rot 90 → free=north+east; rot 180 → free=east+south; rot 270 → free=south+west. The `getBlockedConnectionDirs` code applies `(x,y)→(−y,x)` per rotation step, which is CW in screen space (the "CCW" label in the code refers to math convention with Y+ up).
 - **`blockedSidesBase` / `getBlockedConnectionDirs(type, rotation)`**: optional field on `EntityTypeDefinition` listing sides (at rotation 0) with no physical face. For all triangle-shape blocks `blockedSidesBase = ['east','south']` (set by factory). `getBlockedConnectionDirs` rotates them by 90° CCW per `rotation/90` step. Used in `buildConnectionGraph`, `canDetachEntity`, `findBestSnap`, and the snap hint renderer to prevent connections on the hypotenuse.
 
+**Interaction modes (Select / Build):**
+- `gameStore.interactionMode`: `'select' | 'build'`. Controlled by `ModeToggle.tsx` (bottom-center ToggleButtonGroup).
+- **Select mode**: camera pan, ship selection, piloting. `BlockPickupSystem.tryPickUp()` and `StructurePlacementSystem.handleClick()` are skipped. Cursor shows pointer for loose blocks instead of grab.
+- **Build mode**: block drag/snap/detach, structure placement. StructuresPanel is shown. Full construction interaction enabled.
+- Switching to select cancels any active structure placement via `GameEngine.cancelStructurePlacement()`.
+
 **Block pickup / assembly building (`BlockPickupSystem`):**
 - Lives in `src/game/systems/BlockPickupSystem.ts`; instantiated by `GameEngine` (not a singleton).
 - `GameEngine.removeBodyWithParts` is **public** — required so BlockPickupSystem can remove compound bodies and all their part bodies from the physics world in one call.
@@ -99,7 +105,7 @@ src/
 - AI only targets assemblies that pass `isValidTarget()`: enemy team + not destroyed + `hasControlCenter()`. Loose scrap/debris is never engaged.
 - Current target is re-validated every frame (in `setAvailableTargets`) and every 500 ms (in `validateCurrentTarget`). A ship that loses its cockpit mid-fight is immediately dropped as a target.
 - **Attacker priority**: `AIController` tracks `assembly.lastHitByAssemblyId` (written by `GameEngine` on hits). The last attacker is preferred as the next target for `ATTACKER_PRIORITY_MS` (8 s); falls back to closest enemy after timeout.
-- **AI weapon power**: `Assembly.computeAIWeaponPowerEfficiency()` (private) sums live power cells + cockpit backup power and divides by weapon count. For non-player assemblies, `fireWeapons()`, `getMissileLaunchRequests()`, and `getBeamFires()` all apply this efficiency to scale the fire rate (same `3 − 2×efficiency` formula as the player power system). Destroying AI power cells degrades their firing rate; zero power blocks firing entirely.
+- **Weapon power efficiency**: `Assembly.computeAIWeaponPowerEfficiency()` (private) sums live power cells + cockpit backup power and divides by weapon count. Used by ALL assemblies (player and AI). `fireWeapons()`, `getMissileLaunchRequests()`, and `getBeamFires()` all apply this efficiency to scale the fire rate (formula: `3 − 2×efficiency`). Destroying power cells degrades firing rate; zero power blocks firing entirely. Engines always operate at full efficiency (no power gating).
 - **Per-weapon range**: `EntityTypeDefinition.weaponRange` (optional, world units) defines effective range for each weapon type. Constants: `GUN_RANGE` (500), `LARGE_GUN_RANGE` (600), `CAPITAL_WEAPON_RANGE` (800); beams use their `beamRange`. `findBestWeaponTarget()` filters targets outside weapon range. `AIController.hasWeaponsReadyToFire()` checks per-weapon distance instead of a single global range. Laser bolt TTL is derived from `weaponRange / laserSpeed` (not a fixed 8 s).
 - **Per-weapon independent targeting**: `Assembly.availableTargets: Assembly[]` is populated each frame by `ControllerManager.updateAITargets()` with enemy assemblies that have a control center. `Assembly.updateWeaponAiming()` calls `findBestWeaponTarget(weapon)` for each weapon, which selects the entity body within the weapon's aiming arc with the smallest angular distance to that weapon's natural facing direction — different weapons on the same ship can track different entity bodies or even different targets. `Assembly.weaponTargetPositions: Map<string, Vector2>` stores the resolved per-weapon target position for that frame; `AIController.hasWeaponsReadyToFire()` reads it to check fire readiness instead of the shared primary-target COM. Player ships always have `availableTargets = []` so they fall back to cursor-based aiming.
 
@@ -121,8 +127,8 @@ src/
 
 **Observer mode + Pilot system (`GameEngine`):**
 - All ships start under AI control — no player-assigned ship at spawn (team-line and sandbox).
-- `GameEngine.pilotAssembly(assembly)`: removes AI controller, sets `isPlayerControlled`, creates player controller, updates PowerSystem.
-- `GameEngine.exitPilot()`: restores AI, clears `playerAssembly` and `flightController`, sets PowerSystem to null.
+- `GameEngine.pilotAssembly(assembly)`: removes AI controller, sets `isPlayerControlled`, creates player controller.
+- `GameEngine.exitPilot()`: restores AI, clears `playerAssembly` and `flightController`.
 - `GameEngine.isObserverMode()`: `return !this.playerAssembly`
 - `GameEngine.isAIEnabled(assembly)`: checks `ControllerManager.hasController(id) && !isPlayerControlled`
 - `GameEngine.disableAI(assembly)` / `enableAI(assembly)`: remove / create AI controller.
@@ -130,7 +136,7 @@ src/
 - Camera: `updateCamera(deltaTime)` dispatches to `updatePilotCamera()` (follows ship + mouse offset) or `updateObserverCamera(deltaTime)` (WASD + edge-scroll pan at `OBSERVER_PAN_SPEED / zoomLevel`).
 - Ship destroyed while piloting → `observerPos` set to wreck position, AI respawned on surviving cockpit fragment, `playerAssembly = null`.
 - `onPlayerDestroyed` callback removed — no auto-return-to-menu on ship death.
-- **UI**: `ShipActionPanel.tsx` (bottom-center) shows Pilot / Disable AI / Enable AI for team-0 selected ships. `ConfirmDialog.tsx` is a generic OK/Cancel MUI dialog. App.tsx has a ☰ Menu button (top-left) + Escape key → confirm dialog → return to menu.
+- **UI**: `ShipActionPanel.tsx` (bottom-center) shows Pilot / Disable AI / Enable AI for team-0 selected ships. `ConfirmDialog.tsx` is a generic OK/Cancel MUI dialog. `MiniDrawer` provides left-side navigation with Exit action + Escape key → confirm dialog → return to menu.
 - Touch controls: `setupTouchControls()` — 1-finger drag pans observer camera or updates aim cursor while piloting; 2-finger pinch zooms; tap selects assembly.
 
 **Beam weapon system (`BeamSystem` + `BeamRenderer`):**

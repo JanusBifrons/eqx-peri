@@ -18,7 +18,7 @@ import {
 } from '@mui/material';
 import BugReportIcon from '@mui/icons-material/BugReport';
 import CloseIcon from '@mui/icons-material/Close';
-import SettingsIcon from '@mui/icons-material/Settings';
+
 import { GameEngine } from '../game/core/GameEngine';
 import { SoundSystem } from '../game/systems/SoundSystem';
 
@@ -59,10 +59,11 @@ const loadAudioSettings = (): AudioSettings => ({
 interface SettingsPanelProps {
   gameEngine: GameEngine | null;
   onPerfBarChange: (visible: boolean) => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }
 
-const SettingsPanel: React.FC<SettingsPanelProps> = ({ gameEngine, onPerfBarChange }) => {
-  const [open,    setOpen]    = useState(false);
+const SettingsPanel: React.FC<SettingsPanelProps> = ({ gameEngine, onPerfBarChange, open, onOpenChange }) => {
   const [activeTab, setActiveTab] = useState(0);
 
   // General tab — draft state, applied only on OK.
@@ -110,12 +111,13 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ gameEngine, onPerfBarChan
 
   // ── Dialog open/close ──────────────────────────────────────────────────────
 
-  const handleOpen = (): void => {
+  // Sync draft state when dialog opens
+  useEffect(() => {
+    if (!open) return;
     setDraftDebug(localStorage.getItem(STORAGE_KEY_DEBUG) === 'true');
     setDraftDebugOnly(localStorage.getItem(STORAGE_KEY_DEBUG_ONLY) === 'true');
     setDraftPerfBar(localStorage.getItem(STORAGE_KEY_PERF_BAR) === 'true');
 
-    // Mirror the live SoundSystem state so sliders start at their real values.
     const ss = SoundSystem.getInstance();
     const live = ss.getSettings();
     const orig: AudioSettings = {
@@ -129,8 +131,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ gameEngine, onPerfBarChan
     setSfxVolume(orig.sfxVolume);
     setMusicEnabled(orig.musicEnabled);
     setOrigAudio(orig);
-    setOpen(true);
-  };
+  }, [open]);
 
   const handleCancel = (): void => {
     // Revert live audio to what it was before the dialog opened.
@@ -143,7 +144,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ gameEngine, onPerfBarChan
     } else {
       ss.stopMusic();
     }
-    setOpen(false);
+    onOpenChange(false);
   };
 
   const handleOk = (): void => {
@@ -161,7 +162,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ gameEngine, onPerfBarChan
     localStorage.setItem(STORAGE_KEY_MUSIC_VOL,     String(musicVolume));
     localStorage.setItem(STORAGE_KEY_SFX_VOL,       String(sfxVolume));
     localStorage.setItem(STORAGE_KEY_MUSIC_ENABLED, String(musicEnabled));
-    setOpen(false);
+    onOpenChange(false);
   };
 
   // ── Live audio handlers ────────────────────────────────────────────────────
@@ -200,24 +201,6 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ gameEngine, onPerfBarChan
 
   return (
     <>
-      {/* Gear button — bottom-left HUD */}
-      <Box sx={{ position: 'absolute', bottom: 10, left: 10, zIndex: 1100 }}>
-        <IconButton
-          onClick={handleOpen}
-          size="small"
-          title="Settings"
-          sx={{
-            background: 'rgba(0,0,0,0.75)',
-            border: '1px solid #555',
-            borderRadius: 1,
-            color: '#ccc',
-            '&:hover': { background: 'rgba(0,0,0,0.9)', color: '#fff' },
-          }}
-        >
-          <SettingsIcon fontSize="small" />
-        </IconButton>
-      </Box>
-
       <Dialog
         open={open}
         onClose={handleCancel}

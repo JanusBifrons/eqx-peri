@@ -10,34 +10,6 @@ export interface StructureScreenState {
   scale: number;
 }
 
-// ── Power system slice ──────────────────────────────────────────────
-export interface PowerSystemState {
-  totalPower: number;
-  availablePower: number;
-  systems: {
-    name: string;
-    key: string;
-    maxPower: number;
-    currentPower: number;
-  }[];
-}
-
-// ── Radar data item ─────────────────────────────────────────────────
-export interface RadarBlip {
-  id: string;
-  shipName: string;
-  x: number;
-  y: number;
-  team: number;
-  isPlayer: boolean;
-  isSelected: boolean;
-  isHovered: boolean;
-  distance: number;
-  speed: number;
-  healthPercent: number;
-  hasControlCenter: boolean;
-}
-
 // ── Store interface ─────────────────────────────────────────────────
 export interface GameStore {
   // ── Core state ──────────────────────────────────────────────────
@@ -80,18 +52,18 @@ export interface GameStore {
   /** The structure type currently being placed, or null. */
   placingStructureType: StructureType | null;
 
+  /** Current interaction mode: 'select' for camera/selection, 'build' for block drag/construction. */
+  interactionMode: 'select' | 'build';
+
+  /** Set the interaction mode (not pushed by GameEngine — set directly by UI). */
+  setInteractionMode: (mode: 'select' | 'build') => void;
+
   // ── Performance metrics ─────────────────────────────────────────
   performanceMetrics: PerformanceMetrics;
-
-  // ── Power management ────────────────────────────────────────────
-  powerState: PowerSystemState | null;
 
   // ── Selected assembly helpers ──────────────────────────────────
   /** Whether the currently selected assembly has an active AI controller. */
   selectedAssemblyAIEnabled: boolean;
-
-  // ── Radar ───────────────────────────────────────────────────────
-  radarBlips: RadarBlip[];
 
   // ── Frame counter (increments each push, triggers subscribers) ─
   frameTick: number;
@@ -128,10 +100,10 @@ export const useGameStore = create<GameStore>((set) => ({
   playerDamagePercent: 0,
   structureScreen: null,
   placingStructureType: null,
+  interactionMode: 'select',
+  setInteractionMode: (mode) => set({ interactionMode: mode }),
   performanceMetrics: DEFAULT_PERF,
-  powerState: null,
   selectedAssemblyAIEnabled: false,
-  radarBlips: [],
   frameTick: 0,
 
   pushFrame: (patch) => set((state) => ({ ...patch, frameTick: state.frameTick + 1 })),
