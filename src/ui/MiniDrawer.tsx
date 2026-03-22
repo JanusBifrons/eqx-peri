@@ -16,6 +16,8 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ScienceIcon from '@mui/icons-material/Science';
 import ConstructionIcon from '@mui/icons-material/Construction';
 import GroupsIcon from '@mui/icons-material/Groups';
+import PublicIcon from '@mui/icons-material/Public';
+import ExploreIcon from '@mui/icons-material/Explore';
 import SettingsIcon from '@mui/icons-material/Settings';
 import ExitToAppIcon from '@mui/icons-material/ExitToApp';
 
@@ -24,11 +26,14 @@ const DRAWER_WIDTH_CLOSED = 52;
 
 interface MiniDrawerProps {
   visible: boolean;
+  showGalaxyMap: boolean;
   onSettingsClick: () => void;
   onExitClick: () => void;
+  onGalaxyMapClick: () => void;
+  onWorldViewClick: () => void;
 }
 
-const MiniDrawer: React.FC<MiniDrawerProps> = ({ visible, onSettingsClick, onExitClick }) => {
+const MiniDrawer: React.FC<MiniDrawerProps> = ({ visible, showGalaxyMap, onSettingsClick, onExitClick, onGalaxyMapClick, onWorldViewClick }) => {
   const [open, setOpen] = React.useState(false);
 
   if (!visible) return null;
@@ -36,9 +41,12 @@ const MiniDrawer: React.FC<MiniDrawerProps> = ({ visible, onSettingsClick, onExi
   const drawerWidth = open ? DRAWER_WIDTH_OPEN : DRAWER_WIDTH_CLOSED;
 
   const gameplayItems = [
-    { label: 'Research', icon: <ScienceIcon />, onClick: () => {} },
-    { label: 'Builder', icon: <ConstructionIcon />, onClick: () => {} },
-    { label: 'Crew', icon: <GroupsIcon />, onClick: () => {} },
+    showGalaxyMap
+      ? { label: 'World View', icon: <ExploreIcon />, onClick: onWorldViewClick, active: false }
+      : { label: 'Galaxy Map', icon: <PublicIcon />, onClick: onGalaxyMapClick, active: false },
+    { label: 'Research', icon: <ScienceIcon />, onClick: () => {}, active: false },
+    { label: 'Builder', icon: <ConstructionIcon />, onClick: () => {}, active: false },
+    { label: 'Crew', icon: <GroupsIcon />, onClick: () => {}, active: false },
   ];
 
   const systemItems = [
@@ -61,6 +69,7 @@ const MiniDrawer: React.FC<MiniDrawerProps> = ({ visible, onSettingsClick, onExi
           borderRight: '1px solid #333',
           display: 'flex',
           flexDirection: 'column',
+          zIndex: 1250, // above GalaxyMapView overlay (1200)
         },
       }}
     >

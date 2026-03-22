@@ -11,6 +11,7 @@ import StructuresPanel from './ui/StructuresPanel';
 import StructureActionPanel from './ui/StructureActionPanel';
 import ConfirmDialog from './ui/ConfirmDialog';
 import PerformanceBar from './ui/PerformanceBar';
+import GalaxyMapView from './ui/GalaxyMapView';
 import {
   ThemeProvider,
   createTheme
@@ -65,6 +66,7 @@ const App: React.FC = () => {
   const [showPerfBar, setShowPerfBar] = useState(false);
   const [isShipBuilder, setIsShipBuilder] = useState(false);
   const [isStructuresSandbox, setIsStructuresSandbox] = useState(false);
+  const [showGalaxyMap, setShowGalaxyMap] = useState(false);
 
   const interactionMode = useGameStore(s => s.interactionMode);
 
@@ -145,8 +147,11 @@ const App: React.FC = () => {
         {/* MUI Mini Variant Drawer — left side navigation */}
         <MiniDrawer
           visible={isPlaying}
+          showGalaxyMap={showGalaxyMap}
           onSettingsClick={() => setSettingsOpen(true)}
           onExitClick={() => setConfirmOpen(true)}
+          onGalaxyMapClick={() => setShowGalaxyMap(true)}
+          onWorldViewClick={() => setShowGalaxyMap(false)}
         />
 
         {/* Ship builder palette — shown only in ship builder mode */}
@@ -191,6 +196,9 @@ const App: React.FC = () => {
 
         {/* Performance bar - top of screen, toggled via Settings */}
         <PerformanceBar gameEngine={gameEngine} visible={showPerfBar} />
+
+        {/* Galaxy Map overlay */}
+        {showGalaxyMap && <GalaxyMapView />}
 
         {/* Return-to-menu confirm dialog */}
         <ConfirmDialog
