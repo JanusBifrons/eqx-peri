@@ -25,8 +25,8 @@ const HEX_SIZE = 50;
 const MAP_HEX_COUNT = 90;
 const MAP_SEED = 7531;
 
-const HOVER_SHRINK = 0.87;
-const HOVER_LERP = 0.16;
+const HOVER_SHRINK = 0.94;
+const HOVER_LERP = 0.09;
 const ICON_HIT_RADIUS = 13; // screen-space px for tooltip trigger
 
 const FACTION_FILL: Record<FactionName, number> = {
@@ -221,6 +221,8 @@ function assignAttributes(map: Map<string, SectorData>, rng: () => number): void
 function getContiguousTerritory(hexMap: Map<string, SectorData>, startKey: string): string[] {
   const start = hexMap.get(startKey);
   if (!start) return [];
+  // Neutral hexes are treated as individuals — no group territory behaviour.
+  if (start.faction === 'neutral') return [startKey];
   const faction = start.faction;
   const visited = new Set<string>();
   const queue: string[] = [startKey];
@@ -470,16 +472,22 @@ const GalaxyMapView: React.FC = () => {
     mapContainer.position.set(w / 2 - mapCx, h / 2 - mapCy);
 
     // Layer order:
-    //   allHexGfx   – static fills + inner grid lines (never changes)
-    //   allBorderGfx – static faction borders (never changes)
-    //   eraserSlot  – unscaled background-colour hexes that hide the static territory
-    //   territorySlot – PIXI.Container scaled as ONE object around territory centroid
-    //   labelContainer – faction name labels (stay fixed above any scale)
-    //   iconGfx     – attribute icons (always on top)
+    //   allHexGfx              – static fills + inner grid lines (never changes)
+    //   allBorderGfx           – static faction borders (never changes)
+    //   outgoingEraserSlot     – eraser for the territory currently animating back out
+    //   outgoingTerritorySlot  – territory container animating back to scale 1.0
+    //   eraserSlot             – eraser for the territory currently animating in
+    //   territorySlot          – territory container animating toward HOVER_SHRINK
+    //   labelContainer         – faction name labels (stay fixed above any scale)
+    //   iconGfx                – attribute icons (always on top)
     mapContainer.addChild(buildStaticHexGraphics(hexMap));
     mapContainer.addChild(buildBorderGraphics(hexMap));
 
     // Fixed-position slot containers keep layer order stable while contents are swapped.
+    const outgoingEraserSlot = new PIXI.Container();
+    mapContainer.addChild(outgoingEraserSlot);
+    const outgoingTerritorySlot = new PIXI.Container();
+    mapContainer.addChild(outgoingTerritorySlot);
     const eraserSlot = new PIXI.Container();
     mapContainer.addChild(eraserSlot);
     const territorySlot = new PIXI.Container();
@@ -504,16 +512,35 @@ const GalaxyMapView: React.FC = () => {
     // ---- Hover state ----
     let hoveredKey: string | null = null;
     let hoveredTerritory: string[] = [];
-    let hoverScale = 1.0;
+    let hoverScale = 1.0;    // incoming territory: animates 1.0 → HOVER_SHRINK (or back to 1.0 on exit)
+    let outgoingScale = 1.0; // outgoing territory: always animates → 1.0
     let zoom = 1.0;
 
-    // Live reference to the scaled territory container (updated on territory change).
+    // Live references for the currently-incoming territory.
     let activeTerritoryContainer: PIXI.Container | null = null;
-    // Live reference to the root-hex highlight Graphics inside the territory container.
     let activeRootHighlight: PIXI.Graphics | null = null;
+    // Live reference for the previously-active territory animating back out.
+    let outgoingContainer: PIXI.Container | null = null;
 
     /** Replace eraser + territory slot contents with visuals for a new territory. */
     function buildTerritoryObjects(territory: string[], rootKey: string): void {
+      // Promote any current active territory to the outgoing slots so it can animate back
+      // to full size smoothly instead of snapping. Any previous outgoing is discarded.
+      if (activeTerritoryContainer) {
+        outgoingEraserSlot.removeChildren().forEach(c => c.destroy());
+        outgoingTerritorySlot.removeChildren().forEach(c => (c as PIXI.Container).destroy({ children: true }));
+        eraserSlot.removeChildren().forEach(c => outgoingEraserSlot.addChild(c));
+        territorySlot.removeChild(activeTerritoryContainer);
+        outgoingTerritorySlot.addChild(activeTerritoryContainer);
+        outgoingContainer = activeTerritoryContainer;
+        outgoingScale = hoverScale;
+        activeTerritoryContainer = null;
+        activeRootHighlight = null;
+      }
+
+      // Incoming territory always starts at full scale and animates toward HOVER_SHRINK.
+      hoverScale = 1.0;
+
       // --- Eraser: opaque background hexes at original positions ---
       // Sits below the territory container (unscaled) so it hides the static fills/borders.
       const eraserGfx = new PIXI.Graphics();
@@ -529,7 +556,6 @@ const GalaxyMapView: React.FC = () => {
         eraserGfx.closePath();
         eraserGfx.endFill();
       }
-      eraserSlot.removeChildren().forEach(c => c.destroy());
       eraserSlot.addChild(eraserGfx);
 
       // --- Territory container: ALL territory visuals, scaled as one object ---
@@ -550,7 +576,7 @@ const GalaxyMapView: React.FC = () => {
       const tc = new PIXI.Container();
       tc.pivot.set(centX, centY);
       tc.position.set(centX, centY);
-      tc.scale.set(hoverScale); // match current animation state (avoids pop on territory change)
+      tc.scale.set(1.0); // ticker will animate this toward HOVER_SHRINK
 
       // Hex fills + outer faction borders (static within the container)
       const fillsGfx = new PIXI.Graphics();
@@ -582,7 +608,6 @@ const GalaxyMapView: React.FC = () => {
       activeRootHighlight = rootGfx;
       updateRootHighlight(rootKey);
 
-      territorySlot.removeChildren().forEach(c => (c as PIXI.Container).destroy({ children: true }));
       territorySlot.addChild(tc);
       activeTerritoryContainer = tc;
     }
@@ -603,7 +628,7 @@ const GalaxyMapView: React.FC = () => {
       activeRootHighlight.endFill();
     }
 
-    /** Clear territory visuals and reset state. */
+    /** Clear incoming territory visuals and reset state. */
     function clearTerritoryObjects(): void {
       eraserSlot.removeChildren().forEach(c => c.destroy());
       territorySlot.removeChildren().forEach(c => (c as PIXI.Container).destroy({ children: true }));
@@ -611,14 +636,27 @@ const GalaxyMapView: React.FC = () => {
       activeRootHighlight = null;
     }
 
-    // Ticker: purely updates the container scale — zero graphics operations per frame.
+    /** Clear outgoing territory visuals once the exit animation completes. */
+    function clearOutgoingObjects(): void {
+      outgoingEraserSlot.removeChildren().forEach(c => c.destroy());
+      outgoingTerritorySlot.removeChildren().forEach(c => (c as PIXI.Container).destroy({ children: true }));
+      outgoingContainer = null;
+    }
+
+    // Ticker: purely updates container scales — zero graphics operations per frame.
     app.ticker.add(() => {
+      // Incoming territory: animate toward HOVER_SHRINK while hovered, back to 1.0 on exit.
       const target = hoveredKey ? HOVER_SHRINK : 1.0;
       hoverScale += (target - hoverScale) * HOVER_LERP;
       if (activeTerritoryContainer) {
         activeTerritoryContainer.scale.set(hoverScale);
-        // Once the un-hover animation finishes, clean up the objects.
         if (!hoveredKey && hoverScale > 0.999) clearTerritoryObjects();
+      }
+      // Outgoing territory: always animates back to 1.0 then cleans up.
+      if (outgoingContainer) {
+        outgoingScale += (1.0 - outgoingScale) * HOVER_LERP;
+        outgoingContainer.scale.set(outgoingScale);
+        if (outgoingScale > 0.999) clearOutgoingObjects();
       }
     });
 
@@ -675,10 +713,9 @@ const GalaxyMapView: React.FC = () => {
             hoveredKey = newHover;
             updateRootHighlight(newHover);
           } else {
-            // New territory: rebuild visuals, keep current hoverScale (no pop).
+            // New territory: rebuild visuals at current scale — no snap, animation continues.
             hoveredKey = newHover;
             hoveredTerritory = newTerritory;
-            hoverScale = 1.0;
             buildTerritoryObjects(newTerritory, newHover);
           }
         } else {
