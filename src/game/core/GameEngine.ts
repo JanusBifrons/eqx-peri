@@ -19,6 +19,7 @@ import { BlockFrillsRenderer } from '../rendering/BlockFrillsRenderer';
 import { ShieldRenderer } from '../rendering/ShieldRenderer';
 import { ShipHighlightRenderer } from '../rendering/ShipHighlightRenderer';
 import { AimingDebugRenderer } from '../rendering/AimingDebugRenderer';
+import { RingRadarRenderer } from '../rendering/RingRadarRenderer';
 import { BlockPickupRenderer } from '../rendering/BlockPickupRenderer';
 import { BeamRenderer } from '../rendering/BeamRenderer';
 import { ShockwaveRenderer } from '../rendering/ShockwaveRenderer';
@@ -2008,6 +2009,10 @@ export class GameEngine {
       () => this.getSelectedStructure(),
       (structure) => this.structureManager?.gridManager.getGridPowerSummary(
         structure, this.structureManager.getStructures()) ?? null,
+    ));
+    this.renderSystem.register(new RingRadarRenderer(
+      () => this.assemblies,
+      () => this.playerAssembly,
     ));
     this.renderSystem.register(new AimingDebugRenderer(() => this.playerAssembly));
     this.renderSystem.register(new BlockPickupRenderer(
