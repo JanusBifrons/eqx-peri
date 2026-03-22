@@ -109,11 +109,11 @@ Defined in `GameTypes.ts` as `STRUCTURE_DEFINITIONS: Record<StructureType, Struc
 - **No friendly pass-through**: blocks ALL movement and weapons (deliberate design choice).
 - `body.shieldWall = this` back-reference; label `'shield-wall'`.
 - Thickness: `SHIELD_WALL_THICKNESS` (6 world units). **No HP** — damage is grid-powered.
-- **Power spike**: every hit applies `damage` as temporary power consumption to both fence posts for `SHIELD_WALL_POWER_SPIKE_MS` (1.5s). Stacks additively — multiple simultaneous hits compound, potentially pushing `netPower` negative and browning out turrets/consumers.
 - **Grid-powered damage resolution** (`GridManager.resolveShieldWallDamage()`):
-  1. If damage ≤ grid `netPower` → fully absorbed, no effect (impenetrable).
-  2. If damage > `netPower` → excess drains Battery structures' `storedResources` (only Battery type, not Core/Connectors).
-  3. If damage > `netPower` + battery reserves → wall is **stunned** for `SHIELD_WALL_STUN_MS` (5s).
+  1. Battery stored power absorbs the damage first (1:1 watt-seconds). If batteries fully absorb → wall stays up.
+  2. If batteries are depleted, remaining damage is checked against grid `netPower`. If grid absorbs → wall stays up.
+  3. If grid cannot absorb the remainder → wall is **stunned** for `SHIELD_WALL_STUN_MS` (5s).
+- Note: the old power-spike mechanic (`applyPowerSpike` on fence posts) has been removed. It inflated grid consumption before the netPower check, causing spurious stuns and phantom power-cuts via `updateShieldWallActivation`.
 - **Power-gated**: `isPowered` flag managed by `updateShieldWallActivation()`. Wall body removed from physics when grid `netPower ≤ 0`; re-added when power is restored. Rendered as dim red + "NO POWER" label when unpowered.
 - **Stun state**: `isStunned` + `stunUntil`. Stunned wall body is removed from physics (pass-through). Re-added when cooldown expires (`updateShieldWallStuns()`), but only if also powered. Rendered as dim red + "STUNNED" label.
 - `isActive()` returns `!isStunned && isPowered` — used by placement validation and rendering.

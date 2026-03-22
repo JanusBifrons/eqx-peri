@@ -1,5 +1,5 @@
 import Matter from 'matter-js';
-import { StructureType, StructureDefinition, STRUCTURE_DEFINITIONS, Vector2, REPAIR_COST_PER_HP, InventoryItemType, MaterialType, OreType } from '../../types/GameTypes';
+import { StructureType, StructureDefinition, STRUCTURE_DEFINITIONS, Vector2, REPAIR_COST_PER_HP, InventoryItemType, MaterialType, OreType, BATTERY_STUN_MS } from '../../types/GameTypes';
 
 let nextStructureId = 1;
 
@@ -39,10 +39,16 @@ export class Structure {
   /** Resources returned to the grid so far during deconstruction. */
   public deconstructionReturned: number = 0;
 
-  /** Temporary power consumption spike (e.g. shield wall absorbing damage). */
-  private powerSpikeAmount: number = 0;
+
+  /** Temporary power consumption spike (e.g. from grid absorbing shield wall hits). */
+  private _powerSpikeAmount: number = 0;
   /** Timestamp (ms) when the current power spike expires. */
-  private powerSpikeUntil: number = 0;
+  private _powerSpikeUntil: number = 0;
+
+  /** Stored energy for Battery structures (watt-seconds). Zero on all other types. */
+  private _storedPower: number = 0;
+  /** Timestamp (ms) until which this battery cannot recharge (triggered when drained to zero). */
+  private _powerStunUntil: number = 0;
 
   constructor(type: StructureType, position: Vector2, team: number) {
     this.id = `structure-${nextStructureId++}`;
@@ -283,23 +289,20 @@ export class Structure {
 
   public getPowerConsumption(): number {
     if (!this.isConstructed || !this.isPoweredOn || this.isDeconstructing) return 0;
-    let consumption = this.definition.powerConsumption;
-    if (this.powerSpikeAmount > 0 && Date.now() < this.powerSpikeUntil) {
-      consumption += this.powerSpikeAmount;
-    } else {
-      this.powerSpikeAmount = 0;
-    }
-    return consumption;
+    const base = this.definition.powerConsumption;
+    const spike = Date.now() < this._powerSpikeUntil ? this._powerSpikeAmount : 0;
+    return base + spike;
   }
 
+  /** Apply a temporary consumption spike (stacks if within the current window). */
   public applyPowerSpike(amount: number, durationMs: number): void {
     const now = Date.now();
-    if (now < this.powerSpikeUntil) {
-      this.powerSpikeAmount += amount;
+    if (now < this._powerSpikeUntil) {
+      this._powerSpikeAmount += amount;
     } else {
-      this.powerSpikeAmount = amount;
+      this._powerSpikeAmount = amount;
     }
-    this.powerSpikeUntil = now + durationMs;
+    this._powerSpikeUntil = now + durationMs;
   }
 
   public getStorageCapacity(): number {
@@ -309,6 +312,54 @@ export class Structure {
   public getStorageUtilization(): number {
     const cap = this.getStorageCapacity();
     return cap > 0 ? this.getInventoryTotal() / cap : 0;
+  }
+
+  // ── Battery power storage ────────────────────────────────────────────
+
+  /** Max energy this structure can hold (watt-seconds). Zero if not a Battery or not constructed. */
+  public getPowerStorageCapacity(): number {
+    return this.isConstructed ? (this.definition.powerStorageCapacity ?? 0) : 0;
+  }
+
+  /** Current stored energy (watt-seconds). */
+  public getStoredPower(): number {
+    return this._storedPower;
+  }
+
+  /** True while this battery is locked out from recharging after being fully drained. */
+  public isPowerStunned(): boolean {
+    return Date.now() < this._powerStunUntil;
+  }
+
+  /**
+   * Add energy to the battery (e.g. from grid surplus each frame).
+   * Blocked while the battery is stunned (recently fully drained).
+   * Capped at powerStorageCapacity. Returns amount actually stored.
+   */
+  public chargePower(amount: number): number {
+    if (amount <= 0) return 0;
+    if (this.isPowerStunned()) return 0;
+    const cap = this.getPowerStorageCapacity();
+    if (cap <= 0) return 0;
+    const space = cap - this._storedPower;
+    const added = Math.min(amount, Math.max(0, space));
+    this._storedPower += added;
+    return added;
+  }
+
+  /**
+   * Remove energy from the battery (e.g. shield wall damage absorption).
+   * If drained to zero, enters a recharge lockout for BATTERY_STUN_MS.
+   * Returns amount actually drained.
+   */
+  public drainPower(amount: number): number {
+    if (amount <= 0) return 0;
+    const drained = Math.min(amount, this._storedPower);
+    this._storedPower -= drained;
+    if (this._storedPower <= 0) {
+      this._powerStunUntil = Date.now() + BATTERY_STUN_MS;
+    }
+    return drained;
   }
 
   // ── Deconstruction ──────────────────────────────────────────────────

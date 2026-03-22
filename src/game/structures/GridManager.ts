@@ -341,8 +341,8 @@ export class GridManager {
       this.processConstructionPulse(allStructures);
     }
 
-    // Suppress unused warning — deltaTimeMs reserved for future tick-rate-independent logic
-    void deltaTimeMs;
+    // Charge Battery structures from grid surplus power each frame
+    this.processBatteryCharging(deltaTimeMs, allStructures);
   }
 
   /** Reactivate stunned shield walls whose cooldown has expired. */
@@ -378,7 +378,6 @@ export class GridManager {
         // Both posts just finished construction — spawn the wall
         const wall = new ShieldWall(a, b);
         this.shieldWalls.set(conn.id, wall);
-        // Check power before adding body — don't add if unpowered
         const summary = this.getGridPowerSummary(a, allStructures);
         if (summary.netPower > 0) {
           this.addBodyToWorld(wall.body);
@@ -394,7 +393,7 @@ export class GridManager {
         }
         this.shieldWalls.delete(conn.id);
       } else if (exists) {
-        // Wall exists — check power state
+        // Wall exists — check power state. Stunned walls are skipped (stun takes priority).
         const wall = this.shieldWalls.get(conn.id)!;
         if (wall.isStunned) continue; // Stun takes priority, handled by updateShieldWallStuns
 
@@ -419,48 +418,79 @@ export class GridManager {
   }
 
   /**
+   * Charge Battery structures from surplus grid power each frame.
+   * Each battery on a grid with positive netPower absorbs energy at a rate equal
+   * to the per-battery share of the surplus (watt-seconds per frame).
+   * Batteries only charge when constructed and on a powered grid.
+   */
+  private processBatteryCharging(deltaTimeMs: number, allStructures: Structure[]): void {
+    const deltaSeconds = deltaTimeMs / 1000;
+    // Find all constructed batteries that aren't full
+    const batteries = allStructures.filter(
+      s => s.type === 'Battery' && s.isConstructed && !s.isDeconstructing && s.isPoweredOn
+        && s.getStoredPower() < s.getPowerStorageCapacity()
+    );
+    if (batteries.length === 0) return;
+
+    // Group batteries by their grid (represented by the set of members)
+    // Process each grid's batteries together so we can divide the surplus
+    const processed = new Set<string>();
+    for (const battery of batteries) {
+      if (processed.has(battery.id)) continue;
+
+      const summary = this.getGridPowerSummary(battery, allStructures);
+      if (summary.netPower <= 0) continue;
+
+      // All batteries on this grid that need charging
+      const gridBatteries = this.getGridMembers(battery).filter(
+        s => s.type === 'Battery' && s.isConstructed && !s.isDeconstructing && s.isPoweredOn
+          && s.getStoredPower() < s.getPowerStorageCapacity()
+      );
+      if (gridBatteries.length === 0) continue;
+
+      // Divide surplus evenly among batteries on this grid
+      const chargePerBattery = (summary.netPower * deltaSeconds) / gridBatteries.length;
+      for (const b of gridBatteries) {
+        b.chargePower(chargePerBattery);
+        processed.add(b.id);
+      }
+    }
+  }
+
+  /**
    * Resolve damage against a shield wall using the grid's power system.
    *
-   * Step 1: If damage ≤ grid netPower → fully absorbed, no effect.
-   * Step 2: If damage > netPower → excess drains Battery storedResources.
-   * Step 3: If damage > netPower + battery reserves → wall is stunned.
+   * Step 1: Drain Battery stored power first. If batteries fully absorb → wall stays up.
+   * Step 2: Remaining damage applies as a power spike to the fence posts, stressing the grid.
+   *         Repeated rapid hits stack, potentially browning out turrets and other consumers.
+   * Step 3: If the spike pushes grid netPower to ≤ 0 → wall is stunned (hit-caused power loss).
+   *         If netPower stays positive, the grid is absorbing fine and the wall stays up.
    *
-   * All damage applies a temporary power spike to the fence posts, stressing the grid.
+   * Genuine sustained brownout (e.g. a solar panel destroyed) is handled separately by
+   * updateShieldWallActivation, which powers the wall off without stunning it.
    */
   public resolveShieldWallDamage(wall: ShieldWall, damage: number, allStructures: Structure[]): void {
     if (wall.isStunned) return;
 
-    // Apply power spike to both fence posts — stresses the grid for the spike duration.
-    // Multiple simultaneous hits stack, potentially pushing netPower negative and
-    // browning out turrets / other consumers.
-    wall.postA.applyPowerSpike(damage, SHIELD_WALL_POWER_SPIKE_MS);
-    wall.postB.applyPowerSpike(damage, SHIELD_WALL_POWER_SPIKE_MS);
-
-    const summary = this.getGridPowerSummary(wall.postA, allStructures);
-
-    // Step 1: grid generation absorbs the hit entirely
-    const netPower = Math.max(0, summary.netPower);
-    if (damage <= netPower) return;
-
-    // Step 2: excess drains Battery structures across the grid
-    let excess = damage - netPower;
+    // Step 1: drain Battery stored power across the grid
+    let remaining = damage;
     const members = this.getGridMembers(wall.postA);
-
     for (const s of members) {
       if (s.team !== wall.team) continue;
       if (s.type !== 'Battery') continue;
-      if (s.getInventoryTotal() <= 0) continue;
-
-      const drain = Math.min(excess, s.getInventoryTotal());
-      s.removeAnyMaterials(drain);
-      excess -= drain;
-      if (excess <= 0) break;
+      remaining -= s.drainPower(remaining);
+      if (remaining <= 0) return; // batteries fully absorbed — wall stays up
     }
 
-    // Step 3: if batteries couldn't absorb the remainder, stun the wall
-    if (excess > 0) {
+    // Step 2: apply power spike — represents remaining damage stressing the grid.
+    // Stacks additively on rapid hits, potentially browning out turrets/consumers.
+    wall.postA.applyPowerSpike(remaining, SHIELD_WALL_POWER_SPIKE_MS);
+    wall.postB.applyPowerSpike(remaining, SHIELD_WALL_POWER_SPIKE_MS);
+
+    // Step 3: if spike pushed grid into brownout → stun the wall (hit-caused drop)
+    const summary = this.getGridPowerSummary(wall.postA, allStructures);
+    if (summary.netPower <= 0) {
       wall.stun();
-      // Remove the wall body from physics so things pass through
       if (this.removeBodyFromWorld) {
         this.removeBodyFromWorld(wall.body);
       }

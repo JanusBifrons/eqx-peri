@@ -55,7 +55,7 @@ function formatPower(value: number): string {
   const abs = Math.abs(value);
   if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)} MW`;
   if (abs >= 1_000) return `${(value / 1_000).toFixed(1)} kW`;
-  return `${value} W`;
+  return `${Math.round(value)} W`;
 }
 
 /** Format a weight value in kg to human-readable (g / kg / t / kt / Mt). */
@@ -441,6 +441,26 @@ export class StructureRenderer implements IRenderer {
         { text: ' / ', color: '#ffffff' },
         { text: formatWeight(def.storageCapacity), color: '#ffffff' },
         { text: ` (${pct}%)`, color: usedColor },
+      ]});
+    }
+
+    // ── Battery power storage row ────────────────────────────────────
+    if (def.powerStorageCapacity && def.powerStorageCapacity > 0) {
+      const stored = structure.getStoredPower();
+      const cap = def.powerStorageCapacity;
+      const pct = Math.round((stored / cap) * 100);
+
+      let storedColor: string;
+      if (pct >= 90) { storedColor = '#44cc44'; }
+      else if (pct >= 30) { storedColor = '#ccaa44'; }
+      else { storedColor = '#cc4444'; }
+
+      rows.push({ segments: [
+        { text: 'BATT ', color: '#cc8844' },
+        { text: formatPower(stored), color: storedColor },
+        { text: ' / ', color: '#ffffff' },
+        { text: formatPower(cap), color: '#ffffff' },
+        { text: ` (${pct}%)`, color: storedColor },
       ]});
     }
 

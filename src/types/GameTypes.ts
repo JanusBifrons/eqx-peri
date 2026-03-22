@@ -1043,6 +1043,7 @@ export interface StructureDefinition {
   powerOutput: number;      // passive power generation per tick (≥0)
   powerConsumption: number; // passive power draw per tick (≥0)
   storageCapacity: number;  // max resource units this structure can hold
+  powerStorageCapacity?: number; // max energy units a Battery can store (watt-seconds); absent on all non-Battery types
   constructionCost: number; // total resource units required to fully build (0 = pre-built)
   constructionRecipe?: Partial<Record<MaterialType, number>>; // specific materials required (kg)
   color: string;            // primary fill color
@@ -1139,7 +1140,8 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
     maxConnections: 1,
     powerOutput: 0,
     powerConsumption: 0,
-    storageCapacity: 500000,
+    storageCapacity: 0,
+    powerStorageCapacity: 300,
     constructionCost: 1200,
     constructionRecipe: { Iron: 800, Lithium: 400 },
     color: '#2a2020',
@@ -1341,6 +1343,8 @@ export const ASSEMBLY_YARD_MAX_SHIPS = 3;
 export const SHIELD_WALL_THICKNESS = 6;
 /** Stun cooldown (ms) when a shield wall is overloaded. */
 export const SHIELD_WALL_STUN_MS = 5000;
+/** Recharge lockout (ms) after a Battery is fully drained to zero. */
+export const BATTERY_STUN_MS = 5000;
 /** Duration (ms) of the power consumption spike when a shield wall absorbs damage. */
 export const SHIELD_WALL_POWER_SPIKE_MS = 1500;
 
