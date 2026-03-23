@@ -6,6 +6,7 @@ import MiniDrawer from './ui/MiniDrawer';
 import ModeToggle from './ui/ModeToggle';
 import SettingsPanel from './ui/SettingsPanel';
 import ShipActionPanel from './ui/ShipActionPanel';
+import AssemblyOverlayPanel from './ui/AssemblyOverlayPanel';
 import ShipBuilderPanel from './ui/ShipBuilderPanel';
 import StructuresPanel from './ui/StructuresPanel';
 import StructureActionPanel from './ui/StructureActionPanel';
@@ -175,8 +176,11 @@ const App: React.FC = () => {
         {/* Combat HUD — hidden in ship builder mode */}
         {isPlaying && !isShipBuilder && (
           <>
-            {/* Ship action panel - bottom center (offset right for mode toggle) */}
+            {/* Ship name + health bar — bottom center */}
             <ShipActionPanel gameEngine={gameEngine} />
+
+            {/* World-space Pilot / AI buttons above the selected ship */}
+            <AssemblyOverlayPanel gameEngine={gameEngine} />
 
             {/* Flight Controls - bottom right */}
             <FlightControls gameEngine={gameEngine} />

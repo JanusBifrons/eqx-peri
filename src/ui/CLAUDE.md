@@ -66,12 +66,37 @@ HUD overlay components rendered on top of the game canvas. Components receive `g
 - Drag via title bar, resize via bottom-right handle.
 - Dark themed, fixed z-index 2000.
 
-## Structure Action Panel
+## World-Space Overlay System
 
-- `StructureActionPanel.tsx` — world-space-tracking MUI icon buttons shown when a structure is selected.
-- Polls `gameEngine.getSelectedStructure()` at ~30fps; uses `gameEngine.worldToScreen()` to position buttons.
-- Buttons scale with viewport zoom level (world-space feel).
-- Generic actions: Deconstruct, Power toggle, Open Cargo, Settings/Drill-down.
+A generic mechanism for attaching action buttons to world-space entities that track camera movement with zero React re-render overhead for position.
+
+### `useWorldOverlay` hook (`useWorldOverlay.ts`)
+- Accepts `gameEngine` and a stable `getAnchor` callback.
+- `getAnchor` is called **every rAF tick** and returns `{ wx, wy }` (world-space top-left of the target's bounding box) or `null` to hide.
+- Imperatively updates `left`, `top`, `gap`, and `visibility` on the returned `containerRef` DOM element.
+- Hidden below `MIN_OVERLAY_SCALE` (0.3) or when anchor is null / offscreen.
+- Use a `useRef` to keep `getAnchor` stable; read store state with `useGameStore.getState()` inside the callback to avoid closure staleness without restarting the effect.
+
+### `WorldOverlayPanel` component (`WorldOverlayPanel.tsx`)
+- Wraps `useWorldOverlay` and renders a horizontal row of `OverlayButton` entries.
+- Exports the `OverlayButton` interface: `{ key, icon, tooltip, onClick, color?, disabled? }`.
+- Button size scales with `viewportScale` from the store (same formula as the hook's imperative sizing).
+- `color` prop: when set, uses dark background + colored border (same visual language as `StructureActionPanel`).
+
+### `StructureActionPanel.tsx`
+- Refactored to use `WorldOverlayPanel` — no longer manages its own RAF loop or DOM manipulation.
+- Retains modal state management (CargoModal, GenericModal/Settings).
+- `getAnchor` reads `useGameStore.getState().selectedStructure` directly so it is a stable `useCallback` with no deps.
+
+### `AssemblyOverlayPanel.tsx`
+- World-space Pilot / Disable AI / Enable AI buttons above the selected friendly ship.
+- Only rendered for team-0 assemblies that are not currently being piloted.
+- Anchor = `assembly.rootBody.position ± assembly.getBoundingRadius()` (bounding-box top-left).
+- Buttons call `gameEngine.pilotAssembly()`, `disableAI()`, `enableAI()` via `getSelectedAssembly()`.
+
+### `ShipActionPanel.tsx`
+- Simplified: ship name + health bar only (no action buttons — those moved to `AssemblyOverlayPanel`).
+- `pointerEvents: 'none'` (read-only HUD; the world-space panel handles interaction).
 - `CargoModal.tsx` — shows structure inventory in an MUI Table inside GenericModal.
 - Settings modal is currently a placeholder for future per-type configuration.
 
