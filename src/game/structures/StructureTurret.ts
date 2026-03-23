@@ -31,6 +31,11 @@ export class StructureTurret extends Structure {
     this.targetAimAngle = 0;
   }
 
+  /** Whether this turret currently has an enemy target locked. */
+  public hasActiveTarget(): boolean {
+    return this.targetAssembly !== null;
+  }
+
   /**
    * Per-frame update: scan for targets, rotate barrel, fire if ready.
    * Returns any laser bodies created this frame.

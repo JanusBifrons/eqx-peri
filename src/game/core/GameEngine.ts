@@ -2228,17 +2228,21 @@ export class GameEngine {
       () => this.world.bodies,
     );
 
-    // Spawn the Core at the world origin for team 0 with starter resources
-    const core = this.structureManager.spawnCore({ x: 0, y: 0 }, 0);
+    // Point the observer camera at the Core from the outset
+    this.observerPos = { x: 2000, y: 0 };
+
+    // Spawn the Core away from the world origin so there's room to build around it
+    const core = this.structureManager.spawnCore({ x: 2000, y: 0 }, 0);
     core.initStartingInventory();
 
-    // Spawn a ring of connectors around the Core and link them
+    // Spawn a ring of connectors around the Core and link them.
+    // Core is now 800×800 (half-size 400), so connectors must sit outside that radius.
     const connectorCount = 4;
-    const connectorDist = 350;
+    const connectorDist = 800;
     const connectors: Structure[] = [];
     for (let i = 0; i < connectorCount; i++) {
       const angle = (i / connectorCount) * Math.PI * 2;
-      const cx = Math.cos(angle) * connectorDist;
+      const cx = 2000 + Math.cos(angle) * connectorDist;
       const cy = Math.sin(angle) * connectorDist;
       const conn = this.structureManager.spawnStructure('Connector', { x: cx, y: cy }, 0);
       conn.markPreBuilt(); // initial base connectors start fully built
@@ -2253,9 +2257,9 @@ export class GameEngine {
       this.structureManager.gridManager.connect(connectors[i], next);
     }
 
-    // Spawn a player cockpit nearby so the player can fly around and inspect
+    // Spawn a player cockpit to the right of the Core so the player can fly around
     const cockpitConfig: EntityConfig = { type: 'Cockpit', x: 0, y: 0, rotation: 0 };
-    const playerShip = new Assembly([cockpitConfig], { x: 400, y: 0 });
+    const playerShip = new Assembly([cockpitConfig], { x: 3500, y: 0 });
     playerShip.setTeam(0);
     playerShip.setShipName('Scout');
     this.assemblies.push(playerShip);
@@ -2273,7 +2277,7 @@ export class GameEngine {
     for (let i = 0; i < starterBlocks.length; i++) {
       const angle = (i / starterBlocks.length) * Math.PI * 2 + Math.PI * 0.25;
       const dist = 120 + Math.random() * 80;
-      const x = 400 + Math.cos(angle) * dist;
+      const x = 3500 + Math.cos(angle) * dist;
       const y = Math.sin(angle) * dist;
       const block = new Assembly([starterBlocks[i]], { x, y });
       block.setTeam(-1);
@@ -2295,8 +2299,8 @@ export class GameEngine {
     const asteroidRadius = 120;
     for (let i = 0; i < asteroidTypes.length; i++) {
       const angle = ((i / asteroidTypes.length) * Math.PI * 2) + Math.PI * 0.5; // spread around
-      const dist = 800;
-      const ax = Math.cos(angle) * dist;
+      const dist = 1400;
+      const ax = 2000 + Math.cos(angle) * dist;
       const ay = Math.sin(angle) * dist;
       this.asteroidFieldSystem.spawnAsteroid(ax, ay, asteroidRadius, asteroidTypes[i]);
     }

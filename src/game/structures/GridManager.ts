@@ -62,6 +62,24 @@ export class GridManager {
     return conns.some(c => c.nodeA === b || c.nodeB === b);
   }
 
+  /**
+   * AABB edge-to-edge distance between two structures.
+   * Returns 0 when bounding boxes overlap or touch.
+   * Used for all connection range checks so large structures (e.g. Core) connect
+   * correctly based on how close their edges are, not their centres.
+   */
+  public static edgeDistance(a: Structure, b: Structure): number {
+    const dx = Math.max(
+      0,
+      Math.abs(a.body.position.x - b.body.position.x) - a.definition.widthPx / 2 - b.definition.widthPx / 2,
+    );
+    const dy = Math.max(
+      0,
+      Math.abs(a.body.position.y - b.body.position.y) - a.definition.heightPx / 2 - b.definition.heightPx / 2,
+    );
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
   /** Check whether two structures can be linked.
    *  Rules:
    *  - At least one side must be a Connector, OR both sides are ShieldFence.
@@ -85,9 +103,7 @@ export class GridManager {
     if (!aIsConnector && !bIsConnector && !(aIsFence && bIsFence)) return false;
 
     if (!this.canAddConnection(a) || !this.canAddConnection(b)) return false;
-    const dx = a.body.position.x - b.body.position.x;
-    const dy = a.body.position.y - b.body.position.y;
-    if (Math.sqrt(dx * dx + dy * dy) > CONNECTION_MAX_RANGE) return false;
+    if (GridManager.edgeDistance(a, b) > CONNECTION_MAX_RANGE) return false;
 
     // Reject if the connection line passes through another structure
     if (this.isConnectionLineBlocked(a.body.position, b.body.position, a, b)) return false;

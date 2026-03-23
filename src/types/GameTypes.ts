@@ -1086,8 +1086,8 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
   Core: {
     type: 'Core',
     label: 'Core',
-    widthPx: 400,
-    heightPx: 400,
+    widthPx: 800,
+    heightPx: 800,
     shape: 'rect',
     maxHealth: 5000,
     maxConnections: 4,
@@ -1133,8 +1133,8 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
   Battery: {
     type: 'Battery',
     label: 'Battery',
-    widthPx: 200,
-    heightPx: 200,
+    widthPx: 240,
+    heightPx: 240,
     shape: 'rect',
     maxHealth: 800,
     maxConnections: 1,
@@ -1166,8 +1166,8 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
   SmallTurret: {
     type: 'SmallTurret',
     label: 'Small Turret',
-    widthPx: 150,
-    heightPx: 150,
+    widthPx: 240,
+    heightPx: 240,
     shape: 'rect',
     maxHealth: 600,
     maxConnections: 1,
@@ -1318,8 +1318,8 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
   StructureMiningLaser: {
     type: 'StructureMiningLaser',
     label: 'Mining Laser',
-    widthPx: 180,
-    heightPx: 180,
+    widthPx: 240,
+    heightPx: 240,
     shape: 'rect',
     maxHealth: 800,
     maxConnections: 1,

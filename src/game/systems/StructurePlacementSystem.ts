@@ -246,9 +246,7 @@ export class StructurePlacementSystem {
     const source = this.mode.sourceNode;
     return this.structureManager.getStructures().filter(s => {
       if (s === source) return false;
-      const dx = s.body.position.x - source.body.position.x;
-      const dy = s.body.position.y - source.body.position.y;
-      return Math.sqrt(dx * dx + dy * dy) <= CONNECTION_MAX_RANGE;
+      return GridManager.edgeDistance(s, source) <= CONNECTION_MAX_RANGE;
     });
   }
 
@@ -262,11 +260,14 @@ export class StructurePlacementSystem {
     const placingDef = STRUCTURE_DEFINITIONS[this.mode.structureType];
     const maxConns = placingDef.maxConnections;
 
-    // Collect candidates within range, sorted by distance (closest first)
+    // Collect candidates within range, sorted by edge distance (closest first).
+    // Use AABB edge-to-edge: the new structure (at cursor) has its own half-sizes.
+    const placingHW = placingDef.widthPx / 2;
+    const placingHH = placingDef.heightPx / 2;
     const inRange: { structure: Structure; dist: number }[] = [];
     for (const s of this.structureManager.getStructures()) {
-      const dx = s.body.position.x - cursor.x;
-      const dy = s.body.position.y - cursor.y;
+      const dx = Math.max(0, Math.abs(s.body.position.x - cursor.x) - placingHW - s.definition.widthPx / 2);
+      const dy = Math.max(0, Math.abs(s.body.position.y - cursor.y) - placingHH - s.definition.heightPx / 2);
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist > CONNECTION_MAX_RANGE) continue;
       inRange.push({ structure: s, dist });

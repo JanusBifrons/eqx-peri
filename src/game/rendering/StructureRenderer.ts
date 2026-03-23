@@ -7,6 +7,7 @@ import { StructureTurret } from '../structures/StructureTurret';
 import { StructureAssemblyYard } from '../structures/StructureAssemblyYard';
 import { StructureManufacturer } from '../structures/StructureManufacturer';
 import { StructureRecycler } from '../structures/StructureRecycler';
+import { StructureMiningLaser } from '../structures/StructureMiningLaser';
 import { ShieldWall } from '../structures/ShieldWall';
 import { StructureManager } from '../structures/StructureManager';
 import { SHIELD_WALL_THICKNESS } from '../../types/GameTypes';
@@ -15,16 +16,58 @@ const CORE_ICON_FRACTION = 0.35;
 const CONSTRUCTION_BORDER_COLOR = 0xd4a843; // amber for scaffolding
 const DECONSTRUCTION_COLOR = 0xcc4444; // red for deconstruction
 
-/** Minimum zoom scale to render text readouts (avoids unreadable micro-text). */
-const MIN_TEXT_SCALE = 0.4;
-
 /** Types that are too small or don't warrant a power/storage readout. */
 const SKIP_READOUT_TYPES = new Set(['Connector', 'ShieldFence']);
 
+// ── World-space readout panel constants (all in world units) ────────────
+// Everything is multiplied by `scale` (viewport px-per-world-unit) at render
+// time so the panel is drawn physically onto the structure body and moves +
+// scales with it. Nothing here is in screen pixels.
+
+/** Fixed panel width in world units. */
+const PANEL_WORLD_W = 220;
+/** Minimum structure screen half-width (px) below which the readout is skipped. */
+const MIN_STRUCT_SCREEN_HW = 16;
+/** Rasterisation size for all PIXI.Text objects in readouts. */
+const RASTER = 32;
+/** Height of a readout/data row in world units. */
+const READOUT_WORLD_H = 12;
+/** Height of the status value text in world units. */
+const STATUS_WORLD_H = 20;
+/** Height of the subtle "STATUS" header in world units. */
+const HEADER_WORLD_H = 9;
+/** Line height per data row in world units (text height × leading). */
+const READOUT_LINE_WH = READOUT_WORLD_H * 1.4;   // 22.4 wu
+/** Line height for the status value line. */
+const STATUS_LINE_WH = STATUS_WORLD_H * 1.3;      // 33.8 wu
+/** Line height for the "STATUS" header. */
+const HEADER_LINE_WH = HEADER_WORLD_H * 1.4;      // 16.8 wu
+/** Top/bottom padding inside the panel, world units. */
+const PANEL_PAD_WH = 10;
+/** Left padding inside the panel, world units. */
+const PANEL_PAD_WX = 12;
+/** Gap between status section and data rows, world units. */
+const SEP_WH = 10;
+/** Approx char width for monospace text at READOUT_WORLD_H (world units). */
+const CHAR_WW = READOUT_WORLD_H * 0.6;            // 9.6 wu per char
+
 const READOUT_STYLE = new PIXI.TextStyle({
   fontFamily: 'monospace',
-  fontSize: 10,
+  fontSize: RASTER,
   fill: '#ffffff',
+});
+
+const STATUS_VALUE_STYLE = new PIXI.TextStyle({
+  fontFamily: 'Arial, Helvetica, sans-serif',
+  fontSize: RASTER,
+  fontWeight: 'bold',
+  fill: '#ffffff',
+});
+
+const STATUS_HEADER_STYLE = new PIXI.TextStyle({
+  fontFamily: 'monospace',
+  fontSize: RASTER,
+  fill: '#555555',
 });
 
 const BUILDING_LABEL_STYLE = new PIXI.TextStyle({
@@ -47,6 +90,110 @@ const NO_POWER_STYLE = new PIXI.TextStyle({
   fill: '#cc4444',
   fontWeight: 'bold',
 });
+
+// ── Status computation ───────────────────────────────────────────────────
+
+interface StatusInfo { text: string; color: string; }
+
+/** Derive a short (1–3 word) status string for the readout panel. */
+function computeStructureStatus(
+  structure: Structure,
+  mgr: StructureManager | null,
+): StatusInfo {
+  if (structure.isDeconstructing) return { text: 'Deconstructing', color: '#cc6644' };
+
+  if (!structure.isConstructed) {
+    // Check if a connection to this structure is currently flashing (resources in transit)
+    if (mgr) {
+      const conns = mgr.gridManager.getConnections();
+      const receiving = conns.some(
+        c => (c.nodeA.id === structure.id || c.nodeB.id === structure.id) && c.isFlashing(),
+      );
+      if (receiving) return { text: 'Receiving', color: '#4488ff' };
+    }
+    return { text: 'Requesting', color: '#d4a843' };
+  }
+
+  if (!structure.isPoweredOn) return { text: 'Offline', color: '#555555' };
+
+  // Battery: stunned takes priority
+  if (structure.type === 'Battery' && structure.isPowerStunned()) {
+    return { text: 'Stunned', color: '#cc4444' };
+  }
+
+  // Grid brownout / low power (only relevant for consumers)
+  if (structure.definition.powerConsumption > 0 && mgr) {
+    const summary = mgr.getTeamGridSummary(structure.team);
+    if (summary) {
+      if (summary.powerEfficiency <= 0) return { text: 'No Power', color: '#cc4444' };
+      if (summary.powerEfficiency < 0.95) return { text: 'Low Power', color: '#ccaa44' };
+    }
+  }
+
+  // Connection transfer flash (any connection from/to this structure actively flashing)
+  if (mgr) {
+    const conns = mgr.gridManager.getConnections();
+    const transferring = conns.some(
+      c => (c.nodeA.id === structure.id || c.nodeB.id === structure.id) && c.isFlashing(),
+    );
+    if (transferring) return { text: 'Transferring', color: '#4488ff' };
+  }
+
+  // Repair in progress
+  if (structure.needsRepair()) return { text: 'Repairing', color: '#ccaa44' };
+
+  // Structure-specific statuses
+  if (structure instanceof StructureAssemblyYard) {
+    if (structure.isAtShipCap()) return { text: 'At Capacity', color: '#ccaa44' };
+    if (structure.getBuildFraction() > 0) return { text: 'Building', color: '#4488ff' };
+    if (structure.getInventoryTotal() <= 0) return { text: 'No Materials', color: '#666666' };
+    return { text: 'Idle', color: '#666666' };
+  }
+
+  if (structure instanceof StructureManufacturer) {
+    if (structure.getBuildFraction() > 0) return { text: 'Working', color: '#aacc44' };
+    return { text: 'Idle', color: '#666666' };
+  }
+
+  if (structure instanceof StructureRecycler) {
+    if (structure.getInventoryTotal() > 0) return { text: 'Recycling', color: '#44ccaa' };
+    return { text: 'Idle', color: '#666666' };
+  }
+
+  if (structure instanceof StructureTurret) {
+    if (structure.hasActiveTarget()) return { text: 'Targeting', color: '#cc4444' };
+    return { text: 'Armed', color: '#44cc44' };
+  }
+
+  if (structure instanceof StructureMiningLaser) {
+    if (structure.hasActiveTarget()) return { text: 'Mining', color: '#44ccaa' };
+    return { text: 'Seeking', color: '#666666' };
+  }
+
+  // Refinery: check sensor area deposit state
+  if (structure.type === 'Refinery' && mgr) {
+    const states = mgr.getSensorAreaStates();
+    const sensorState = states.find(s => s.structure.id === structure.id);
+    if (sensorState?.depositing) return { text: 'Unloading', color: '#44cc44' };
+    if (sensorState?.assemblyInside) return { text: 'Receiving', color: '#ccaa44' };
+    if (structure.getInventoryTotal() > 0) return { text: 'Refining', color: '#aacc44' };
+  }
+
+  // Battery charge state
+  if (structure.type === 'Battery') {
+    const cap = structure.getPowerStorageCapacity();
+    if (cap > 0) {
+      const stored = structure.getStoredPower();
+      if (stored >= cap * 0.99) return { text: 'Full', color: '#44cc44' };
+      return { text: 'Charging', color: '#4488ff' };
+    }
+  }
+
+  // Power producers (Solar, PowerStation, Core)
+  if (structure.definition.powerOutput > 0) return { text: 'Generating', color: '#44cc44' };
+
+  return { text: 'Active', color: '#888888' };
+}
 
 // ── Formatting helpers ──────────────────────────────────────────────────
 
@@ -206,7 +353,7 @@ export class StructureRenderer implements IRenderer {
         barY += barH + 2;
 
         // "BUILDING" label above the structure
-        if (scale > MIN_TEXT_SCALE) {
+        if (scale > 0.4) {
           const pct = Math.floor(frac * 100);
           this.placeLabel(`BUILDING ${pct}%`, cx, cy - hh - 12, BUILDING_LABEL_STYLE, 0.5);
         }
@@ -226,7 +373,7 @@ export class StructureRenderer implements IRenderer {
         this.graphics.endFill();
         barY += barH + 2;
 
-        if (scale > MIN_TEXT_SCALE) {
+        if (scale > 0.4) {
           const pct = Math.floor(frac * 100);
           this.placeLabel(`DECONSTRUCTING ${pct}%`, cx, cy - hh - 12, DECON_LABEL_STYLE, 0.5);
         }
@@ -374,12 +521,16 @@ export class StructureRenderer implements IRenderer {
   // ── World-space readout drawn ON the structure body ─────────────────
 
   /**
-   * Render power and storage as text overlaid on the structure face,
-   * like a physical LED billboard mounted on the building.
+   * Render a world-space readout panel physically painted onto the structure body.
    *
-   * All sizes derive from the structure's world dimensions × scale.
-   * fontSize is set directly (not via text.scale) so PIXI rasterises
-   * at the correct resolution — no blur on zoom-in.
+   * All dimensions are defined in world units and multiplied by `scale` (viewport
+   * pixels-per-world-unit) so the panel scales and translates with the structure
+   * exactly like any other world geometry. Rendering is skipped when the structure
+   * is too small on screen (structure hw < MIN_STRUCT_SCREEN_HW px).
+   *
+   * Panel dimensions are FIXED world-unit constants (not derived from structure
+   * size), so every structure gets an identically-proportioned display regardless
+   * of its physical footprint.
    */
   private renderStructureReadout(
     structure: Structure,
@@ -390,6 +541,11 @@ export class StructureRenderer implements IRenderer {
     scale: number,
     mgr: StructureManager | null,
   ): void {
+    // Skip when structure is too small on screen to read
+    if (hw < MIN_STRUCT_SCREEN_HW) return;
+
+    const s = scale; // viewport pixels per world unit
+
     const def = structure.definition;
 
     // Each row is a sequence of text segments with individual colors
@@ -401,46 +557,30 @@ export class StructureRenderer implements IRenderer {
     const isProducer = def.powerOutput > 0;
     const isConsumer = def.powerConsumption > 0;
     if (isProducer || isConsumer) {
-      const active = structure.isPoweredOn && !structure.isDeconstructing;
-      const value = isProducer ? def.powerOutput : def.powerConsumption;
-      let valueColor = active
+      const active = structure.isPoweredOn && structure.isConstructed && !structure.isDeconstructing;
+      const defValue = isProducer ? def.powerOutput : def.powerConsumption;
+      // When powered off, show 0 rather than the definition value
+      const effectiveValue = active ? defValue : 0;
+      const valueColor = active
         ? (isProducer ? '#44cc44' : '#cc4444')
-        : '#666666';
-      let valueText = formatPower(value);
-
-      // NO POWER override for depowered turrets/recyclers
-      if (!structure.isDeconstructing && mgr && (
-        structure instanceof StructureTurret ||
-        structure instanceof StructureRecycler
-      )) {
-        const summary = mgr.getTeamGridSummary(structure.team);
-        if (summary && summary.powerEfficiency <= 0) {
-          valueText = 'NO POWER';
-          valueColor = '#cc4444';
-        }
-      }
+        : '#555555';
       rows.push({ segments: [
-        { text: 'PWR  ', color: '#ffffff' },
-        { text: valueText, color: valueColor },
+        { text: 'PWR  ', color: '#888888' },
+        { text: formatPower(effectiveValue), color: valueColor },
       ]});
     }
 
-    // ── Storage row — split into separately colored segments ────────
+    // ── Storage row ──────────────────────────────────────────────────
     if (def.storageCapacity > 0) {
       const used = structure.getInventoryTotal();
       const pct = Math.round((used / def.storageCapacity) * 100);
-
-      let usedColor: string;
-      if (pct >= 90) { usedColor = '#cc4444'; }
-      else if (pct >= 60) { usedColor = '#ccaa44'; }
-      else { usedColor = '#44cc44'; }
-
+      const usedColor = pct >= 90 ? '#cc4444' : pct >= 60 ? '#ccaa44' : '#44cc44';
+      // Keep current amount coloured; capacity + percentage dim — all in one
+      // contiguous string per segment so x-positions never drift.
       rows.push({ segments: [
-        { text: 'STR  ', color: '#ffffff' },
+        { text: 'STR  ', color: '#777777' },
         { text: formatWeight(used), color: usedColor },
-        { text: ' / ', color: '#ffffff' },
-        { text: formatWeight(def.storageCapacity), color: '#ffffff' },
-        { text: ` (${pct}%)`, color: usedColor },
+        { text: ` / ${formatWeight(def.storageCapacity)}  (${pct}%)`, color: '#555555' },
       ]});
     }
 
@@ -449,91 +589,110 @@ export class StructureRenderer implements IRenderer {
       const stored = structure.getStoredPower();
       const cap = def.powerStorageCapacity;
       const pct = Math.round((stored / cap) * 100);
-
-      let storedColor: string;
-      if (pct >= 90) { storedColor = '#44cc44'; }
-      else if (pct >= 30) { storedColor = '#ccaa44'; }
-      else { storedColor = '#cc4444'; }
-
+      const storedColor = pct >= 90 ? '#44cc44' : pct >= 30 ? '#ccaa44' : '#cc4444';
       rows.push({ segments: [
-        { text: 'BATT ', color: '#cc8844' },
+        { text: 'BATT ', color: '#777777' },
         { text: formatPower(stored), color: storedColor },
-        { text: ' / ', color: '#ffffff' },
-        { text: formatPower(cap), color: '#ffffff' },
-        { text: ` (${pct}%)`, color: storedColor },
+        { text: ` / ${formatPower(cap)}  (${pct}%)`, color: '#555555' },
       ]});
     }
 
-    // ── Type-specific extra row ─────────────────────────────────────
+    // ── Type-specific extra row ──────────────────────────────────────
     if (structure instanceof StructureAssemblyYard && structure.isConstructed) {
       const count = structure.activeShipIds.length;
       rows.push({ segments: [
-        { text: 'BLD  ', color: '#ffffff' },
-        { text: `${count}/3 SHIPS`, color: '#cccccc' },
+        { text: 'BLD  ', color: '#888888' },
+        { text: `${count}/3 ships`, color: '#aaaaaa' },
       ]});
     } else if (structure instanceof StructureManufacturer && structure.isConstructed) {
       rows.push({ segments: [
-        { text: 'MFG  ', color: '#ffffff' },
+        { text: 'MFG  ', color: '#888888' },
         { text: structure.getRecipeName(), color: '#aacc44' },
       ]});
     }
 
-    if (rows.length === 0) return;
+    // ── Compute world→screen layout ───────────────────────────────────
+    const statusInfo = computeStructureStatus(structure, mgr);
 
-    // Get (or create) this structure's dedicated readout container + CRT filter
+    const panelW     = PANEL_WORLD_W   * s;
+    const rowLineH   = READOUT_LINE_WH * s;
+    const statusLineH = STATUS_LINE_WH * s;
+    const headerLineH = HEADER_LINE_WH * s;
+    const padY       = PANEL_PAD_WH    * s;
+    const padX       = PANEL_PAD_WX    * s;
+    const sepH       = SEP_WH          * s;
+    const charW      = CHAR_WW         * s;
+
+    const hasSeparator = rows.length > 0;
+    const panelH = padY
+      + headerLineH + statusLineH
+      + (hasSeparator ? sepH + rows.length * rowLineH : 0)
+      + padY;
+
+    const margin = 1.5 * s;
+    const boxX   = cx - hw + margin;
+    const boxY   = cy - hh + margin;
+    const radius = Math.max(1, 1.5 * s);
+
+    // Text scales: rasterise at RASTER, display at world-unit height × scale
+    const readoutScale = (READOUT_WORLD_H * s) / RASTER;
+    const statusScale  = (STATUS_WORLD_H  * s) / RASTER;
+    const headerScale  = (HEADER_WORLD_H  * s) / RASTER;
+
+    // Get (or create) the CRT-filtered readout container for this structure
     const entry = this.getReadoutEntry(structure.id);
 
-    // ── Layout: black backdrop sized to content, top-left of structure ─
-    const RASTER_FONT = 32;
-    const worldTextH = def.heightPx * 0.035;
-    const textScale = (worldTextH * scale) / RASTER_FONT;
-    const screenTextH = RASTER_FONT * textScale;
-    const charW = screenTextH * 0.6; // monospace char width ≈ 0.6 × height
-    const lineH = screenTextH * 1.4;
-    const margin = 6 * scale;
-    const pad = 4 * scale;
-
-    // Find the longest row in characters to size the backdrop
-    let maxChars = 0;
-    for (const row of rows) {
-      let rowChars = 0;
-      for (const seg of row.segments) rowChars += seg.text.length;
-      if (rowChars > maxChars) maxChars = rowChars;
-    }
-
-    const boxX = cx - hw + margin;
-    const boxY = cy - hh + margin;
-    const boxW = maxChars * charW + pad * 2;
-    const contentH = rows.length * lineH + pad * 2;
-    const minH = contentH * 1.5; // slightly taller than content
-    const boxH = Math.max(contentH, minH);
-    const radius = 2 * scale;
-
-    // Black fill — on per-structure readout graphics (affected by CRT filter)
+    // Black fill (CRT-filtered)
     entry.graphics.lineStyle(0);
     entry.graphics.beginFill(0x000000, 0.9);
-    entry.graphics.drawRoundedRect(boxX, boxY, boxW, boxH, radius);
+    entry.graphics.drawRoundedRect(boxX, boxY, panelW, panelH, radius);
     entry.graphics.endFill();
 
-    // White border — on main graphics (NOT affected by CRT filter)
-    const borderWidth = Math.max(1, 1.5 * scale);
-    this.graphics.lineStyle(borderWidth, 0xffffff, 0.7);
-    this.graphics.beginFill(0x000000, 0); // transparent fill
-    this.graphics.drawRoundedRect(boxX, boxY, boxW, boxH, radius);
+    // Subtle border (non-CRT, drawn on shared graphics)
+    this.graphics.lineStyle(Math.max(1, s * 0.5), 0xffffff, 0.4);
+    this.graphics.beginFill(0x000000, 0);
+    this.graphics.drawRoundedRect(boxX, boxY, panelW, panelH, radius);
     this.graphics.endFill();
 
-    let y = boxY + pad;
+    // ── Status header ("STATUS") — subtle monospace label ────────────
+    let y = boxY + padY;
+    this.placeReadoutText(
+      entry, 'STATUS',
+      boxX + padX, y,
+      { ...STATUS_HEADER_STYLE, fontSize: RASTER, fill: '#444444' } as PIXI.TextStyle,
+      0, 0, headerScale,
+    );
+    y += headerLineH;
+
+    // ── Status value — large bold, coloured ──────────────────────────
+    this.placeReadoutText(
+      entry, statusInfo.text,
+      boxX + padX, y,
+      { ...STATUS_VALUE_STYLE, fontSize: RASTER, fill: statusInfo.color } as PIXI.TextStyle,
+      0, 0, statusScale,
+    );
+    y += statusLineH;
+
+    if (!hasSeparator) return;
+
+    // ── Separator line ────────────────────────────────────────────────
+    entry.graphics.lineStyle(Math.max(0.5, s * 0.3), 0x333333, 0.9);
+    entry.graphics.moveTo(boxX + padX, y + sepH * 0.3);
+    entry.graphics.lineTo(boxX + panelW - padX, y + sepH * 0.3);
+    y += sepH;
+
+    // ── Data rows ─────────────────────────────────────────────────────
     for (const row of rows) {
-      let x = boxX + pad;
+      let x = boxX + padX;
       for (const seg of row.segments) {
         this.placeReadoutText(
           entry, seg.text, x, y,
-          { ...READOUT_STYLE, fontSize: RASTER_FONT, fill: seg.color } as PIXI.TextStyle,
-          0, 0, textScale,
+          { ...READOUT_STYLE, fontSize: RASTER, fill: seg.color } as PIXI.TextStyle,
+          0, 0, readoutScale,
         );
         x += seg.text.length * charW;
       }
-      y += lineH;
+      y += rowLineH;
     }
   }
 
@@ -566,7 +725,7 @@ export class StructureRenderer implements IRenderer {
       }
 
       // Floating text
-      if (viewport.scale > MIN_TEXT_SCALE * 0.5) {
+      if (viewport.scale > 0.4 * 0.5) {
         const label = depositing ? 'DEPOSITING...' : 'DROP ORE HERE';
         const style = new PIXI.TextStyle({
           fontFamily: 'monospace',

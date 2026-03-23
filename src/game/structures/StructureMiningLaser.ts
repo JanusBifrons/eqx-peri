@@ -29,6 +29,11 @@ export class StructureMiningLaser extends Structure {
     this.targetAimAngle = 0;
   }
 
+  /** Whether this mining laser currently has an asteroid target locked. */
+  public hasActiveTarget(): boolean {
+    return this.targetAsteroid !== null;
+  }
+
   /**
    * Per-frame update: scan for asteroids, rotate barrel, return beam fire specs.
    * The caller routes these to BeamSystem.processBeamFire() for damage + ore extraction.
