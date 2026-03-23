@@ -1,6 +1,6 @@
 import { Assembly } from '../core/Assembly';
 import { Controller, ControlInput } from './Controller';
-import { Vector2, ENTITY_DEFINITIONS } from '../../types/GameTypes';
+import { Vector2, ENTITY_DEFINITIONS, AIOrder } from '../../types/GameTypes';
 
 // ─── Steering constants ────────────────────────────────────────────────────
 const MAX_SPEED    = 3.0;  // world units / physics frame (base)
@@ -10,6 +10,12 @@ const AIM_READY_THRESHOLD = 0.25; // rad (~14°) — weapon considered on-target
 
 // How long (ms) the AI keeps a recent attacker as priority target.
 const ATTACKER_PRIORITY_MS = 8000;
+
+// ─── Move order constants ────────────────────────────────────────────────────
+/** Distance (world units) at which a move order is considered reached. */
+const MOVE_ARRIVAL_THRESHOLD = 60;
+/** Braking ramp distance for move orders (arrive-steering tapers speed within this). */
+const MOVE_ARRIVAL_RADIUS = 300;
 
 // ─── Formation & coordination constants ─────────────────────────────────────
 
@@ -109,6 +115,9 @@ export class AIController extends Controller {
     /** Team-level power ratio (ownTeamPower / enemyTeamPower), set by ControllerManager. */
     private teamPowerRatio = 1.0;
 
+    // ── Move order ────────────────────────────────────────────────────────
+    private moveOrder: AIOrder | null = null;
+
     constructor(assembly: Assembly) {
         super(assembly);
     }
@@ -142,8 +151,19 @@ export class AIController extends Controller {
         return this.target;
     }
 
+    /** Set a move/attack/patrol order. Replaces any existing order. */
+    setOrder(order: AIOrder | null): void {
+        this.moveOrder = order;
+    }
+
+    /** Get the current active order, or null if none. */
+    getOrder(): AIOrder | null {
+        return this.moveOrder;
+    }
+
     /** Human-readable label for the current combat state, used by the renderer. */
     getCombatStateLabel(): string {
+        if (this.moveOrder) return 'MOVING';
         switch (this.combatState) {
             case CombatState.SIZING_UP: return 'SIZING UP';
             case CombatState.ENGAGE:    return 'ENGAGE';
@@ -160,6 +180,11 @@ export class AIController extends Controller {
         if (attackerId && attackerId !== this.lastKnownAttackerId) {
             this.lastKnownAttackerId = attackerId;
             this.lastAttackerNoticeTime = now;
+        }
+
+        // ── Move order takes priority over combat ──────────────────────────
+        if (this.moveOrder && this.moveOrder.type === 'move') {
+            return this.getMoveOrderInput(this.moveOrder.targetPosition);
         }
 
         if (now - this.lastTargetScanTime > this.targetScanInterval) {
@@ -430,7 +455,7 @@ export class AIController extends Controller {
         const fire = this.combatState !== CombatState.SIZING_UP
             && this.hasWeaponsReadyToFire(distance);
 
-        return { thrust, torque: this.calculateRotation(heading), fire, dampen, dampenFactor, lateralDampenFactor, targetAngle: heading };
+        return { thrust, torque: this.calculateRotation(heading), fire, dampen, dampenFactor, lateralDampenFactor, angularDampen: true, angularDampenFactor: 0.98, targetAngle: heading };
     }
 
     private statePreferredRange(): number {
@@ -718,7 +743,95 @@ export class AIController extends Controller {
         return diff * 2.0; // proportional — clamped by Assembly.applyTorque
     }
 
+    // ── Move order steering ─────────────────────────────────────────────
+
+    /**
+     * Arrive-steering toward a fixed world position.
+     *
+     * Uses a single unified approach: compute `desiredVelocity` (toward target,
+     * speed tapered by distance), then `steering = desired − current`.  The
+     * ship always faces the steering vector direction and thrusts forward.
+     *
+     * This naturally handles all phases:
+     *   - Far away: steering ≈ toward target → accelerate.
+     *   - Approaching fast: desired is small, current is large →
+     *     steering ≈ −velocity (retrograde) → ship flips and brakes.
+     *   - Near and slow: steering ≈ toward target gently → nudge in.
+     *
+     * Uses the same dampening system as the player (dampen + angularDampen
+     * flags on ControlInput, processed in ControllerManager.applyInput).
+     *
+     * The order only clears when truly on-target and nearly stationary.
+     */
+    private getMoveOrderInput(target: Vector2): ControlInput {
+        const myPos = this.assembly.rootBody.position;
+        const myVel = this.assembly.rootBody.velocity;
+
+        const dx = target.x - myPos.x;
+        const dy = target.y - myPos.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const speed = Math.sqrt(myVel.x * myVel.x + myVel.y * myVel.y);
+
+        // Shared dampening — same values the player uses.
+        const baseDampen = {
+            dampen: true,
+            dampenFactor: 0.985,
+            angularDampen: true,
+            angularDampenFactor: 0.98,
+        };
+
+        // Only complete when truly on top of the target AND nearly stationary.
+        if (dist < MOVE_ARRIVAL_THRESHOLD && speed < 0.15) {
+            this.moveOrder = null;
+            return { thrust: { x: 0, y: 0 }, torque: 0, fire: false, ...baseDampen };
+        }
+
+        const topSpeed = MAX_SPEED * this.aggressionLevel;
+
+        // Desired velocity: toward target, magnitude tapered by distance.
+        // As dist → 0, desiredSpeed → 0, so steering naturally becomes
+        // the negative of current velocity (i.e. retrograde braking).
+        const desiredSpeed = topSpeed * Math.min(1, dist / MOVE_ARRIVAL_RADIUS);
+        const toTarget = dist > 0.1
+            ? { x: dx / dist, y: dy / dist }
+            : { x: 0, y: 0 };
+        const desVel = { x: toTarget.x * desiredSpeed, y: toTarget.y * desiredSpeed };
+
+        // Steering = desired − current.  This single vector encodes both
+        // "accelerate toward target" and "brake against current velocity".
+        const steer = { x: desVel.x - myVel.x, y: desVel.y - myVel.y };
+        const stMag = Math.sqrt(steer.x * steer.x + steer.y * steer.y);
+
+        if (stMag < 0.001) {
+            return { thrust: { x: 0, y: 0 }, torque: 0, fire: false, ...baseDampen };
+        }
+
+        // Face the steering direction.  When braking, this IS retrograde.
+        const heading = Math.atan2(steer.y, steer.x);
+
+        // Thrust magnitude: proportional to steering magnitude, capped at 1.
+        const tMag = Math.min(1.0, stMag / topSpeed);
+
+        // Project onto ship's forward axis (ships can only thrust forward).
+        const nose = this.assembly.rootBody.angle;
+        const steerNormX = steer.x / stMag;
+        const steerNormY = steer.y / stMag;
+        const fwd = Math.max(0, steerNormX * Math.cos(nose) + steerNormY * Math.sin(nose));
+
+        return {
+            thrust: { x: fwd * tMag, y: 0 },
+            torque: this.calculateRotation(heading),
+            fire: false,
+            ...baseDampen,
+        };
+    }
+
     private getIdleInput(): ControlInput {
-        return { thrust: { x: 0, y: 0 }, torque: 0, fire: false };
+        // Same dampening as the player — idle AI ships stay alive, not dead scrap.
+        return {
+            thrust: { x: 0, y: 0 }, torque: 0, fire: false,
+            dampen: true, dampenFactor: 0.985,
+            angularDampen: true, angularDampenFactor: 0.98,
+        };
     }
 }

@@ -82,6 +82,16 @@ Do **not** compute thrust as a direction-toward-target without subtracting curre
 
 **Data flow**: `ControllerManager` → `AIController.setFriendlies(sameTeamAssemblies)`, `setTeamPowerRatio(ratio)`, `setFormationSlot(index, total)`. Formation slots are sorted by assembly ID for frame-to-frame stability.
 
+## AI Order System (RTS-style)
+
+`AIController` accepts player-issued orders via `setOrder(order: AIOrder | null)`. When a move order is active, it takes priority over the combat state machine.
+
+**Move order** (`type: 'move'`): arrive-steering toward `targetPosition` at `MAX_SPEED × aggressionLevel`, braking within `MOVE_ARRIVAL_RADIUS` (300 units). Auto-clears when within `MOVE_ARRIVAL_THRESHOLD` (60 units). Ship faces the travel direction; weapons do not fire. `getCombatStateLabel()` returns `'MOVING'` while an order is active.
+
+**Issuing orders**: `GameEngine.issueAIOrder(assemblyId, order)` stores the order in both `AIController` and an `aiOrders` map. Right-clicking empty space with a friendly (team 0) AI ship selected issues a move order to the click position. `GameEngine.getActiveAIOrders()` returns live orders for rendering (auto-prunes completed/invalid).
+
+**`ControllerManager.getAIControllerForAssembly(id)`**: typed accessor returning `AIController | null` for a given assembly ID.
+
 ---
 
 MAINTENANCE MANDATE: If you establish a new pattern, change a library, or fix a systemic bug within the scope of this directory, you must update this CLAUDE.md file to reflect the new standard before concluding your task.

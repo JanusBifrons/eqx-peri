@@ -2,7 +2,7 @@ import * as Matter from 'matter-js';
 import Stats from 'stats.js';
 import { Assembly } from './Assembly';
 import { Entity } from './Entity';
-import { EntityConfig, GRID_SIZE, ENTITY_DEFINITIONS, EntityType, ScenarioConfig, SCENARIOS, SHIP_SPAWN_SPACING, Vector2, PerformanceMetrics, isStructuralBlock, StructureType, ASTEROID_ORE_MAP, AsteroidClass } from '../../types/GameTypes';
+import { EntityConfig, GRID_SIZE, ENTITY_DEFINITIONS, EntityType, ScenarioConfig, SCENARIOS, SHIP_SPAWN_SPACING, Vector2, PerformanceMetrics, isStructuralBlock, StructureType, ASTEROID_ORE_MAP, AsteroidClass, AIOrder } from '../../types/GameTypes';
 import shipsData from '../../data/ships.json';
 import { ControllerManager } from '../ai/ControllerManager';
 import { FlightController } from '../ai/FlightController';
@@ -18,6 +18,7 @@ import { BlockBodyRenderer } from '../rendering/BlockBodyRenderer';
 import { BlockFrillsRenderer } from '../rendering/BlockFrillsRenderer';
 import { ShieldRenderer } from '../rendering/ShieldRenderer';
 import { ShipHighlightRenderer } from '../rendering/ShipHighlightRenderer';
+import { OrderRenderer } from '../rendering/OrderRenderer';
 import { AimingDebugRenderer } from '../rendering/AimingDebugRenderer';
 import { RingRadarRenderer } from '../rendering/RingRadarRenderer';
 import { BlockPickupRenderer } from '../rendering/BlockPickupRenderer';
@@ -66,6 +67,9 @@ export class GameEngine {
   // Player command system
   private playerCommand: string | null = null;
   private playerCommandTarget: Assembly | null = null;
+
+  // ── AI Order system (RTS-style orders for friendly AI ships) ──────────
+  private aiOrders: Map<string, AIOrder> = new Map();
   private zoomLevel: number = 0.05; // Will be calculated based on window size
   private minZoom: number = 1 / 15; // Maximum 15× zoom out
   private maxZoom: number = 4; // Allow zooming in more
@@ -1317,22 +1321,17 @@ export class GameEngine {
       }
     }
 
-    // Send input to player controller
-    this.controllerManager.setPlayerInput(input);    // Apply rotational dampening directly (this is physics, not control)
-    if (input.torque === 0) {
-      const currentAngularVel = this.playerAssembly.rootBody.angularVelocity;
-      const dampening = 0.98; // Reduced from 0.95 to be less aggressive and let Assembly's control handle it
-      Matter.Body.setAngularVelocity(this.playerAssembly.rootBody, currentAngularVel * dampening);
-    }
-
-    // Apply inertial dampening — damp lateral and forward velocity each frame
+    // Route dampening through the shared ControlInput pipeline so player and AI
+    // use the exact same code path in ControllerManager.applyInput().
     if (this.inertialDampeningEnabled) {
-      const vel = this.playerAssembly.rootBody.velocity;
-      Matter.Body.setVelocity(this.playerAssembly.rootBody, {
-        x: vel.x * this.INERTIAL_DAMPENING_FACTOR,
-        y: vel.y * this.INERTIAL_DAMPENING_FACTOR
-      });
+      input.dampen = true;
+      input.dampenFactor = this.INERTIAL_DAMPENING_FACTOR;
     }
+    input.angularDampen = true;
+    input.angularDampenFactor = 0.98;
+
+    // Send input to player controller
+    this.controllerManager.setPlayerInput(input);
   }
 
   private updateLasers(): void {
@@ -1859,11 +1858,19 @@ export class GameEngine {
     }
   }
   */
-  private handleRightClick(_event: MouseEvent): void {
-    // Right click for targeting - handled by handleCanvasClick now
-    // This method is called by the mousedown event handler, but targeting
-    // is now handled in handleCanvasClick which is called by the click event
-    console.log('🖱️ Right click detected - targeting handled by click event');
+  private handleRightClick(event: MouseEvent): void {
+    // RTS move order: right-click with a friendly AI ship selected → move order
+    if (this.selectedAssembly
+      && this.selectedAssembly.team === 0
+      && !this.selectedAssembly.isPlayerControlled
+      && !this.selectedAssembly.destroyed
+    ) {
+      const rect = this.render.canvas.getBoundingClientRect();
+      const screenX = event.clientX - rect.left;
+      const screenY = event.clientY - rect.top;
+      const worldPos = this.screenToWorld(screenX, screenY);
+      this.issueAIOrder(this.selectedAssembly.id, { type: 'move', targetPosition: worldPos });
+    }
   } private handleMouseWheel(event: WheelEvent): void {
     // Accumulate scroll in log-space so each notch is a consistent percentage change
     // regardless of current zoom level. 0.065 per notch ≈ 6.5% — gradual and smooth.
@@ -2009,6 +2016,9 @@ export class GameEngine {
       () => this.getSelectedStructure(),
       (structure) => this.structureManager?.gridManager.getGridPowerSummary(
         structure, this.structureManager.getStructures()) ?? null,
+    ));
+    this.renderSystem.register(new OrderRenderer(
+      () => this.getActiveAIOrders(),
     ));
     this.renderSystem.register(new RingRadarRenderer(
       () => this.assemblies,
@@ -2846,6 +2856,46 @@ export class GameEngine {
       this.selectAssembly(null);
     }
   }
+  // ── AI Order system ──────────────────────────────────────────────────
+
+  /** Issue an order to a friendly AI ship. Replaces any existing order. */
+  public issueAIOrder(assemblyId: string, order: AIOrder): void {
+    const controller = this.controllerManager.getAIControllerForAssembly(assemblyId);
+    if (!controller) return;
+    controller.setOrder(order);
+    this.aiOrders.set(assemblyId, order);
+  }
+
+  /** Clear any active order for an assembly. */
+  public clearAIOrder(assemblyId: string): void {
+    const controller = this.controllerManager.getAIControllerForAssembly(assemblyId);
+    if (controller) controller.setOrder(null);
+    this.aiOrders.delete(assemblyId);
+  }
+
+  /**
+   * Returns all active AI orders paired with their assembly, for rendering.
+   * Prunes completed/invalid orders automatically.
+   */
+  public getActiveAIOrders(): Array<{ assembly: Assembly; order: AIOrder }> {
+    const result: Array<{ assembly: Assembly; order: AIOrder }> = [];
+    for (const [id, order] of this.aiOrders) {
+      const assembly = this.assemblies.find(a => a.id === id);
+      if (!assembly || assembly.destroyed) {
+        this.aiOrders.delete(id);
+        continue;
+      }
+      // Check if the controller still has this order (it auto-clears on arrival)
+      const controller = this.controllerManager.getAIControllerForAssembly(id);
+      if (!controller || !controller.getOrder()) {
+        this.aiOrders.delete(id);
+        continue;
+      }
+      result.push({ assembly, order });
+    }
+    return result;
+  }
+
   public setPlayerCommand(command: string, targetId?: string): void {
     console.log(`🎮 Player command: ${command}${targetId ? ` on target ${targetId}` : ''}`);
 

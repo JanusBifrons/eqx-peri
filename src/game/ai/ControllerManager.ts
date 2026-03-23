@@ -117,6 +117,14 @@ export class ControllerManager {    private controllers: Map<string, IController
             }
         }
 
+        // Apply angular dampening when no torque input and angularDampen is set.
+        // This is the shared code path for both player and AI rotational braking.
+        if (input.angularDampen && Math.abs(input.torque) < 0.01) {
+            const angVel = assembly.rootBody.angularVelocity;
+            const angFactor = input.angularDampenFactor ?? 0.98;
+            Matter.Body.setAngularVelocity(assembly.rootBody, angVel * angFactor);
+        }
+
         // Apply thrust. For player-controlled ships with dedicated engines, rotation is
         // achieved by selectively firing engines on the appropriate side; applyThrust
         // returns true in that case so we skip the direct-angular-velocity applyTorque.
@@ -271,6 +279,12 @@ export class ControllerManager {    private controllers: Map<string, IController
         const controller = this.controllers.get(assemblyId);
         if (controller instanceof AIController) return controller.getCombatStateLabel();
         return null;
+    }
+
+    /** Returns the AIController for a specific assembly, or null if none. */
+    getAIControllerForAssembly(assemblyId: string): AIController | null {
+        const controller = this.controllers.get(assemblyId);
+        return controller instanceof AIController ? controller : null;
     }
 
     // Get all AI controllers

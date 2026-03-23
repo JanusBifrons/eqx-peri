@@ -76,6 +76,7 @@ Matter.js compound bodies are created via `Matter.Body.create({ parts: [...] })`
 | 45 | `BeamRenderer` | Continuous beam weapon visuals (glow + core line + impact flash) |
 | 46 | `ShockwaveRenderer` | Expanding shockwave ring when an assembly is fully destroyed |
 | 50 | `ShipHighlightRenderer` | Hover/selected bounding boxes, locked-target brackets |
+| 52 | `OrderRenderer` | AI move order lines (green line + dots from cockpit to target) |
 | 55 | `RingRadarRenderer` | Ring radar — directional arrows on a screen-space circle; red/green/grey by faction; size scales with world distance (clamped MIN_SCALE…MAX_SCALE) |
 | 60 | `AimingDebugRenderer` | Weapon arc, distance rings, aim line |
 | 70 | `BlockPickupRenderer` | Block pickup ghost/snap overlay |

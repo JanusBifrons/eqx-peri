@@ -39,6 +39,7 @@ interface IRenderer {
 | 45 | `BeamRenderer` | Continuous beam visuals (glow + core line + impact flash); mining laser uses red style |
 | 46 | `ShockwaveRenderer` | Expanding ring when an assembly is fully destroyed |
 | 50 | `ShipHighlightRenderer` | Hover/selected bounding boxes, lock-on brackets |
+| 52 | `OrderRenderer` | AI move order lines (green line + dots from cockpit to target) |
 | 60 | `AimingDebugRenderer` | Weapon arc, distance rings, aim line |
 | 70 | `BlockPickupRenderer` | Block pickup ghost and snap overlay |
 | 71 | `StructurePlacementRenderer` | Structure placement hologram + connection preview lines |

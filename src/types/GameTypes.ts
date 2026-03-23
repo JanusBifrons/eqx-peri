@@ -111,6 +111,20 @@ export interface PerformanceMetrics {
   collisionsPerSecond: number; // Physics collision pairs per second (1 s rolling average)
 }
 
+// ── AI Order System ─────────────────────────────────────────────────────────
+
+/** Order types that can be issued to friendly AI ships. */
+export type AIOrderType = 'move';
+
+/** A move-to-position order. The AI will navigate to the target and stop. */
+export interface MoveOrder {
+  type: 'move';
+  targetPosition: Vector2;
+}
+
+/** Union of all possible AI orders. Extend this as new order types are added. */
+export type AIOrder = MoveOrder;
+
 // Connection information for tracking what's attached to each attachment point
 export interface AttachmentConnection {
   connectedEntity: string | null; // Entity ID that's connected to this point

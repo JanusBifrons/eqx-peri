@@ -26,6 +26,7 @@ const AI_STATE_COLORS: Record<string, number> = {
   'ENGAGE':    0xffcc00,
   'PURSUE':    0xff8800,
   'RETREAT':   0xff3333,
+  'MOVING':    0x44ff44,
 };
 
 const STATUS_LABELS: Record<AssemblyStatus, string> = {
