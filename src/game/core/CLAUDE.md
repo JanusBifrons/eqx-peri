@@ -55,8 +55,9 @@ Matter.js compound bodies are created via `Matter.Body.create({ parts: [...] })`
 `RenderSystem` owns the `requestAnimationFrame` loop and all visual output. Matter.js physics continues to run via its runner, but `Matter.Render.run()` is **not** called — `RenderSystem` replaces it entirely.
 
 **Key rules:**
-- `GameEngine` creates `RenderSystem` in `setupRenderSystem()` and registers seven `IRenderer` instances (one per visual concern, sorted by `renderPriority`).
+- `GameEngine` creates `RenderSystem` in `setupRenderSystem()` and registers `IRenderer` instances (one per visual concern, sorted by `renderPriority`).
 - Each renderer receives only what it needs via getter closures injected at construction — no renderer holds a reference to `GameEngine`.
+- **Dual-container scene graph**: `RenderSystem` manages a `WorldContainer` (world-space) and `screenContainer` (screen-space). Renderers with `renderSpace = 'world'` draw in world coordinates directly — `WorldContainer` applies the camera transform via PIXI's scene graph. Screen-space renderers use `Viewport.worldToScreen()` as before. See `src/game/rendering/CLAUDE.md` for the full pattern and world-space coding conventions.
 - `Entity.body.render.fillStyle/strokeStyle/lineWidth` are the visual data contract: `Entity.updateFlash()` and `Entity.updateVisualState()` write these; `BlockBodyRenderer` reads them. Do not bypass this contract.
 - Camera management stays in `GameEngine.updateCamera()` via `Matter.Render.lookAt(this.render, ...)`. `RenderSystem` reads `this.render.bounds` each frame via a `getBounds` getter — zero camera logic lives in the render system.
 - Physics debug wireframe overlay: `GameEngine.setDebugPhysics(enabled)` delegates to `RenderSystem.setDebugPhysics()`, which creates/destroys a second `Matter.Render` instance (`wireframes: true`, `background: 'transparent'`) positioned absolutely over the game canvas. Its bounds are synced to the main viewport each frame via `Matter.Render.lookAt()`.

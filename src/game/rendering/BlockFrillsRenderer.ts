@@ -5,6 +5,7 @@ import { Assembly } from '../core/Assembly';
 
 export class BlockFrillsRenderer implements IRenderer {
   readonly renderPriority = 30;
+  readonly renderSpace = 'world' as const;
 
   private graphics!: PIXI.Graphics;
 

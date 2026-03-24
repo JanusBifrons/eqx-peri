@@ -5,6 +5,7 @@ import { Assembly } from '../core/Assembly';
 
 export class ShieldRenderer implements IRenderer {
   readonly renderPriority = 40;
+  readonly renderSpace = 'world' as const;
 
   private graphics!: PIXI.Graphics;
 
@@ -18,12 +19,8 @@ export class ShieldRenderer implements IRenderer {
   render(viewport: Viewport, timestamp: number): void {
     this.graphics.clear();
 
-    const { bounds, canvas } = viewport;
-    const bw = bounds.max.x - bounds.min.x;
-    const bh = bounds.max.y - bounds.min.y;
-    const sx = (wx: number) => (wx - bounds.min.x) / bw * canvas.width;
-    const sy = (wy: number) => (wy - bounds.min.y) / bh * canvas.height;
-    const scale = canvas.width / bw;
+    const { bounds } = viewport;
+    const scale = viewport.scale;
     const now = Date.now();
 
     for (const assembly of this.getAssemblies()) {
@@ -39,10 +36,7 @@ export class ShieldRenderer implements IRenderer {
           bubble.y < bounds.min.y - bubble.radius || bubble.y > bounds.max.y + bubble.radius
         ) continue;
 
-        const screenX = sx(bubble.x);
-        const screenY = sy(bubble.y);
-        const radius = bubble.radius * scale;
-
+        // Draw in world coords — WorldContainer handles transform
         if (s.isActive && s.currentHp > 0) {
           const hpRatio = s.currentHp / Math.max(1, s.maxHp);
           const timeSinceHit = now - s.lastHitTime;
@@ -55,28 +49,27 @@ export class ShieldRenderer implements IRenderer {
           // Approximate radial gradient with concentric filled circles (outer→inner)
           this.graphics.lineStyle(0);
           this.graphics.beginFill(0x1e50dc, alpha * 0.6);
-          this.graphics.drawCircle(screenX, screenY, radius);
+          this.graphics.drawCircle(bubble.x, bubble.y, bubble.radius);
           this.graphics.endFill();
           this.graphics.beginFill(0x3c82ff, alpha * 0.25);
-          this.graphics.drawCircle(screenX, screenY, radius * 0.7);
+          this.graphics.drawCircle(bubble.x, bubble.y, bubble.radius * 0.7);
           this.graphics.endFill();
           this.graphics.beginFill(0x64b4ff, alpha * 0.15);
-          this.graphics.drawCircle(screenX, screenY, radius * 0.4);
+          this.graphics.drawCircle(bubble.x, bubble.y, bubble.radius * 0.4);
           this.graphics.endFill();
 
-          // Rim
+          // Rim — ensure minimum 1 screen pixel width
           const rimAlpha = Math.min(1, 0.5 + hitFlash * 0.5);
-          const rimWidth = Math.max(1, scale * 2) * (1 + hitFlash * 0.5);
+          const rimWidth = Math.max(1 / scale, 2) * (1 + hitFlash * 0.5);
           this.graphics.lineStyle(rimWidth, 0x78c8ff, rimAlpha);
-          this.graphics.drawCircle(screenX, screenY, radius);
+          this.graphics.drawCircle(bubble.x, bubble.y, bubble.radius);
 
         } else if (!s.isActive) {
           const timeLeft = s.cooldownUntil - now;
           if (timeLeft > 0) {
             const pulse = Math.sin(timestamp / 400) * 0.3 + 0.4;
-            // Approximated dashed ring as a solid ring at low alpha
-            this.graphics.lineStyle(Math.max(1, scale * 1.5), 0x3c50a0, pulse * 0.4);
-            this.graphics.drawCircle(screenX, screenY, radius);
+            this.graphics.lineStyle(Math.max(1 / scale, 1.5), 0x3c50a0, pulse * 0.4);
+            this.graphics.drawCircle(bubble.x, bubble.y, bubble.radius);
           }
         }
       }

@@ -3,6 +3,7 @@ import * as Matter from 'matter-js';
 import Stats from 'stats.js';
 import { IRenderer } from '../rendering/IRenderer';
 import { Viewport } from '../rendering/Viewport';
+import { WorldContainer } from '../rendering/WorldContainer';
 
 export class RenderSystem {
   private readonly app: PIXI.Application;
@@ -12,6 +13,11 @@ export class RenderSystem {
   private running: boolean = false;
   private readonly stats: Stats;
   private readonly getBounds: () => Matter.Bounds;
+
+  /** World-space container — children draw in world coords; transform applied automatically. */
+  private readonly worldContainer: WorldContainer;
+  /** Screen-space container — children draw in screen pixels. */
+  private readonly screenContainer: PIXI.Container;
 
   // Optional physics debug overlay
   private debugRender: Matter.Render | null = null;
@@ -59,12 +65,24 @@ export class RenderSystem {
 
     container.appendChild(pixiCanvas);
 
+    // Create the two rendering containers
+    this.worldContainer = new WorldContainer();
+    this.screenContainer = new PIXI.Container();
+
+    // World container is rendered first (below), screen container on top
+    this.app.stage.addChild(this.worldContainer);
+    this.app.stage.addChild(this.screenContainer);
+
     // Use the PIXI canvas dimensions for viewport transforms
     this.viewport = new Viewport(getBounds(), pixiCanvas);
   }
 
   public register(renderer: IRenderer): void {
-    renderer.init(this.app.stage);
+    // Route renderer to the appropriate container based on renderSpace
+    const container = renderer.renderSpace === 'world'
+      ? this.worldContainer
+      : this.screenContainer;
+    renderer.init(container);
     this.renderers.push(renderer);
     this.renderers.sort((a, b) => a.renderPriority - b.renderPriority);
   }
@@ -98,7 +116,13 @@ export class RenderSystem {
     if (!this.running) return;
 
     // Sync viewport bounds from the Matter.Render instance each frame
-    this.viewport.bounds = this.getBounds();
+    const bounds = this.getBounds();
+    this.viewport.bounds = bounds;
+
+    // Sync the world container's transform so world-space renderers are
+    // positioned correctly by the PIXI scene graph
+    const pixiCanvas = this.app.view as HTMLCanvasElement;
+    this.worldContainer.syncWithBounds(bounds, pixiCanvas.width, pixiCanvas.height);
 
     // Sync debug overlay bounds if active
     if (this.debugRender) {
@@ -118,6 +142,21 @@ export class RenderSystem {
     this.stats.end();
 
     this.rafId = requestAnimationFrame((ts) => this.loop(ts));
+  }
+
+  /** Get the world-space container (for external systems like ParticleSystem). */
+  public getWorldContainer(): WorldContainer {
+    return this.worldContainer;
+  }
+
+  /** Get the screen-space container (for external systems). */
+  public getScreenContainer(): PIXI.Container {
+    return this.screenContainer;
+  }
+
+  /** Get the PIXI stage (for filters that must be applied to the entire scene). */
+  public getStage(): PIXI.Container {
+    return this.app.stage;
   }
 
   /**

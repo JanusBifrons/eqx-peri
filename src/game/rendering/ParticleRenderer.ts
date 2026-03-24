@@ -22,6 +22,7 @@ const THRUST_CULL_MARGIN = 300;
  */
 export class ParticleRenderer implements IRenderer {
   readonly renderPriority = 22;
+  readonly renderSpace = 'world' as const;
 
   private lastTimestamp: number = 0;
 

@@ -22,6 +22,7 @@ const PATH_R = 68, PATH_G = 255, PATH_B = 68, PATH_A = 120;
  */
 export class PathfindingDebugRenderer implements IRenderer {
   readonly renderPriority = 61;
+  readonly renderSpace = 'world' as const;
 
   private sprite!: PIXI.Sprite;
   private enabled = false;
@@ -45,7 +46,7 @@ export class PathfindingDebugRenderer implements IRenderer {
     }
   }
 
-  render(viewport: Viewport): void {
+  render(_viewport: Viewport): void {
     if (!this.enabled) {
       this.sprite.visible = false;
       return;
@@ -63,13 +64,11 @@ export class PathfindingDebugRenderer implements IRenderer {
       this.rasterise(data);
     }
 
-    // Position and scale the sprite to match world coordinates
+    // Position and scale the sprite in world coordinates.
+    // WorldContainer handles world-to-screen transform.
     const { originX, originY, cellSize } = data;
-    const topLeft = viewport.worldToScreen(originX, originY);
-    const scale = viewport.scale * cellSize; // pixels per cell on screen
-
-    this.sprite.position.set(topLeft.x, topLeft.y);
-    this.sprite.scale.set(scale, scale);
+    this.sprite.position.set(originX, originY);
+    this.sprite.scale.set(cellSize, cellSize);
     this.sprite.visible = true;
   }
 

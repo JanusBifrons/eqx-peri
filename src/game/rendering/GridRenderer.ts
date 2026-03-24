@@ -10,6 +10,7 @@ const MAJOR_COLOR = 0x253048;
 
 export class GridRenderer implements IRenderer {
   readonly renderPriority = 10;
+  readonly renderSpace = 'world' as const;
 
   private graphics!: PIXI.Graphics;
 
@@ -24,7 +25,8 @@ export class GridRenderer implements IRenderer {
     this.graphics.clear();
     if (!this.getVisible()) return;
 
-    const { bounds, canvas } = viewport;
+    const { bounds } = viewport;
+    const scale = viewport.scale;
 
     const viewportWidth = bounds.max.x - bounds.min.x;
     const viewportHeight = bounds.max.y - bounds.min.y;
@@ -49,37 +51,35 @@ export class GridRenderer implements IRenderer {
     const startYMinor = Math.floor(bounds.min.y / baseMinorGridSize) * baseMinorGridSize;
     const endYMinor   = Math.ceil(bounds.max.y / baseMinorGridSize) * baseMinorGridSize;
 
-    const bw = bounds.max.x - bounds.min.x;
-    const bh = bounds.max.y - bounds.min.y;
-    const sx = (wx: number) => (wx - bounds.min.x) / bw * canvas.width;
-    const sy = (wy: number) => (wy - bounds.min.y) / bh * canvas.height;
-
     const baseOpacity = Math.min(1, Math.max(0.1, 2 / clampedZoomLevel));
 
-    // Minor grid lines
-    this.graphics.lineStyle(1, MINOR_COLOR, baseOpacity * 0.28);
+    // Line width: 1 screen pixel = 1/scale world units
+    const lw = 1 / scale;
+
+    // Minor grid lines — draw in world coords, WorldContainer handles transform
+    this.graphics.lineStyle(lw, MINOR_COLOR, baseOpacity * 0.28);
     for (let x = startXMinor; x <= endXMinor; x += baseMinorGridSize) {
       if (x % baseMajorGridSize !== 0) {
-        this.graphics.moveTo(sx(x), 0);
-        this.graphics.lineTo(sx(x), canvas.height);
+        this.graphics.moveTo(x, bounds.min.y);
+        this.graphics.lineTo(x, bounds.max.y);
       }
     }
     for (let y = startYMinor; y <= endYMinor; y += baseMinorGridSize) {
       if (y % baseMajorGridSize !== 0) {
-        this.graphics.moveTo(0, sy(y));
-        this.graphics.lineTo(canvas.width, sy(y));
+        this.graphics.moveTo(bounds.min.x, y);
+        this.graphics.lineTo(bounds.max.x, y);
       }
     }
 
     // Major grid lines
-    this.graphics.lineStyle(1, MAJOR_COLOR, baseOpacity * 0.50);
+    this.graphics.lineStyle(lw, MAJOR_COLOR, baseOpacity * 0.50);
     for (let x = startXMajor; x <= endXMajor; x += baseMajorGridSize) {
-      this.graphics.moveTo(sx(x), 0);
-      this.graphics.lineTo(sx(x), canvas.height);
+      this.graphics.moveTo(x, bounds.min.y);
+      this.graphics.lineTo(x, bounds.max.y);
     }
     for (let y = startYMajor; y <= endYMajor; y += baseMajorGridSize) {
-      this.graphics.moveTo(0, sy(y));
-      this.graphics.lineTo(canvas.width, sy(y));
+      this.graphics.moveTo(bounds.min.x, y);
+      this.graphics.lineTo(bounds.max.x, y);
     }
   }
 }

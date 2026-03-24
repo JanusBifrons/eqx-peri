@@ -2100,7 +2100,7 @@ export class GameEngine {
     this.renderSystem.register(new BeamRenderer(this.beamSystem));
     this.particleSystem = new ParticleSystem();
     this.renderSystem.register(new ParticleRenderer(this.particleSystem, () => this.assemblies));
-    this.shockwaveRenderer = new ShockwaveRenderer();
+    this.shockwaveRenderer = new ShockwaveRenderer(() => this.renderSystem.getStage());
     this.renderSystem.register(this.shockwaveRenderer);
     this.renderSystem.register(new ShipHighlightRenderer(
       () => this.playerAssembly,

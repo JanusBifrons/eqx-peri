@@ -48,12 +48,15 @@ export class ShockwaveRenderer implements IRenderer {
   readonly renderPriority = 46;
 
   private graphics!: PIXI.Graphics;  // centre flash only
-  private stage!: PIXI.Container;
+  private filterStage!: PIXI.Container;
   private filterAreaRect!: PIXI.Rectangle;
   private shockwaves: ActiveShockwave[] = [];
 
+  /** @param getStage Returns the PIXI app.stage — filters must be applied there for full-scene distortion. */
+  constructor(private readonly getStage: () => PIXI.Container) {}
+
   init(stage: PIXI.Container): void {
-    this.stage = stage;
+    this.filterStage = this.getStage();
     this.filterAreaRect = new PIXI.Rectangle(0, 0, 1, 1); // sized correctly in render()
     this.graphics = new PIXI.Graphics();
     this.graphics.blendMode = PIXI.BLEND_MODES.ADD;
@@ -88,7 +91,7 @@ export class ShockwaveRenderer implements IRenderer {
     }, 0 /* initial time = 0 */);
 
     this.shockwaves.push({ worldX, worldY, startTime: Date.now(), filter });
-    this.stage.filters = [...(this.stage.filters ?? []), filter];
+    this.filterStage.filters = [...(this.filterStage.filters ?? []), filter];
   }
 
   render(viewport: Viewport, _timestamp: number): void {
@@ -114,7 +117,7 @@ export class ShockwaveRenderer implements IRenderer {
     // The shader does `center / filterArea.xy` to get normalized UV coords.
     this.filterAreaRect.width = canvas.width;
     this.filterAreaRect.height = canvas.height;
-    this.stage.filterArea = this.filterAreaRect;
+    this.filterStage.filterArea = this.filterAreaRect;
 
     for (const wave of this.shockwaves) {
       const elapsedSec = (now - wave.startTime) / 1000;
@@ -144,10 +147,10 @@ export class ShockwaveRenderer implements IRenderer {
   }
 
   private removeFilter(filter: ShockwaveFilter): void {
-    if (!this.stage.filters) return;
-    this.stage.filters = this.stage.filters.filter(f => f !== filter);
-    if (this.stage.filters.length === 0) {
-      this.stage.filters = null;
+    if (!this.filterStage.filters) return;
+    this.filterStage.filters = this.filterStage.filters.filter(f => f !== filter);
+    if (this.filterStage.filters.length === 0) {
+      this.filterStage.filters = null;
     }
   }
 

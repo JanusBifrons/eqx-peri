@@ -4,10 +4,6 @@ import { Viewport } from './Viewport';
 import { Assembly } from '../core/Assembly';
 import { AIOrder, MoveOrder } from '../../types/GameTypes';
 
-/** Radius of the endpoint dots (screen pixels). */
-const DOT_RADIUS = 4;
-/** Radius of intermediate waypoint dots. */
-const WAYPOINT_DOT_RADIUS = 2.5;
 /** Line colour — friendly green. */
 const ORDER_COLOR = 0x44ff44;
 /** Line alpha. */
@@ -26,6 +22,7 @@ const WAYPOINT_ALPHA = 0.4;
  */
 export class OrderRenderer implements IRenderer {
   readonly renderPriority = 52;
+  readonly renderSpace = 'world' as const;
 
   private gfx!: PIXI.Graphics;
   private getActiveOrders: () => Array<{ assembly: Assembly; order: AIOrder }>;
@@ -59,40 +56,39 @@ export class OrderRenderer implements IRenderer {
   ): void {
     const origin = assembly.rootBody.position;
     const { waypoints, currentWaypointIndex } = order;
+    const scale = viewport.scale;
 
-    // Build the screen-space polyline: ship → remaining waypoints
-    const from = viewport.worldToScreen(origin.x, origin.y);
+    // Radius of endpoint/waypoint dots in world units (fixed screen size)
+    const dotRadius = 4 / scale;
+    const waypointDotRadius = 2.5 / scale;
 
     // Draw line through remaining waypoints
-    this.gfx.lineStyle(1.5, ORDER_COLOR, ORDER_ALPHA);
-    this.gfx.moveTo(from.x, from.y);
+    this.gfx.lineStyle(1.5 / scale, ORDER_COLOR, ORDER_ALPHA);
+    this.gfx.moveTo(origin.x, origin.y);
 
     for (let i = currentWaypointIndex; i < waypoints.length; i++) {
       const wp = waypoints[i];
-      const s = viewport.worldToScreen(wp.x, wp.y);
-      this.gfx.lineTo(s.x, s.y);
+      this.gfx.lineTo(wp.x, wp.y);
     }
     this.gfx.lineStyle(0);
 
     // Origin dot
     this.gfx.beginFill(ORDER_COLOR, DOT_ALPHA);
-    this.gfx.drawCircle(from.x, from.y, DOT_RADIUS);
+    this.gfx.drawCircle(origin.x, origin.y, dotRadius);
     this.gfx.endFill();
 
     // Intermediate waypoint dots (dimmer, smaller)
     for (let i = currentWaypointIndex; i < waypoints.length - 1; i++) {
       const wp = waypoints[i];
-      const s = viewport.worldToScreen(wp.x, wp.y);
       this.gfx.beginFill(ORDER_COLOR, WAYPOINT_ALPHA);
-      this.gfx.drawCircle(s.x, s.y, WAYPOINT_DOT_RADIUS);
+      this.gfx.drawCircle(wp.x, wp.y, waypointDotRadius);
       this.gfx.endFill();
     }
 
     // Final target dot (bright, full size)
     const last = waypoints[waypoints.length - 1];
-    const to = viewport.worldToScreen(last.x, last.y);
     this.gfx.beginFill(ORDER_COLOR, DOT_ALPHA);
-    this.gfx.drawCircle(to.x, to.y, DOT_RADIUS);
+    this.gfx.drawCircle(last.x, last.y, dotRadius);
     this.gfx.endFill();
   }
 

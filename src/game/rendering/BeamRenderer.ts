@@ -49,9 +49,12 @@ function hashString(str: string): number {
 
 export class BeamRenderer implements IRenderer {
   readonly renderPriority = 45;
+  readonly renderSpace = 'world' as const;
 
   private beamContainer!: PIXI.Container;
   private graphics!: PIXI.Graphics;
+  private glowFilter!: GlowFilter;
+  private bloomFilter!: AdvancedBloomFilter;
 
   constructor(private readonly beamSystem: BeamSystem) {}
 
@@ -66,7 +69,7 @@ export class BeamRenderer implements IRenderer {
     this.beamContainer.addChild(this.graphics);
 
     // GlowFilter: wide electric halo around every drawn pixel
-    const glowFilter = new GlowFilter({
+    this.glowFilter = new GlowFilter({
       distance:      22,
       outerStrength: 3.0,
       innerStrength: 0.4,
@@ -75,7 +78,7 @@ export class BeamRenderer implements IRenderer {
     });
 
     // AdvancedBloomFilter: bright-pixel bloom/bleed for the "hot plasma" look
-    const bloomFilter = new AdvancedBloomFilter({
+    this.bloomFilter = new AdvancedBloomFilter({
       threshold:  0.25,
       bloomScale: 1.4,
       brightness: 1.3,
@@ -83,20 +86,21 @@ export class BeamRenderer implements IRenderer {
       quality:    4,
     });
 
-    this.beamContainer.filters = [glowFilter, bloomFilter];
+    this.beamContainer.filters = [this.glowFilter, this.bloomFilter];
     stage.addChild(this.beamContainer);
   }
 
   render(viewport: Viewport, timestamp: number): void {
     this.graphics.clear();
 
-    const { bounds, canvas } = viewport;
-    const bw = bounds.max.x - bounds.min.x;
-    const bh = bounds.max.y - bounds.min.y;
-    const sx = (wx: number) => (wx - bounds.min.x) / bw * canvas.width;
-    const sy = (wy: number) => (wy - bounds.min.y) / bh * canvas.height;
-    const scale = canvas.width / bw;
+    const { bounds } = viewport;
+    const scale = viewport.scale;
     const now = Date.now();
+
+    // Adjust filter parameters for zoom so they remain consistent in screen pixels.
+    // GlowFilter.distance is immutable after construction, so scale outerStrength instead.
+    this.glowFilter.outerStrength = 3.0 / scale;
+    this.bloomFilter.blur = 8 / scale;
 
     for (const beam of this.beamSystem.getActiveBeams()) {
       if (
@@ -113,22 +117,20 @@ export class BeamRenderer implements IRenderer {
         : 1.0 - (age - fadeStart) / (BEAM_DISPLAY_DURATION_MS - fadeStart);
       if (alpha <= 0) continue;
 
-      this.drawBeam(sx, sy, scale, beam, alpha, timestamp);
+      this.drawBeam(beam, alpha, timestamp);
     }
   }
 
   private drawBeam(
-    sx: (wx: number) => number,
-    sy: (wy: number) => number,
-    scale: number,
     beam: ActiveBeam,
     alpha: number,
     timestamp: number,
   ): void {
-    const x1 = sx(beam.startX), y1 = sy(beam.startY);
-    const x2 = sx(beam.endX),   y2 = sy(beam.endY);
+    const x1 = beam.startX, y1 = beam.startY;
+    const x2 = beam.endX,   y2 = beam.endY;
     const style = BEAM_STYLES[beam.weaponType as string] ?? DEFAULT_STYLE;
-    const sf = scale * 0.25;
+    // Scale factor for beam widths — widths are in world units
+    const sf = 0.25;
 
     // --- Four-layer beam: outermost halo → tight glow → inner glow → white core ---
     this.graphics.lineStyle(style.glowWidth * sf * 2.5, style.glowColor, alpha * 0.10);
@@ -169,10 +171,6 @@ export class BeamRenderer implements IRenderer {
 
   /**
    * Draws procedural electrical arc branches that flicker every ARC_FLICKER_MS.
-   *
-   * Algorithm: pick N random branch origins along the beam; from each origin draw
-   * 2-3 zigzag segments that go mostly perpendicular to the beam with random
-   * lateral jitter, simulating an unstable high-voltage discharge.
    */
   private drawArcs(
     x1: number, y1: number,
@@ -193,21 +191,18 @@ export class BeamRenderer implements IRenderer {
     const rng = seededRng(seed);
 
     for (let i = 0; i < style.arcCount; i++) {
-      // Branch origin: random point in middle 70% of beam to avoid overlapping endpoints
       const t = 0.15 + rng() * 0.70;
       let cx = x1 + ux * len * t;
       let cy = y1 + uy * len * t;
 
-      // Perpendicular spread scales with beam length (4-9%)
       const side = rng() > 0.5 ? 1 : -1;
       const spread = len * (0.04 + rng() * 0.05);
-      const nSegs = 2 + Math.floor(rng() * 2); // 2 or 3 segments per branch
+      const nSegs = 2 + Math.floor(rng() * 2);
 
       this.graphics.lineStyle(sf * 0.7, style.arcColor, alpha * (0.35 + rng() * 0.35));
       this.graphics.moveTo(cx, cy);
 
       for (let s = 0; s < nSegs; s++) {
-        // Move mostly perpendicular; small random wobble along the beam axis
         const forwardJitter = (rng() - 0.4) * spread * 0.25;
         const perpStep      = side * (0.4 + rng() * 0.6) * spread / nSegs;
         cx += ux * forwardJitter + nx * perpStep;

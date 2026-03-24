@@ -12,6 +12,7 @@ import { StructurePlacementSystem } from '../systems/StructurePlacementSystem';
  */
 export class StructurePlacementRenderer implements IRenderer {
   readonly renderPriority = 71;
+  readonly renderSpace = 'world' as const;
 
   private graphics!: PIXI.Graphics;
 
@@ -34,44 +35,41 @@ export class StructurePlacementRenderer implements IRenderer {
     if (!placingType) return;
 
     const cursor = ps.getCursorWorldPos();
-    const { sx, sy, scale } = this.viewportHelpers(viewport);
-    const screenX = sx(cursor.x);
-    const screenY = sy(cursor.y);
+    const scale = viewport.scale;
 
     const placementValid = ps.isCurrentPlacementValid();
 
     // Draw the hologram ghost (red if blocked)
-    this.drawHologram(screenX, screenY, scale, placingType, placementValid);
+    this.drawHologram(cursor.x, cursor.y, scale, placingType, placementValid);
 
     // Draw connection preview lines to nearby structures (only when placement is valid)
     if (placementValid) {
       const candidates = ps.getPlacementConnectCandidates();
       for (const { structure, valid } of candidates) {
         if (!valid) continue;
-        const tgtX = sx(structure.body.position.x);
-        const tgtY = sy(structure.body.position.y);
+        const tgtX = structure.body.position.x;
+        const tgtY = structure.body.position.y;
 
-        const lineWidth = Math.max(1, 1.5 * scale);
+        const lineWidth = Math.max(1 / scale, 1.5);
         this.graphics.lineStyle(lineWidth, 0x44ddff, 0.5);
-        this.graphics.moveTo(screenX, screenY);
+        this.graphics.moveTo(cursor.x, cursor.y);
         this.graphics.lineTo(tgtX, tgtY);
       }
     }
 
     // Draw range circle (faint) so the player knows connection reach
-    const rangeRadius = CONNECTION_MAX_RANGE * scale;
-    this.graphics.lineStyle(Math.max(1, scale), placementValid ? 0x4488aa : 0xaa4444, 0.12);
-    this.graphics.drawCircle(screenX, screenY, rangeRadius);
+    this.graphics.lineStyle(Math.max(1 / scale, 1), placementValid ? 0x4488aa : 0xaa4444, 0.12);
+    this.graphics.drawCircle(cursor.x, cursor.y, CONNECTION_MAX_RANGE);
   }
 
   private drawHologram(cx: number, cy: number, scale: number, type: StructureType, valid: boolean): void {
     const def = STRUCTURE_DEFINITIONS[type];
-    const hw = (def.widthPx / 2) * scale;
-    const hh = (def.heightPx / 2) * scale;
+    const hw = def.widthPx / 2;
+    const hh = def.heightPx / 2;
 
     const fillColor = valid ? PIXI.utils.string2hex(def.color) : 0x661111;
     const borderColor = valid ? PIXI.utils.string2hex(def.borderColor) : 0xff3333;
-    const borderWidth = Math.max(1.5, 2 * scale);
+    const borderWidth = Math.max(1.5 / scale, 2);
     const fillAlpha = valid ? 0.3 : 0.35;
     const borderAlpha = valid ? 0.6 : 0.8;
 
@@ -90,15 +88,14 @@ export class StructurePlacementRenderer implements IRenderer {
 
     // Draw sensor area preview if this structure type has one
     if (def.sensorRadius) {
-      const sensorR = def.sensorRadius * scale;
-      this.graphics.lineStyle(Math.max(1, scale), valid ? 0x448844 : 0x664444, 0.3);
+      this.graphics.lineStyle(Math.max(1 / scale, 1), valid ? 0x448844 : 0x664444, 0.3);
       const segments = 24;
       for (let i = 0; i < segments; i++) {
         if (i % 2 === 0) {
           const a0 = (i / segments) * Math.PI * 2;
           const a1 = ((i + 1) / segments) * Math.PI * 2;
-          this.graphics.moveTo(cx + Math.cos(a0) * sensorR, cy + Math.sin(a0) * sensorR);
-          this.graphics.lineTo(cx + Math.cos(a1) * sensorR, cy + Math.sin(a1) * sensorR);
+          this.graphics.moveTo(cx + Math.cos(a0) * def.sensorRadius, cy + Math.sin(a0) * def.sensorRadius);
+          this.graphics.lineTo(cx + Math.cos(a1) * def.sensorRadius, cy + Math.sin(a1) * def.sensorRadius);
         }
       }
     }
@@ -116,20 +113,5 @@ export class StructurePlacementRenderer implements IRenderer {
       }
     }
     this.graphics.closePath();
-  }
-
-  private viewportHelpers(viewport: Viewport): {
-    sx: (wx: number) => number;
-    sy: (wy: number) => number;
-    scale: number;
-  } {
-    const { bounds, canvas } = viewport;
-    const bw = bounds.max.x - bounds.min.x;
-    const bh = bounds.max.y - bounds.min.y;
-    return {
-      sx: (wx: number): number => (wx - bounds.min.x) / bw * canvas.width,
-      sy: (wy: number): number => (wy - bounds.min.y) / bh * canvas.height,
-      scale: canvas.width / bw,
-    };
   }
 }

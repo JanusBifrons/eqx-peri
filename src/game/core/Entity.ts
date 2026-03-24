@@ -617,9 +617,6 @@ export class Entity {
 
     const pos = overridePos ?? this.body.position;
     const scale = viewport.scale;
-    const sx = (wx: number) => viewport.worldToScreen(wx, 0).x;
-    const sy = (wy: number) => viewport.worldToScreen(0, wy).y;
-    const s = (wx: number, wy: number) => viewport.worldToScreen(wx, wy);
 
     const facingAngle = assemblyAngle + ((overrideRotationDeg ?? this.rotation) * Math.PI / 180);
     const fcos = Math.cos(facingAngle);
@@ -631,8 +628,8 @@ export class Entity {
     const halfW = def.width / 2;
     const halfH = def.height / 2;
 
-    // Suppress unused warnings — sx/sy are used as coordinate shorthands below
-    void sx; void sy;
+    // Drawing happens in world space — WorldContainer handles the transform to screen.
+    // Line widths use Math.max(screenMinPx / scale, worldUnits) to ensure minimum screen visibility.
 
     switch (this.type) {
       case 'Gun':
@@ -644,11 +641,11 @@ export class Entity {
         const barrelLen = halfW;
         const startX = pos.x + fcos * halfW;
         const startY = pos.y + fsin * halfW;
-        const p0 = s(startX, startY);
-        const p1 = s(startX + aCos * barrelLen, startY + aSin * barrelLen);
-        gfx.lineStyle(Math.max(1.5, scale * 2.5), 0x8898a8, 1);
-        gfx.moveTo(p0.x, p0.y);
-        gfx.lineTo(p1.x, p1.y);
+        const endX = startX + aCos * barrelLen;
+        const endY = startY + aSin * barrelLen;
+        gfx.lineStyle(Math.max(1.5 / scale, 2.5), 0x8898a8, 1);
+        gfx.moveTo(startX, startY);
+        gfx.lineTo(endX, endY);
         break;
       }
       case 'MissileLauncher':
@@ -663,13 +660,13 @@ export class Entity {
         const spread = halfH * 0.35;
         const startX = pos.x + fcos * (halfW * 0.4);
         const startY = pos.y + fsin * (halfW * 0.4);
-        gfx.lineStyle(Math.max(1.5, scale * 2), 0x6a8880, 1);
-        const tA0 = s(startX - aPcos * spread, startY - aPsin * spread);
-        const tA1 = s(startX + aCos * tubeLen - aPcos * spread, startY + aSin * tubeLen - aPsin * spread);
-        gfx.moveTo(tA0.x, tA0.y); gfx.lineTo(tA1.x, tA1.y);
-        const tB0 = s(startX + aPcos * spread, startY + aPsin * spread);
-        const tB1 = s(startX + aCos * tubeLen + aPcos * spread, startY + aSin * tubeLen + aPsin * spread);
-        gfx.moveTo(tB0.x, tB0.y); gfx.lineTo(tB1.x, tB1.y);
+        gfx.lineStyle(Math.max(1.5 / scale, 2), 0x6a8880, 1);
+        const tA0x = startX - aPcos * spread, tA0y = startY - aPsin * spread;
+        const tA1x = startX + aCos * tubeLen - aPcos * spread, tA1y = startY + aSin * tubeLen - aPsin * spread;
+        gfx.moveTo(tA0x, tA0y); gfx.lineTo(tA1x, tA1y);
+        const tB0x = startX + aPcos * spread, tB0y = startY + aPsin * spread;
+        const tB1x = startX + aCos * tubeLen + aPcos * spread, tB1y = startY + aSin * tubeLen + aPsin * spread;
+        gfx.moveTo(tB0x, tB0y); gfx.lineTo(tB1x, tB1y);
         break;
       }
       case 'Engine':
@@ -680,11 +677,10 @@ export class Entity {
         const tipX = baseX + fcos * (halfW * 0.7);
         const tipY = baseY + fsin * (halfW * 0.7);
         const spread = halfH * 0.65;
-        gfx.lineStyle(Math.max(1, scale * 2), 0x705040, 1);
-        const e0 = s(baseX - pcos * spread, baseY - psin * spread);
-        const tip = s(tipX, tipY);
-        const e1 = s(baseX + pcos * spread, baseY + psin * spread);
-        gfx.moveTo(e0.x, e0.y); gfx.lineTo(tip.x, tip.y); gfx.lineTo(e1.x, e1.y);
+        gfx.lineStyle(Math.max(1 / scale, 2), 0x705040, 1);
+        const e0x = baseX - pcos * spread, e0y = baseY - psin * spread;
+        const e1x = baseX + pcos * spread, e1y = baseY + psin * spread;
+        gfx.moveTo(e0x, e0y); gfx.lineTo(tipX, tipY); gfx.lineTo(e1x, e1y);
         break;
       }
       case 'Cockpit':
@@ -693,37 +689,35 @@ export class Entity {
         const canopyHalf = halfH * 0.55;
         const frontX = pos.x + fcos * (halfW - 1);
         const frontY = pos.y + fsin * (halfW - 1);
-        gfx.lineStyle(Math.max(2, scale * 2.5), 0x6ab0e0, 1);
-        const c0 = s(frontX - pcos * canopyHalf, frontY - psin * canopyHalf);
-        const c1 = s(frontX + pcos * canopyHalf, frontY + psin * canopyHalf);
-        gfx.moveTo(c0.x, c0.y); gfx.lineTo(c1.x, c1.y);
-        gfx.lineStyle(Math.max(1.5, scale * 1.8), 0x6ab0e0, 1);
-        const n0 = s(pos.x + fcos * halfW, pos.y + fsin * halfW);
-        const n1 = s(pos.x + fcos * (halfW + halfW * 0.45), pos.y + fsin * (halfW + halfW * 0.45));
-        gfx.moveTo(n0.x, n0.y); gfx.lineTo(n1.x, n1.y);
+        gfx.lineStyle(Math.max(2 / scale, 2.5), 0x6ab0e0, 1);
+        const c0x = frontX - pcos * canopyHalf, c0y = frontY - psin * canopyHalf;
+        const c1x = frontX + pcos * canopyHalf, c1y = frontY + psin * canopyHalf;
+        gfx.moveTo(c0x, c0y); gfx.lineTo(c1x, c1y);
+        gfx.lineStyle(Math.max(1.5 / scale, 1.8), 0x6ab0e0, 1);
+        const n0x = pos.x + fcos * halfW, n0y = pos.y + fsin * halfW;
+        const n1x = pos.x + fcos * (halfW + halfW * 0.45), n1y = pos.y + fsin * (halfW + halfW * 0.45);
+        gfx.moveTo(n0x, n0y); gfx.lineTo(n1x, n1y);
         break;
       }
       case 'PowerCell':
       case 'LargePowerCell':
       case 'PowerReactor': {
-        const dotR = Math.max(2, scale * 2.5);
-        const center = s(pos.x, pos.y);
+        const dotR = Math.max(2 / scale, 2.5);
         gfx.lineStyle(0);
         gfx.beginFill(0x48a848, 1);
-        gfx.drawCircle(center.x, center.y, dotR);
+        gfx.drawCircle(pos.x, pos.y, dotR);
         gfx.endFill();
         break;
       }
       case 'Shield':
       case 'LargeShield': {
-        const emitterR = Math.max(2, scale * Math.min(halfW, halfH) * 0.55);
+        const emitterR = Math.max(2 / scale, Math.min(halfW, halfH) * 0.55);
         const pulse = Math.sin(Date.now() / 600) * 0.2 + 0.8;
-        const center = s(pos.x, pos.y);
-        gfx.lineStyle(Math.max(1, scale * 1.5), 0x50a0ff, pulse);
-        gfx.drawCircle(center.x, center.y, emitterR);
+        gfx.lineStyle(Math.max(1 / scale, 1.5), 0x50a0ff, pulse);
+        gfx.drawCircle(pos.x, pos.y, emitterR);
         gfx.lineStyle(0);
         gfx.beginFill(0x78c8ff, pulse);
-        gfx.drawCircle(center.x, center.y, Math.max(1, scale * 1.2));
+        gfx.drawCircle(pos.x, pos.y, Math.max(1 / scale, 1.2));
         gfx.endFill();
         break;
       }
@@ -737,21 +731,20 @@ export class Entity {
         const muzzleX = pos.x + fcos * halfW;
         const muzzleY = pos.y + fsin * halfW;
         const beamPulse = Math.sin(Date.now() / 300) * 0.25 + 0.75;
-        const muzzle = s(muzzleX, muzzleY);
         // Outer glow bar
-        gfx.lineStyle(Math.max(3, scale * 5), 0x00dcff, beamPulse * 0.5);
-        const bg0 = s(muzzleX - aPcos * halfH, muzzleY - aPsin * halfH);
-        const bg1 = s(muzzleX + aPcos * halfH, muzzleY + aPsin * halfH);
-        gfx.moveTo(bg0.x, bg0.y); gfx.lineTo(bg1.x, bg1.y);
+        gfx.lineStyle(Math.max(3 / scale, 5), 0x00dcff, beamPulse * 0.5);
+        const bg0x = muzzleX - aPcos * halfH, bg0y = muzzleY - aPsin * halfH;
+        const bg1x = muzzleX + aPcos * halfH, bg1y = muzzleY + aPsin * halfH;
+        gfx.moveTo(bg0x, bg0y); gfx.lineTo(bg1x, bg1y);
         // Core bar
-        gfx.lineStyle(Math.max(1.5, scale * 2), 0xa0ffff, beamPulse);
-        const bc0 = s(muzzleX - aPcos * halfH * 0.8, muzzleY - aPsin * halfH * 0.8);
-        const bc1 = s(muzzleX + aPcos * halfH * 0.8, muzzleY + aPsin * halfH * 0.8);
-        gfx.moveTo(bc0.x, bc0.y); gfx.lineTo(bc1.x, bc1.y);
+        gfx.lineStyle(Math.max(1.5 / scale, 2), 0xa0ffff, beamPulse);
+        const bc0x = muzzleX - aPcos * halfH * 0.8, bc0y = muzzleY - aPsin * halfH * 0.8;
+        const bc1x = muzzleX + aPcos * halfH * 0.8, bc1y = muzzleY + aPsin * halfH * 0.8;
+        gfx.moveTo(bc0x, bc0y); gfx.lineTo(bc1x, bc1y);
         // Aim nub
-        gfx.lineStyle(Math.max(1, scale * 1.5), 0x00ffff, beamPulse);
-        const nub = s(muzzleX + aCos * halfW * 0.4, muzzleY + aSin * halfW * 0.4);
-        gfx.moveTo(muzzle.x, muzzle.y); gfx.lineTo(nub.x, nub.y);
+        gfx.lineStyle(Math.max(1 / scale, 1.5), 0x00ffff, beamPulse);
+        const nubX = muzzleX + aCos * halfW * 0.4, nubY = muzzleY + aSin * halfW * 0.4;
+        gfx.moveTo(muzzleX, muzzleY); gfx.lineTo(nubX, nubY);
         break;
       }
       default:

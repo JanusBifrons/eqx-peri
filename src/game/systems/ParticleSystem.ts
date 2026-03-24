@@ -58,7 +58,7 @@ function randInt(min: number, max: number): number {
  * Shapes: circle · diamond · streak (elongated) · triangle — all from one atlas texture.
  * Properties: position · scale (non-uniform) · rotation · tint · alpha — all per particle.
  * Pool: 5 000 sprites; O(1) acquire/release via free/active lists.
- * Particles live in world space; converted to screen coords inside update().
+ * Particles live in world space; WorldContainer handles the world-to-screen transform.
  */
 export class ParticleSystem {
   private container!: PIXI.ParticleContainer;
@@ -509,13 +509,9 @@ export class ParticleSystem {
 
   // ── Frame update ─────────────────────────────────────────────────────────
 
-  update(deltaMs: number, viewport: Viewport): void {
-    const { bounds, canvas } = viewport;
-    const bw = bounds.max.x - bounds.min.x;
-    const bh = bounds.max.y - bounds.min.y;
-    const toSX = (wx: number) => (wx - bounds.min.x) / bw * canvas.width;
-    const toSY = (wy: number) => (wy - bounds.min.y) / bh * canvas.height;
-    const vpScale = canvas.width / bw; // px per world unit
+  update(deltaMs: number, _viewport: Viewport): void {
+    // Particles are children of WorldContainer — draw at world coordinates directly.
+    // Sprite scale converts world-unit size to the 16×16 atlas frame.
 
     for (let i = this.active.length - 1; i >= 0; i--) {
       const p = this.active[i];
@@ -532,11 +528,11 @@ export class ParticleSystem {
 
       p.worldX += p.vx * deltaMs;
       p.worldY += p.vy * deltaMs;
-      p.sprite.x = toSX(p.worldX);
-      p.sprite.y = toSY(p.worldY);
+      p.sprite.x = p.worldX;
+      p.sprite.y = p.worldY;
 
       const worldSize = p.sizeStart + (p.sizeEnd - p.sizeStart) * t;
-      const base = Math.max(0.3, worldSize * vpScale) / (FRAME_SIZE / 2);
+      const base = worldSize / (FRAME_SIZE / 2);
       p.sprite.scale.set(base * p.scaleX, base * p.scaleY);
 
       p.rotation += p.rotVel * deltaMs;
