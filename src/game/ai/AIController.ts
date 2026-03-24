@@ -808,12 +808,36 @@ export class AIController extends Controller {
 
         // Face the steering direction.  When braking, this IS retrograde.
         const heading = Math.atan2(steer.y, steer.x);
+        const nose = this.assembly.rootBody.angle;
+        const angVel = this.assembly.rootBody.angularVelocity;
+
+        // How far off the nose is from the desired heading.
+        let headingError = heading - nose;
+        while (headingError >  Math.PI) headingError -= 2 * Math.PI;
+        while (headingError < -Math.PI) headingError += 2 * Math.PI;
+
+        // When nearly stationary: rotate first, THEN thrust.
+        // This avoids the S-curve caused by thrusting while the nose is
+        // still swinging into alignment.  Once moving, thrust dynamically
+        // since corrections are unavoidable anyway.
+        const isStationary = speed < 0.3;
+        const isAligned = Math.abs(headingError) < 0.15; // ~8.5°
+        const isStillRotating = Math.abs(angVel) > 0.005;
+
+        if (isStationary && (!isAligned || isStillRotating)) {
+            // Pure rotation — no thrust until pointed at target and rotation settled.
+            return {
+                thrust: { x: 0, y: 0 },
+                torque: this.calculateRotation(heading),
+                fire: false,
+                ...baseDampen,
+            };
+        }
 
         // Thrust magnitude: proportional to steering magnitude, capped at 1.
         const tMag = Math.min(1.0, stMag / topSpeed);
 
         // Project onto ship's forward axis (ships can only thrust forward).
-        const nose = this.assembly.rootBody.angle;
         const steerNormX = steer.x / stMag;
         const steerNormY = steer.y / stMag;
         const fwd = Math.max(0, steerNormX * Math.cos(nose) + steerNormY * Math.sin(nose));
