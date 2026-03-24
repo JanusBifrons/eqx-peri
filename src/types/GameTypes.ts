@@ -120,6 +120,11 @@ export type AIOrderType = 'move';
 export interface MoveOrder {
   type: 'move';
   targetPosition: Vector2;
+  /** Pathfinding waypoints from current position to target. The AI follows
+   *  these sequentially; the last waypoint is always `targetPosition`. */
+  waypoints: Vector2[];
+  /** Index of the waypoint the AI is currently navigating toward. */
+  currentWaypointIndex: number;
 }
 
 /** Union of all possible AI orders. Extend this as new order types are added. */

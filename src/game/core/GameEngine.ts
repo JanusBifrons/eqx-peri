@@ -12,6 +12,7 @@ import { SoundSystem } from '../systems/SoundSystem';
 import { MissileSystem } from '../weapons/MissileSystem';
 import { BeamSystem } from '../weapons/BeamSystem';
 import { BlockPickupSystem } from '../systems/BlockPickupSystem';
+import { PathfindingSystem } from '../systems/PathfindingSystem';
 import { RenderSystem } from './RenderSystem';
 import { GridRenderer } from '../rendering/GridRenderer';
 import { BlockBodyRenderer } from '../rendering/BlockBodyRenderer';
@@ -19,6 +20,7 @@ import { BlockFrillsRenderer } from '../rendering/BlockFrillsRenderer';
 import { ShieldRenderer } from '../rendering/ShieldRenderer';
 import { ShipHighlightRenderer } from '../rendering/ShipHighlightRenderer';
 import { OrderRenderer } from '../rendering/OrderRenderer';
+import { PathfindingDebugRenderer } from '../rendering/PathfindingDebugRenderer';
 import { AimingDebugRenderer } from '../rendering/AimingDebugRenderer';
 import { RingRadarRenderer } from '../rendering/RingRadarRenderer';
 import { BlockPickupRenderer } from '../rendering/BlockPickupRenderer';
@@ -61,9 +63,14 @@ export class GameEngine {
   private mouseMovementInfluence: number = 0.05; // Much more subtle mouse influence
   private maxMouseOffset: number = 100; // Maximum distance camera can be offset by mouse  // Ship selection and highlighting
   private selectedAssembly: Assembly | null = null;
+  private selectedAssemblies: Assembly[] = [];
   private hoveredAssembly: Assembly | null = null;
   private selectedStructure: Structure | null = null;
   private hoveredStructure: Structure | null = null;
+  // Box-select drag state (observer/select mode)
+  private boxSelectStart: { x: number; y: number } | null = null;
+  private boxSelectCurrent: { x: number; y: number } | null = null;
+  private boxSelectActive: boolean = false;
   // Player command system
   private playerCommand: string | null = null;
   private playerCommandTarget: Assembly | null = null;
@@ -119,6 +126,10 @@ export class GameEngine {
 
   // Procedural asteroid field (null when the current scenario doesn't use one)
   private asteroidFieldSystem: AsteroidFieldSystem | null = null;
+
+  // Pathfinding for AI move orders
+  private pathfindingSystem!: PathfindingSystem;
+  private pathfindingDebugRenderer!: PathfindingDebugRenderer;
 
   // Structure system (null when the current scenario doesn't use structures)
   private structureManager: StructureManager | null = null;
@@ -252,6 +263,24 @@ export class GameEngine {
       (constraint) => Matter.World.add(this.world, constraint),
       (constraint) => Matter.World.remove(this.world, constraint),
     );
+
+    // Initialize pathfinding — getter collects all static obstacle bodies
+    this.pathfindingSystem = new PathfindingSystem(() => {
+      const bodies: Matter.Body[] = [];
+      // Structures
+      if (this.structureManager) {
+        for (const s of this.structureManager.getStructures()) {
+          bodies.push(s.body);
+        }
+      }
+      // Asteroids and shield walls from the physics world
+      for (const body of this.engine.world.bodies) {
+        if (body.isStatic && (body.label === 'asteroid' || body.label === 'shield-wall')) {
+          bodies.push(body);
+        }
+      }
+      return bodies;
+    });
 
     // Initialize mouse interaction
     this.setupMouseInteraction();
@@ -1393,6 +1422,7 @@ export class GameEngine {
       this.removeBodyWithParts(assembly.rootBody);
 
       if (this.selectedAssembly === assembly) this.selectedAssembly = null;
+      this.selectedAssemblies = this.selectedAssemblies.filter(a => a !== assembly);
       if (this.hoveredAssembly === assembly) this.hoveredAssembly = null;
     });
 
@@ -1594,8 +1624,20 @@ export class GameEngine {
       // Update world-space cursor position (used for weapon aiming and BlockPickupSystem)
       this.updateCursorWorldPosition();
 
+      // Box-select drag
+      if (this.boxSelectStart && !this.playerAssembly) {
+        const sx = this.mousePosition.x;
+        const sy = this.mousePosition.y;
+        this.boxSelectCurrent = { x: sx, y: sy };
+        // Activate once moved > 5 CSS px
+        if (!this.boxSelectActive) {
+          const ddx = sx - this.boxSelectStart.x;
+          const ddy = sy - this.boxSelectStart.y;
+          if (Math.sqrt(ddx * ddx + ddy * ddy) > 5) this.boxSelectActive = true;
+        }
+      }
       // Observer drag-to-pan
-      if (this.observerDragLastScreenPos && !this.playerAssembly && !this.blockPickupSystem.isHolding()) {
+      else if (this.observerDragLastScreenPos && !this.playerAssembly && !this.blockPickupSystem.isHolding()) {
         const sx = this.mousePosition.x;
         const sy = this.mousePosition.y;
         // Activate once moved > 5 CSS px from where the button went down
@@ -1623,6 +1665,8 @@ export class GameEngine {
         // Mousedown on a block, waiting for hold/drag threshold — keep grab cursor
         this.setHoveredAssembly(null);
         this.render.canvas.style.cursor = 'grab';
+      } else if (this.boxSelectActive) {
+        this.render.canvas.style.cursor = 'crosshair';
       } else if (this.observerDragActive) {
         this.render.canvas.style.cursor = 'grabbing';
       } else if (!this.playerAssembly && this.observerDragLastScreenPos) {
@@ -1696,11 +1740,21 @@ export class GameEngine {
           this.mouseDown = false; // suppress weapon fire while holding
         } else {
           this.mouseDown = true;
-          // Observer mode: begin tracking for drag-to-pan
+          // Observer mode: begin tracking for drag-to-pan or box-select
           if (!this.playerAssembly) {
-            this.observerDragLastScreenPos = { x: screenX, y: screenY };
-            this.observerDragStartScreenPos = { x: screenX, y: screenY };
-            this.observerDragActive = false;
+            const isSelectMode = useGameStore.getState().interactionMode === 'select';
+            const clickedAssembly = this.getAssemblyAtPosition(screenX, screenY);
+            if (isSelectMode && !clickedAssembly) {
+              // Start potential box-select (empty space click in select mode)
+              this.boxSelectStart = { x: screenX, y: screenY };
+              this.boxSelectCurrent = { x: screenX, y: screenY };
+              this.boxSelectActive = false;
+            } else {
+              // Pan mode (build mode, or clicked on an assembly)
+              this.observerDragLastScreenPos = { x: screenX, y: screenY };
+              this.observerDragStartScreenPos = { x: screenX, y: screenY };
+              this.observerDragActive = false;
+            }
           }
         }
       } else if (event.button === 2) { // Right mouse button
@@ -1717,9 +1771,19 @@ export class GameEngine {
         // Always call tryRelease so pendingPickupState is cleared even on quick clicks
         this.blockPickupSystem.tryRelease();
         this.mouseDown = false;
-        // Suppress the click event that fires after a drag pan or block drag
-        this.dragJustCompleted = wasDragging || this.observerDragActive;
-        // Reset observer drag state
+
+        // Finalize box-select
+        if (this.boxSelectActive && this.boxSelectStart && this.boxSelectCurrent) {
+          this.finalizeBoxSelect(this.boxSelectStart, this.boxSelectCurrent);
+          this.dragJustCompleted = true;
+        } else {
+          // Suppress the click event that fires after a drag pan or block drag
+          this.dragJustCompleted = wasDragging || this.observerDragActive;
+        }
+        // Reset all drag states
+        this.boxSelectStart = null;
+        this.boxSelectCurrent = null;
+        this.boxSelectActive = false;
         this.observerDragActive = false;
         this.observerDragLastScreenPos = null;
         this.observerDragStartScreenPos = null;
@@ -1859,17 +1923,49 @@ export class GameEngine {
   }
   */
   private handleRightClick(event: MouseEvent): void {
-    // RTS move order: right-click with a friendly AI ship selected → move order
-    if (this.selectedAssembly
-      && this.selectedAssembly.team === 0
-      && !this.selectedAssembly.isPlayerControlled
-      && !this.selectedAssembly.destroyed
-    ) {
-      const rect = this.render.canvas.getBoundingClientRect();
-      const screenX = event.clientX - rect.left;
-      const screenY = event.clientY - rect.top;
-      const worldPos = this.screenToWorld(screenX, screenY);
-      this.issueAIOrder(this.selectedAssembly.id, { type: 'move', targetPosition: worldPos });
+    // RTS move order: right-click with friendly AI ships selected → move orders
+    const eligible = this.selectedAssemblies.filter(
+      a => a.team === 0 && !a.isPlayerControlled && !a.destroyed && a.hasControlCenter(),
+    );
+    if (eligible.length === 0) return;
+
+    const rect = this.render.canvas.getBoundingClientRect();
+    const screenX = event.clientX - rect.left;
+    const screenY = event.clientY - rect.top;
+    const targetPos = this.screenToWorld(screenX, screenY);
+
+    // Formation: spread ships in a line perpendicular to the movement direction
+    const FORMATION_SPACING = 150; // world units between each ship in the line
+    const totalWidth = (eligible.length - 1) * FORMATION_SPACING;
+
+    // Compute the perpendicular direction from centroid of selected ships to target
+    let cx = 0, cy = 0;
+    for (const a of eligible) { cx += a.rootBody.position.x; cy += a.rootBody.position.y; }
+    cx /= eligible.length; cy /= eligible.length;
+    const dx = targetPos.x - cx;
+    const dy = targetPos.y - cy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    // Perpendicular unit vector (rotated 90°)
+    const perpX = dist > 1 ? -dy / dist : 1;
+    const perpY = dist > 1 ? dx / dist : 0;
+
+    for (let i = 0; i < eligible.length; i++) {
+      const offset = -totalWidth / 2 + i * FORMATION_SPACING;
+      const dest = {
+        x: targetPos.x + perpX * offset,
+        y: targetPos.y + perpY * offset,
+      };
+      const startPos = eligible[i].rootBody.position;
+      const radius = eligible[i].getBoundingRadius();
+      const waypoints = this.pathfindingSystem.findPath(
+        { x: startPos.x, y: startPos.y }, dest, radius,
+      );
+      this.issueAIOrder(eligible[i].id, {
+        type: 'move',
+        targetPosition: dest,
+        waypoints,
+        currentWaypointIndex: 0,
+      });
     }
   } private handleMouseWheel(event: WheelEvent): void {
     // Accumulate scroll in log-space so each notch is a consistent percentage change
@@ -2016,10 +2112,16 @@ export class GameEngine {
       () => this.getSelectedStructure(),
       (structure) => this.structureManager?.gridManager.getGridPowerSummary(
         structure, this.structureManager.getStructures()) ?? null,
+      () => this.getSelectedAssemblies(),
+      () => this.getBoxSelectRect(),
     ));
     this.renderSystem.register(new OrderRenderer(
       () => this.getActiveAIOrders(),
     ));
+    this.pathfindingDebugRenderer = new PathfindingDebugRenderer(
+      () => this.pathfindingSystem.lastDebugData,
+    );
+    this.renderSystem.register(this.pathfindingDebugRenderer);
     this.renderSystem.register(new RingRadarRenderer(
       () => this.assemblies,
       () => this.playerAssembly,
@@ -2036,6 +2138,11 @@ export class GameEngine {
   /** Enable or disable the physics wireframe debug overlay (called from SettingsPanel). */
   public setDebugPhysics(enabled: boolean, debugOnly: boolean = false): void {
     this.renderSystem.setDebugPhysics(enabled, debugOnly, this.engine, this.container);
+  }
+
+  /** Enable or disable the pathfinding grid debug overlay. */
+  public setDebugPathfinding(enabled: boolean): void {
+    this.pathfindingDebugRenderer.setEnabled(enabled);
   }
   /**
    * Helper method to find which assembly contains a given Matter.js body
@@ -2616,6 +2723,44 @@ export class GameEngine {
     return null;
   }
 
+  /** Finalize a box-select: find all friendly assemblies within the screen rect. */
+  private finalizeBoxSelect(start: { x: number; y: number }, end: { x: number; y: number }): void {
+    const minSX = Math.min(start.x, end.x);
+    const maxSX = Math.max(start.x, end.x);
+    const minSY = Math.min(start.y, end.y);
+    const maxSY = Math.max(start.y, end.y);
+    const worldMin = this.screenToWorld(minSX, minSY);
+    const worldMax = this.screenToWorld(maxSX, maxSY);
+
+    const selected: Assembly[] = [];
+    for (const assembly of this.assemblies) {
+      if (assembly.destroyed || assembly.team !== 0 || assembly.isPlayerControlled) continue;
+      if (!assembly.hasControlCenter()) continue;
+      const pos = assembly.rootBody.position;
+      if (pos.x >= worldMin.x && pos.x <= worldMax.x &&
+          pos.y >= worldMin.y && pos.y <= worldMax.y) {
+        selected.push(assembly);
+      }
+    }
+    if (selected.length > 0) {
+      this.selectedStructure = null;
+      this.selectAssemblies(selected);
+    } else {
+      this.selectAssembly(null);
+    }
+  }
+
+  /** Get the current box-select rectangle in screen coordinates, or null. */
+  public getBoxSelectRect(): { x: number; y: number; w: number; h: number } | null {
+    if (!this.boxSelectActive || !this.boxSelectStart || !this.boxSelectCurrent) return null;
+    return {
+      x: Math.min(this.boxSelectStart.x, this.boxSelectCurrent.x),
+      y: Math.min(this.boxSelectStart.y, this.boxSelectCurrent.y),
+      w: Math.abs(this.boxSelectCurrent.x - this.boxSelectStart.x),
+      h: Math.abs(this.boxSelectCurrent.y - this.boxSelectStart.y),
+    };
+  }
+
   /** Find a structure at a screen position. */
   private getStructureAtPosition(screenX: number, screenY: number): Structure | null {
     if (!this.structureManager) return null;
@@ -2664,22 +2809,16 @@ export class GameEngine {
 
   private selectAssembly(assembly: Assembly | null): void {
     if (this.selectedAssembly !== assembly) {
-      const previousSelection = this.selectedAssembly?.shipName || 'none';
       this.selectedAssembly = assembly;
-      const newSelection = assembly?.shipName || 'none';
-
-      console.log(`🎯 Selection changed from "${previousSelection}" to "${newSelection}"`);
-
-      if (assembly) {
-        console.log('🎯 Selected assembly details:');
-        console.log('   - ID:', assembly.id);
-        console.log('   - Ship name:', assembly.shipName);
-        console.log('   - Entities count:', assembly.entities.length);
-        console.log('   - Destroyed:', assembly.destroyed);
-        console.log('   - Team:', assembly.team);
-        console.log('   - Is player controlled:', assembly.isPlayerControlled);
-      }
+      // Single-click: set selectedAssemblies to just this one (or empty)
+      this.selectedAssemblies = assembly ? [assembly] : [];
     }
+  }
+
+  /** Box-select: set multiple assemblies at once. Primary = first in list. */
+  private selectAssemblies(assemblies: Assembly[]): void {
+    this.selectedAssemblies = assemblies;
+    this.selectedAssembly = assemblies.length > 0 ? assemblies[0] : null;
   }
 
   private setHoveredAssembly(assembly: Assembly | null): void {
@@ -2709,25 +2848,26 @@ export class GameEngine {
   }
 
   public getSelectedAssembly(): Assembly | null {
-    // Add extra logging to debug selection issues
     if (this.selectedAssembly) {
-      // Check if the selected assembly still exists in our assemblies array
       const stillExists = this.assemblies.includes(this.selectedAssembly);
-      if (!stillExists) {
-        console.log('⚠️ Selected assembly no longer exists in assemblies array!');
+      if (!stillExists || this.selectedAssembly.destroyed) {
         this.selectedAssembly = null;
-        return null;
-      }
-
-      // Check if the selected assembly is destroyed
-      if (this.selectedAssembly.destroyed) {
-        console.log('⚠️ Selected assembly is marked as destroyed!');
-        this.selectedAssembly = null;
-        return null;
       }
     }
-
     return this.selectedAssembly;
+  }
+
+  public getSelectedAssemblies(): Assembly[] {
+    // Prune destroyed / removed assemblies
+    this.selectedAssemblies = this.selectedAssemblies.filter(
+      a => !a.destroyed && this.assemblies.includes(a),
+    );
+    if (this.selectedAssemblies.length === 0) {
+      this.selectedAssembly = null;
+    } else if (this.selectedAssembly && !this.selectedAssemblies.includes(this.selectedAssembly)) {
+      this.selectedAssembly = this.selectedAssemblies[0];
+    }
+    return this.selectedAssemblies;
   }
 
   public getHoveredAssembly(): Assembly | null {
@@ -2806,6 +2946,7 @@ export class GameEngine {
       isObserverMode: this.isObserverMode(),
       playerAssembly: this.playerAssembly,
       selectedAssembly: this.selectedAssembly,
+      selectedAssemblies: this.getSelectedAssemblies(),
       hoveredAssembly: this.hoveredAssembly,
       selectedStructure: this.selectedStructure,
       viewportScale: this.getViewportScale(),

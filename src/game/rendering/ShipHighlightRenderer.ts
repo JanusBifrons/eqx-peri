@@ -132,6 +132,8 @@ export class ShipHighlightRenderer implements IRenderer {
     private readonly getHoveredStructure?:  () => Structure | null,
     private readonly getSelectedStructure?: () => Structure | null,
     private readonly getStructureGridSummary?: (structure: Structure) => GridPowerSummary | null,
+    private readonly getSelectedAssemblies?: () => Assembly[],
+    private readonly getBoxSelectRect?: () => { x: number; y: number; w: number; h: number } | null,
   ) {}
 
   init(stage: PIXI.Container): void {
@@ -162,9 +164,12 @@ export class ShipHighlightRenderer implements IRenderer {
       this.renderTooltip(hovered, bounds, canvas, player, hoveredStateLabel);
     }
 
-    // Selected brackets + AI state label
-    const selected = this.getSelectedAssembly();
-    if (selected && !selected.destroyed) {
+    // Selected brackets + AI state label (multi-select aware)
+    const allSelected = this.getSelectedAssemblies?.() ?? [];
+    const primarySelected = this.getSelectedAssembly();
+    const selectedSet = allSelected.length > 0 ? allSelected : (primarySelected ? [primarySelected] : []);
+    for (const selected of selectedSet) {
+      if (selected.destroyed) continue;
       this.renderBrackets(selected, bounds, canvas, { color: 0x00ffff, alpha: 0.9, lineWidth: 2 });
       const pulse = Math.sin(timestamp / 300) * 0.3 + 0.7;
       this.renderBrackets(selected, bounds, canvas, { color: 0xffffff, alpha: pulse * 0.35, lineWidth: 1 });
@@ -173,6 +178,15 @@ export class ShipHighlightRenderer implements IRenderer {
       if (stateLabel) {
         this.renderAIStateLabel(selected, bounds, canvas, stateLabel);
       }
+    }
+
+    // Box-select rectangle
+    const boxRect = this.getBoxSelectRect?.();
+    if (boxRect) {
+      this.graphics.lineStyle(1, 0x44ff44, 0.8);
+      this.graphics.beginFill(0x44ff44, 0.1);
+      this.graphics.drawRect(boxRect.x, boxRect.y, boxRect.w, boxRect.h);
+      this.graphics.endFill();
     }
 
     // Structure hover

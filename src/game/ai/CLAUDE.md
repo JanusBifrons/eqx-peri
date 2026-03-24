@@ -86,9 +86,11 @@ Do **not** compute thrust as a direction-toward-target without subtracting curre
 
 `AIController` accepts player-issued orders via `setOrder(order: AIOrder | null)`. When a move order is active, it takes priority over the combat state machine.
 
-**Move order** (`type: 'move'`): arrive-steering toward `targetPosition` at `MAX_SPEED × aggressionLevel`, braking within `MOVE_ARRIVAL_RADIUS` (300 units). Auto-clears when within `MOVE_ARRIVAL_THRESHOLD` (60 units). Ship faces the travel direction; weapons do not fire. `getCombatStateLabel()` returns `'MOVING'` while an order is active.
+**Move order** (`type: 'move'`): `MoveOrder` stores `targetPosition`, `waypoints: Vector2[]` (computed by `PathfindingSystem` at issue time), and `currentWaypointIndex`. `processMoveOrder()` advances through waypoints sequentially; intermediate waypoints use `WAYPOINT_ADVANCE_THRESHOLD` (120 units, no stop), the final waypoint uses `MOVE_ARRIVAL_THRESHOLD` (60 units, full stop at `speed < 0.15`). `steerTowardPoint()` handles per-waypoint arrive-steering. When stationary, the ship rotates to face the heading before thrusting (avoids S-curves). All dampening uses the same `ControlInput` flags as the player (`dampenFactor: 0.985`, `angularDampenFactor: 0.98`).
 
-**Issuing orders**: `GameEngine.issueAIOrder(assemblyId, order)` stores the order in both `AIController` and an `aiOrders` map. Right-clicking empty space with a friendly (team 0) AI ship selected issues a move order to the click position. `GameEngine.getActiveAIOrders()` returns live orders for rendering (auto-prunes completed/invalid).
+**Pathfinding**: `PathfindingSystem` (in `src/game/systems/`) wraps `pathfinding` npm (A* with diagonal movement). Builds a local grid (80-unit cells, 400-unit margin) on demand when a move order is issued. Static obstacles (structures, asteroids, shield walls) are inflated by 60 units. Returns smoothed world-coordinate waypoints. Falls back to direct path when no obstacles or grid too large.
+
+**Issuing orders**: `GameEngine.issueAIOrder(assemblyId, order)` stores the order in both `AIController` and an `aiOrders` map. Right-clicking empty space with a friendly (team 0) AI ship selected computes waypoints via `PathfindingSystem.findPath()` and issues a move order. `GameEngine.getActiveAIOrders()` returns live orders for rendering (auto-prunes completed/invalid).
 
 **`ControllerManager.getAIControllerForAssembly(id)`**: typed accessor returning `AIController | null` for a given assembly ID.
 

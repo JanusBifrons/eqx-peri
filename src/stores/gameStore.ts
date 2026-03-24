@@ -22,6 +22,9 @@ export interface GameStore {
   /** Currently selected assembly (click-selected in the world). */
   selectedAssembly: Assembly | null;
 
+  /** All currently selected assemblies (box-select or single-click). */
+  selectedAssemblies: Assembly[];
+
   /** Currently hovered assembly (mouse-over in the world). */
   hoveredAssembly: Assembly | null;
 
@@ -89,6 +92,7 @@ export const useGameStore = create<GameStore>((set) => ({
   isObserverMode: true,
   playerAssembly: null,
   selectedAssembly: null,
+  selectedAssemblies: [],
   hoveredAssembly: null,
   selectedStructure: null,
   viewportScale: 1,

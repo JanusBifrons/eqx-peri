@@ -1,6 +1,6 @@
 import { Assembly } from '../core/Assembly';
 import { Controller, ControlInput } from './Controller';
-import { Vector2, ENTITY_DEFINITIONS, AIOrder } from '../../types/GameTypes';
+import { Vector2, ENTITY_DEFINITIONS, AIOrder, MoveOrder } from '../../types/GameTypes';
 
 // ─── Steering constants ────────────────────────────────────────────────────
 const MAX_SPEED    = 3.0;  // world units / physics frame (base)
@@ -12,8 +12,10 @@ const AIM_READY_THRESHOLD = 0.25; // rad (~14°) — weapon considered on-target
 const ATTACKER_PRIORITY_MS = 8000;
 
 // ─── Move order constants ────────────────────────────────────────────────────
-/** Distance (world units) at which a move order is considered reached. */
+/** Distance (world units) at which the final destination is considered reached. */
 const MOVE_ARRIVAL_THRESHOLD = 60;
+/** Distance at which an intermediate waypoint is advanced (no need to stop). */
+const WAYPOINT_ADVANCE_THRESHOLD = 120;
 /** Braking ramp distance for move orders (arrive-steering tapers speed within this). */
 const MOVE_ARRIVAL_RADIUS = 300;
 
@@ -184,7 +186,7 @@ export class AIController extends Controller {
 
         // ── Move order takes priority over combat ──────────────────────────
         if (this.moveOrder && this.moveOrder.type === 'move') {
-            return this.getMoveOrderInput(this.moveOrder.targetPosition);
+            return this.processMoveOrder(this.moveOrder);
         }
 
         if (now - this.lastTargetScanTime > this.targetScanInterval) {
@@ -746,24 +748,43 @@ export class AIController extends Controller {
     // ── Move order steering ─────────────────────────────────────────────
 
     /**
-     * Arrive-steering toward a fixed world position.
+     * Process a move order with waypoints.  Advances through waypoints
+     * sequentially; intermediate waypoints use a loose threshold (ship
+     * sails through them), the final waypoint uses the tight arrival
+     * threshold (ship comes to a full stop).
+     */
+    private processMoveOrder(order: MoveOrder): ControlInput {
+        const myPos = this.assembly.rootBody.position;
+        const waypoints = order.waypoints;
+        const idx = order.currentWaypointIndex;
+        const isLastWaypoint = idx >= waypoints.length - 1;
+        const currentTarget = waypoints[idx];
+
+        const dx = currentTarget.x - myPos.x;
+        const dy = currentTarget.y - myPos.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        // Advance to next waypoint when close enough (intermediate waypoints
+        // use a looser threshold — the ship doesn't need to stop at each one).
+        if (!isLastWaypoint && dist < WAYPOINT_ADVANCE_THRESHOLD) {
+            order.currentWaypointIndex++;
+            // Recurse with updated index to immediately steer toward next waypoint
+            return this.processMoveOrder(order);
+        }
+
+        return this.steerTowardPoint(currentTarget, isLastWaypoint);
+    }
+
+    /**
+     * Arrive-steering toward a single world position.
      *
-     * Uses a single unified approach: compute `desiredVelocity` (toward target,
-     * speed tapered by distance), then `steering = desired − current`.  The
-     * ship always faces the steering vector direction and thrusts forward.
-     *
-     * This naturally handles all phases:
-     *   - Far away: steering ≈ toward target → accelerate.
-     *   - Approaching fast: desired is small, current is large →
-     *     steering ≈ −velocity (retrograde) → ship flips and brakes.
-     *   - Near and slow: steering ≈ toward target gently → nudge in.
+     * `isFinalDestination` controls whether the ship should come to a full
+     * stop (true) or maintain speed for the next waypoint (false).
      *
      * Uses the same dampening system as the player (dampen + angularDampen
      * flags on ControlInput, processed in ControllerManager.applyInput).
-     *
-     * The order only clears when truly on-target and nearly stationary.
      */
-    private getMoveOrderInput(target: Vector2): ControlInput {
+    private steerTowardPoint(target: Vector2, isFinalDestination: boolean): ControlInput {
         const myPos = this.assembly.rootBody.position;
         const myVel = this.assembly.rootBody.velocity;
 
@@ -780,8 +801,8 @@ export class AIController extends Controller {
             angularDampenFactor: 0.98,
         };
 
-        // Only complete when truly on top of the target AND nearly stationary.
-        if (dist < MOVE_ARRIVAL_THRESHOLD && speed < 0.15) {
+        // Final destination: only complete when truly on-target AND nearly stationary.
+        if (isFinalDestination && dist < MOVE_ARRIVAL_THRESHOLD && speed < 0.15) {
             this.moveOrder = null;
             return { thrust: { x: 0, y: 0 }, torque: 0, fire: false, ...baseDampen };
         }
@@ -789,16 +810,16 @@ export class AIController extends Controller {
         const topSpeed = MAX_SPEED * this.aggressionLevel;
 
         // Desired velocity: toward target, magnitude tapered by distance.
-        // As dist → 0, desiredSpeed → 0, so steering naturally becomes
-        // the negative of current velocity (i.e. retrograde braking).
-        const desiredSpeed = topSpeed * Math.min(1, dist / MOVE_ARRIVAL_RADIUS);
+        // For intermediate waypoints, don't taper as aggressively — maintain
+        // speed to flow smoothly through the waypoint.
+        const arrivalRadius = isFinalDestination ? MOVE_ARRIVAL_RADIUS : MOVE_ARRIVAL_RADIUS * 0.5;
+        const desiredSpeed = topSpeed * Math.min(1, dist / arrivalRadius);
         const toTarget = dist > 0.1
             ? { x: dx / dist, y: dy / dist }
             : { x: 0, y: 0 };
         const desVel = { x: toTarget.x * desiredSpeed, y: toTarget.y * desiredSpeed };
 
-        // Steering = desired − current.  This single vector encodes both
-        // "accelerate toward target" and "brake against current velocity".
+        // Steering = desired − current.
         const steer = { x: desVel.x - myVel.x, y: desVel.y - myVel.y };
         const stMag = Math.sqrt(steer.x * steer.x + steer.y * steer.y);
 
@@ -806,26 +827,21 @@ export class AIController extends Controller {
             return { thrust: { x: 0, y: 0 }, torque: 0, fire: false, ...baseDampen };
         }
 
-        // Face the steering direction.  When braking, this IS retrograde.
+        // Face the steering direction.
         const heading = Math.atan2(steer.y, steer.x);
         const nose = this.assembly.rootBody.angle;
         const angVel = this.assembly.rootBody.angularVelocity;
 
-        // How far off the nose is from the desired heading.
         let headingError = heading - nose;
         while (headingError >  Math.PI) headingError -= 2 * Math.PI;
         while (headingError < -Math.PI) headingError += 2 * Math.PI;
 
         // When nearly stationary: rotate first, THEN thrust.
-        // This avoids the S-curve caused by thrusting while the nose is
-        // still swinging into alignment.  Once moving, thrust dynamically
-        // since corrections are unavoidable anyway.
         const isStationary = speed < 0.3;
-        const isAligned = Math.abs(headingError) < 0.15; // ~8.5°
+        const isAligned = Math.abs(headingError) < 0.15;
         const isStillRotating = Math.abs(angVel) > 0.005;
 
         if (isStationary && (!isAligned || isStillRotating)) {
-            // Pure rotation — no thrust until pointed at target and rotation settled.
             return {
                 thrust: { x: 0, y: 0 },
                 torque: this.calculateRotation(heading),
@@ -834,10 +850,7 @@ export class AIController extends Controller {
             };
         }
 
-        // Thrust magnitude: proportional to steering magnitude, capped at 1.
         const tMag = Math.min(1.0, stMag / topSpeed);
-
-        // Project onto ship's forward axis (ships can only thrust forward).
         const steerNormX = steer.x / stMag;
         const steerNormY = steer.y / stMag;
         const fwd = Math.max(0, steerNormX * Math.cos(nose) + steerNormY * Math.sin(nose));

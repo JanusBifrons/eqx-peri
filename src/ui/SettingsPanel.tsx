@@ -26,6 +26,7 @@ import { SoundSystem } from '../game/systems/SoundSystem';
 const STORAGE_KEY_DEBUG         = 'eqx_physicsDebug';
 const STORAGE_KEY_DEBUG_ONLY    = 'eqx_physicsDebugOnly';
 const STORAGE_KEY_PERF_BAR      = 'eqx_perfBar';
+const STORAGE_KEY_DEBUG_PF      = 'eqx_pathfindingDebug';
 const STORAGE_KEY_MASTER_VOL    = 'eqx_masterVolume';
 const STORAGE_KEY_MUSIC_VOL     = 'eqx_musicVolume';
 const STORAGE_KEY_SFX_VOL       = 'eqx_sfxVolume';
@@ -69,6 +70,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ gameEngine, onPerfBarChan
   // General tab — draft state, applied only on OK.
   const [draftDebug,     setDraftDebug]     = useState(false);
   const [draftDebugOnly, setDraftDebugOnly] = useState(false);
+  const [draftDebugPF,   setDraftDebugPF]   = useState(false);
   const [draftPerfBar,   setDraftPerfBar]   = useState(false);
 
   // Audio tab — applied immediately for live preview; Cancel reverts.
@@ -93,6 +95,10 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ gameEngine, onPerfBarChan
     const debugOnly = localStorage.getItem(STORAGE_KEY_DEBUG_ONLY) === 'true';
     if (debug) gameEngine.setDebugPhysics(true, debugOnly);
 
+    // Debug pathfinding
+    const debugPF = localStorage.getItem(STORAGE_KEY_DEBUG_PF) === 'true';
+    if (debugPF) gameEngine.setDebugPathfinding(true);
+
     // Performance bar
     onPerfBarChange(localStorage.getItem(STORAGE_KEY_PERF_BAR) === 'true');
 
@@ -116,6 +122,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ gameEngine, onPerfBarChan
     if (!open) return;
     setDraftDebug(localStorage.getItem(STORAGE_KEY_DEBUG) === 'true');
     setDraftDebugOnly(localStorage.getItem(STORAGE_KEY_DEBUG_ONLY) === 'true');
+    setDraftDebugPF(localStorage.getItem(STORAGE_KEY_DEBUG_PF) === 'true');
     setDraftPerfBar(localStorage.getItem(STORAGE_KEY_PERF_BAR) === 'true');
 
     const ss = SoundSystem.getInstance();
@@ -151,7 +158,9 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ gameEngine, onPerfBarChan
     // Persist debug (and apply to engine).
     localStorage.setItem(STORAGE_KEY_DEBUG,      String(draftDebug));
     localStorage.setItem(STORAGE_KEY_DEBUG_ONLY, String(draftDebug && draftDebugOnly));
+    localStorage.setItem(STORAGE_KEY_DEBUG_PF,   String(draftDebugPF));
     gameEngine?.setDebugPhysics(draftDebug, draftDebug && draftDebugOnly);
+    gameEngine?.setDebugPathfinding(draftDebugPF);
 
     // Persist and apply performance bar toggle.
     localStorage.setItem(STORAGE_KEY_PERF_BAR, String(draftPerfBar));
@@ -271,6 +280,15 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ gameEngine, onPerfBarChan
                 slotProps={{ typography: { color: draftDebug ? 'text.primary' : 'text.disabled' } }}
               />
             </Box>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={draftDebugPF}
+                  onChange={(e) => setDraftDebugPF(e.target.checked)}
+                />
+              }
+              label="Pathfinding Debug (Grid Overlay)"
+            />
             <FormControlLabel
               control={
                 <Checkbox
