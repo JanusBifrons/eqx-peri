@@ -17,7 +17,8 @@ interface BeamStyle {
 const BEAM_STYLES: Record<string, BeamStyle> = {
   Beam:        { coreColor: 0xffffff, glowColor: 0x00ddff, arcColor: 0x88ffff, coreWidth: 2, glowWidth: 8,  arcCount: 3 },
   LargeBeam:   { coreColor: 0xffffff, glowColor: 0x4488ff, arcColor: 0x99ccff, coreWidth: 4, glowWidth: 14, arcCount: 5 },
-  MiningLaser: { coreColor: 0xffcccc, glowColor: 0xcc3333, arcColor: 0xff6666, coreWidth: 1.5, glowWidth: 6, arcCount: 1 },
+  MiningLaser:  { coreColor: 0xffcccc, glowColor: 0xcc3333, arcColor: 0xff6666, coreWidth: 1.5, glowWidth: 6,  arcCount: 1 },
+  TractorBeam:  { coreColor: 0xaaffcc, glowColor: 0x22aa55, arcColor: 0x44cc77, coreWidth: 1.5, glowWidth: 6,  arcCount: 0 },
 };
 
 const DEFAULT_STYLE = BEAM_STYLES['Beam'];
@@ -117,8 +118,53 @@ export class BeamRenderer implements IRenderer {
         : 1.0 - (age - fadeStart) / (BEAM_DISPLAY_DURATION_MS - fadeStart);
       if (alpha <= 0) continue;
 
-      this.drawBeam(beam, alpha, timestamp);
+      if (beam.coneHalfAngle != null && beam.beamAngle != null) {
+        this.drawTractorCone(beam, alpha, timestamp);
+      } else {
+        this.drawBeam(beam, alpha, timestamp);
+      }
     }
+  }
+
+  /**
+   * Draw a tractor beam as a wide translucent cone/fan shape.
+   */
+  private drawTractorCone(beam: ActiveBeam, alpha: number, _timestamp: number): void {
+    const x1 = beam.startX, y1 = beam.startY;
+    const angle = beam.beamAngle!;
+    const halfAngle = beam.coneHalfAngle!;
+    const dx = beam.endX - x1, dy = beam.endY - y1;
+    const range = Math.sqrt(dx * dx + dy * dy);
+    if (range < 5) return;
+
+    const style = BEAM_STYLES['TractorBeam'] ?? DEFAULT_STYLE;
+
+    const leftAngle = angle - halfAngle;
+    const rightAngle = angle + halfAngle;
+
+    // Single subtle translucent cone fill
+    const arcSteps = 10;
+    this.graphics.beginFill(style.glowColor, alpha * 0.035);
+    this.graphics.moveTo(x1, y1);
+    for (let s = 0; s <= arcSteps; s++) {
+      const a = leftAngle + (rightAngle - leftAngle) * (s / arcSteps);
+      this.graphics.lineTo(x1 + Math.cos(a) * range, y1 + Math.sin(a) * range);
+    }
+    this.graphics.closePath();
+    this.graphics.endFill();
+
+    // Faint edge lines
+    const edgeWidth = Math.max(0.5, 1);
+    this.graphics.lineStyle(edgeWidth, style.coreColor, alpha * 0.15);
+    this.graphics.moveTo(x1, y1);
+    this.graphics.lineTo(x1 + Math.cos(leftAngle) * range, y1 + Math.sin(leftAngle) * range);
+    this.graphics.moveTo(x1, y1);
+    this.graphics.lineTo(x1 + Math.cos(rightAngle) * range, y1 + Math.sin(rightAngle) * range);
+
+    // Thin center line
+    this.graphics.lineStyle(edgeWidth * 0.5, style.coreColor, alpha * 0.1);
+    this.graphics.moveTo(x1, y1);
+    this.graphics.lineTo(beam.endX, beam.endY);
   }
 
   private drawBeam(

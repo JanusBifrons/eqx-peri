@@ -11,6 +11,9 @@ import { ToastSystem } from '../systems/ToastSystem';
 import { SoundSystem } from '../systems/SoundSystem';
 import { MissileSystem } from '../weapons/MissileSystem';
 import { BeamSystem } from '../weapons/BeamSystem';
+import { HarpoonSystem } from '../weapons/HarpoonSystem';
+import { MissileRenderer } from '../rendering/MissileRenderer';
+import { HarpoonRenderer } from '../rendering/HarpoonRenderer';
 import { BlockPickupSystem } from '../systems/BlockPickupSystem';
 import { PathfindingSystem } from '../systems/PathfindingSystem';
 import { RenderSystem } from './RenderSystem';
@@ -47,8 +50,9 @@ export class GameEngine {
   private container!: HTMLElement;
   private assemblies: Assembly[] = [];
   private lasers: Matter.Body[] = [];
-  private missileSystem: MissileSystem;
+  private missileSystem!: MissileSystem;
   private beamSystem!: BeamSystem;
+  private harpoonSystem!: HarpoonSystem;
   private shockwaveRenderer!: ShockwaveRenderer;
   private particleSystem!: ParticleSystem;
   private playerAssembly: Assembly | null = null;
@@ -229,11 +233,13 @@ export class GameEngine {
     container.appendChild(this.stats.dom);    // Initialize toast system
     this.toastSystem = new ToastSystem(container);
 
-    // Initialize missile system
+    // Initialize weapon systems
     this.missileSystem = new MissileSystem(this.world);
+    this.harpoonSystem = new HarpoonSystem(this.world);
 
-    // Set missile system reference in controller manager
+    // Set weapon system references in controller manager
     this.controllerManager.setMissileSystem(this.missileSystem);
+    this.controllerManager.setHarpoonSystem(this.harpoonSystem);
 
     // Initialize beam system
     this.beamSystem = new BeamSystem(
@@ -371,7 +377,7 @@ export class GameEngine {
           this.spawnDebris(Math.random() * 400 - 200, Math.random() * 400 - 200);
           break;
         case '4':
-          this.spawnMissileCorvette(Math.random() * 400 - 200, Math.random() * 400 - 200, false);
+          this.debugSpawnEnemy(1);
           break;
         case 'r':
           if (this.blockPickupSystem.isHolding()) {
@@ -435,6 +441,12 @@ export class GameEngine {
       }
     } else if ((otherBody as any).isMissile) {
       if ((otherBody as any).missile.sourceTeam === shieldTeam) {
+        pair.isActive = false;
+        return true;
+      }
+    } else if ((otherBody as any).isHarpoon) {
+      const harpoonData = (otherBody as any).harpoonData;
+      if (harpoonData && harpoonData.sourceTeam === shieldTeam) {
         pair.isActive = false;
         return true;
       }
@@ -508,6 +520,11 @@ export class GameEngine {
         } else if ((bodyB as any).isMissile && (bodyA as any).shieldWall) {
           this.handleMissileHitShieldWall((bodyB as any).missile, (bodyA as any).shieldWall);
         }
+        // Harpoon collisions are handled by setupHarpoonRaycast (beforeUpdate).
+        // Skip any harpoon pairs that leak through from the physics step.
+        else if ((bodyA as any).isHarpoon || (bodyB as any).isHarpoon) {
+          return;
+        }
         // Check for entity-to-entity collisions (for flash effect)
         else if (bodyA.entity && bodyB.entity) {
           this.handleEntityCollision(bodyA.entity, bodyB.entity);
@@ -561,6 +578,7 @@ export class GameEngine {
     });
 
     this.setupLaserRaycast();
+    this.setupHarpoonRaycast();
   }
 
   /**
@@ -589,6 +607,10 @@ export class GameEngine {
       for (const sb of structureBodies) candidateBodies.push(sb);
       const wallBodies = this.structureManager?.gridManager.getShieldWalls().filter(w => w.isActive()).map(w => w.body) ?? [];
       for (const wb of wallBodies) candidateBodies.push(wb);
+      // Include missile bodies so PDC lasers can intercept them
+      for (const missile of this.missileSystem.getMissiles()) {
+        if (!missile.destroyed) candidateBodies.push(missile.body);
+      }
 
       if (candidateBodies.length === 0) return;
 
@@ -704,6 +726,133 @@ export class GameEngine {
           this.handleLaserHitShieldWall(laser, (hitBody as any).shieldWall, hitPos);
         } else if (hitBody.label === 'asteroid') {
           this.handleLaserHitAsteroid(laser, hitPos);
+        } else if ((hitBody as any).isMissile) {
+          this.handleLaserHitMissile(laser, hitBody, hitPos);
+        }
+      }
+    });
+  }
+
+  /**
+   * Pre-physics raycast for harpoon projectiles — same pattern as setupLaserRaycast.
+   * Casts a ray along each flying harpoon's velocity, finds the exact surface
+   * intersection on the first hit body, and creates the tether at that precise point.
+   * Prevents tunneling and gives accurate anchor positions.
+   */
+  private setupHarpoonRaycast(): void {
+    Matter.Events.on(this.engine, 'beforeUpdate', () => {
+      const flyingHarpoons = this.harpoonSystem.getFlyingHarpoons();
+      if (flyingHarpoons.length === 0) return;
+
+      // Build candidate body list (same as laser raycast)
+      const candidateBodies: Matter.Body[] = [];
+      for (const assembly of this.assemblies) {
+        const parts = assembly.rootBody.parts;
+        for (let i = parts.length > 1 ? 1 : 0; i < parts.length; i++) {
+          candidateBodies.push(parts[i]);
+        }
+      }
+      if (candidateBodies.length === 0) return;
+
+      for (const harpoon of flyingHarpoons) {
+        if (!harpoon.projectileBody || harpoon.destroyed) continue;
+        if (harpoon.age < 0.05) continue; // launch delay
+
+        const body = harpoon.projectileBody;
+        const vel = body.velocity;
+        const speed = Math.sqrt(vel.x * vel.x + vel.y * vel.y);
+        if (speed < 0.1) continue;
+
+        const nx = vel.x / speed;
+        const ny = vel.y / speed;
+
+        // Cast from trailing tip to one tick past leading tip (same as laser pattern)
+        const halfLen = speed * 0.75;
+        const from = { x: body.position.x - nx * halfLen, y: body.position.y - ny * halfLen };
+        const to = { x: body.position.x + nx * (halfLen + speed), y: body.position.y + ny * (halfLen + speed) };
+
+        const rayHits = Matter.Query.ray(candidateBodies, from, to);
+        if (rayHits.length === 0) continue;
+
+        const dx = to.x - from.x;
+        const dy = to.y - from.y;
+        let closestT = Infinity;
+        let closestBody: Matter.Body | null = null;
+
+        for (const rh of rayHits) {
+          const hitBody = (rh as unknown as Record<string, unknown>).body as Matter.Body;
+          if (!hitBody) continue;
+
+          // Skip self (source assembly)
+          if (hitBody.assembly?.id === harpoon.sourceAssemblyId) continue;
+
+          // Skip same-team
+          if (hitBody.assembly && harpoon.sourceTeam >= 0 && hitBody.assembly.getTeam() === harpoon.sourceTeam) continue;
+
+          // Skip friendly shields
+          if ((hitBody as unknown as Record<string, unknown>).isShieldPart) {
+            const shieldOwner = (hitBody as unknown as Record<string, unknown>).parentAssembly as Assembly | undefined;
+            if (shieldOwner && harpoon.sourceTeam >= 0 && shieldOwner.getTeam() === harpoon.sourceTeam) continue;
+          }
+
+          // Ray-edge intersection (Cramer's rule) for exact surface point
+          const verts = hitBody.vertices;
+          for (let i = 0; i < verts.length; i++) {
+            const a = verts[i];
+            const b = verts[(i + 1) % verts.length];
+            const ex = b.x - a.x;
+            const ey = b.y - a.y;
+            const det = dx * (-ey) - dy * (-ex);
+            if (Math.abs(det) < 1e-10) continue;
+            const t = ((a.x - from.x) * (-ey) - (a.y - from.y) * (-ex)) / det;
+            const s = (dx * (a.y - from.y) - dy * (a.x - from.x)) / det;
+            if (t >= 0 && t <= 1 && s >= 0 && s <= 1 && t < closestT) {
+              closestT = t;
+              closestBody = hitBody;
+            }
+          }
+        }
+
+        if (!closestBody) continue;
+
+        const hitPos = closestT < Infinity
+          ? { x: from.x + dx * closestT, y: from.y + dy * closestT }
+          : body.position;
+
+        // Handle shield hit
+        if ((closestBody as unknown as Record<string, unknown>).isShieldPart) {
+          const shieldAssembly = (closestBody as unknown as Record<string, unknown>).parentAssembly as Assembly;
+          if (shieldAssembly) {
+            this.handleHarpoonHitShield(body, shieldAssembly);
+          }
+          continue;
+        }
+
+        // Handle entity hit
+        if (closestBody.entity) {
+          const hitAssembly = this.assemblies.find(a => a.entities.includes(closestBody!.entity!));
+          if (!hitAssembly) continue;
+
+          const sourceAssembly = this.assemblies.find(a => a.id === harpoon.sourceAssemblyId);
+          if (!sourceAssembly || sourceAssembly.destroyed) continue;
+
+          // Compute source muzzle world position from the fire-time body-local anchor.
+          // This is always valid — no fragile entity lookup that can fall back to hitPos
+          // (which would create a zero-length tether and launch the source toward the target).
+          const sBody = sourceAssembly.rootBody;
+          const lx = harpoon.sourceLocalAnchor.x;
+          const ly = harpoon.sourceLocalAnchor.y;
+          const sCos = Math.cos(sBody.angle);
+          const sSin = Math.sin(sBody.angle);
+          const sourceMuzzlePos = {
+            x: sBody.position.x + lx * sCos - ly * sSin,
+            y: sBody.position.y + lx * sSin + ly * sCos,
+          };
+
+          const hit = this.harpoonSystem.handleHarpoonHit(harpoon, hitAssembly, sourceAssembly, hitPos, sourceMuzzlePos, closestBody);
+          if (hit) {
+            this.particleSystem.emitImpact(hitPos.x, hitPos.y, 'laser');
+          }
         }
       }
     });
@@ -965,6 +1114,19 @@ export class GameEngine {
     this.particleSystem.emitImpact(hitPos.x, hitPos.y, 'laser');
   }
 
+  private handleLaserHitMissile(laser: Matter.Body, missileBody: Matter.Body, hitPos: Matter.Vector): void {
+    Matter.World.remove(this.world, laser);
+    this.lasers = this.lasers.filter(l => l !== laser);
+    SoundSystem.getInstance().playLaserImpact();
+    this.particleSystem.emitImpact(hitPos.x, hitPos.y, 'laser');
+
+    // Destroy the missile
+    const missile = (missileBody as any).missile;
+    if (missile && !missile.destroyed) {
+      missile.destroy();
+    }
+  }
+
   private handleLaserHitStructure(laser: Matter.Body, structure: Structure, hitPos: Matter.Vector): void {
     const LASER_DAMAGE = 10;
     Matter.World.remove(this.world, laser);
@@ -1026,6 +1188,34 @@ export class GameEngine {
     missile.destroy();
 
     // Swap the compound body if the shield just collapsed.
+    if (shieldAssembly.pendingBodySwap) {
+      this.removeBodyWithParts(shieldAssembly.pendingBodySwap.oldBody);
+      Matter.World.add(this.world, shieldAssembly.rootBody);
+      shieldAssembly.pendingBodySwap = null;
+    }
+  }
+
+  private handleHarpoonHitShield(harpoonBody: Matter.Body, shieldAssembly: Assembly): void {
+    if (!shieldAssembly) return;
+
+    const harpoonData = (harpoonBody as any).harpoonData;
+    if (!harpoonData || harpoonData.destroyed) return;
+
+    // Self-hit prevention
+    if (harpoonData.sourceAssemblyId === shieldAssembly.id) return;
+
+    // Friendly fire prevention
+    const sourceAssembly = this.assemblies.find(a => a.id === harpoonData.sourceAssemblyId);
+    if (sourceAssembly && sourceAssembly.getTeam() >= 0 && sourceAssembly.getTeam() === shieldAssembly.getTeam()) return;
+
+    SoundSystem.getInstance().playLaserImpact();
+    shieldAssembly.damageShield(5, Date.now());
+    shieldAssembly.entities
+      .filter(e => (e.type === 'Shield' || e.type === 'LargeShield') && !e.destroyed)
+      .forEach(e => e.triggerCollisionFlash());
+    harpoonData.destroyed = true;
+
+    // Swap the compound body if the shield just collapsed
     if (shieldAssembly.pendingBodySwap) {
       this.removeBodyWithParts(shieldAssembly.pendingBodySwap.oldBody);
       Matter.World.add(this.world, shieldAssembly.rootBody);
@@ -1113,8 +1303,9 @@ export class GameEngine {
     Matter.Runner.stop(this.runner);
     Matter.Engine.clear(this.engine);
 
-    // Cleanup missile system
+    // Cleanup weapon systems
     this.missileSystem.cleanup();
+    this.harpoonSystem.cleanup();
 
     // Cleanup asteroid field
     this.asteroidFieldSystem?.dispose();
@@ -1218,6 +1409,9 @@ export class GameEngine {
 
     // Update missile system (targeting, steering, fuel consumption)
     this.missileSystem.update(deltaTime, this.assemblies);
+
+    // Update harpoon system (tether validity, projectile TTL)
+    this.harpoonSystem.update(deltaTime, this.assemblies);
 
     // Update beam system (age out expired visual beams)
     this.beamSystem.update(deltaTime);
@@ -1460,103 +1654,78 @@ export class GameEngine {
       console.error('❌ Error spawning ship:', error);
     }
   }
-  */private spawnMissileCorvette(x: number, y: number, isPlayer: boolean): void {
-    try {
-      console.log(`🚀 Spawning Missile Corvette at (${x}, ${y}), isPlayer: ${isPlayer}`);
-
-      // Find the Missile Corvette ship in the JSON data
-      const ships = shipsData.ships;
-      const missileCorvette = ships.find(ship => ship.name === 'Missile Corvette');
-
-      if (!missileCorvette) {
-        console.error('❌ Missile Corvette ship not found in ships data');
-        return;
-      }
-
-      console.log(`🎯 Found Missile Corvette with ${missileCorvette.parts.length} parts`);
-
-      const assembly = new Assembly(missileCorvette.parts as EntityConfig[], { x, y });
-      console.log(`🔨 Created Missile Corvette assembly with ID: ${assembly.id}`);
-
-      this.assemblies.push(assembly);
-      Matter.World.add(this.world, assembly.rootBody);
-      console.log(`🌍 Added to world, total assemblies: ${this.assemblies.length}`);
-
-      // Set as player if requested
-      if (isPlayer && (!this.playerAssembly || this.playerAssembly.destroyed)) {
-        this.playerAssembly = assembly;
-        assembly.isPlayerControlled = true;
-        this.flightController = new FlightController(assembly);
-        console.log('👤 Set Missile Corvette as player assembly with flight controller');
-      }
-    } catch (error) {
-      console.error('❌ Error spawning Missile Corvette:', error);
-    }
-  }
+  */
 
   // Add debris spawning method
-  private spawnDebris(x: number, y: number, entityType?: EntityType): void {
+  private spawnDebris(x: number, y: number, entityType?: EntityType, calm: boolean = false): void {
     try {
-      console.log(`🗑️ Spawning debris at (${x}, ${y})`);
-
       // Pick a random entity type for debris if not specified
       const debrisTypes: EntityType[] = ['Hull', 'Engine', 'Gun', 'PowerCell', 'HeavyHull', 'LargePowerCell'];
       const selectedType = entityType || debrisTypes[Math.floor(Math.random() * debrisTypes.length)];
-
-      console.log(`🎲 Selected debris type: ${selectedType}`);
 
       // Create debris config
       const debrisConfig: EntityConfig = {
         type: selectedType,
         x: 0,
         y: 0,
-        rotation: Math.floor(Math.random() * 4) * 90, // Random rotation (0, 90, 180, 270)
-        health: 1, // Very low health for debris
+        rotation: Math.floor(Math.random() * 4) * 90,
+        health: 1,
         maxHealth: 10
       };
 
       const debrisAssembly = new Assembly([debrisConfig], { x, y });
-      console.log(`🔨 Created debris assembly with ID: ${debrisAssembly.id}`);
 
       // Set as neutral team (no team affiliation for debris)
       debrisAssembly.setTeam(-1);
       debrisAssembly.setShipName(`${selectedType} Debris`);
 
-      // Add random initial velocity to make it float around
-      const angle = Math.random() * Math.PI * 2;
-      const speed = 0.5 + Math.random() * 2; // Random speed between 0.5-2.5
-      Matter.Body.setVelocity(debrisAssembly.rootBody, {
-        x: Math.cos(angle) * speed,
-        y: Math.sin(angle) * speed
-      });
-
-      // Add random spin
-      Matter.Body.setAngularVelocity(debrisAssembly.rootBody, (Math.random() - 0.5) * 0.3);
+      if (!calm) {
+        // Add random initial velocity to make it float around
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 0.5 + Math.random() * 2;
+        Matter.Body.setVelocity(debrisAssembly.rootBody, {
+          x: Math.cos(angle) * speed,
+          y: Math.sin(angle) * speed
+        });
+        // Add random spin
+        Matter.Body.setAngularVelocity(debrisAssembly.rootBody, (Math.random() - 0.5) * 0.3);
+      }
 
       this.assemblies.push(debrisAssembly);
       Matter.World.add(this.world, debrisAssembly.rootBody);
-      console.log(`🌍 Added debris to world, total assemblies: ${this.assemblies.length}`);
     } catch (error) {
-      console.error('❌ Error spawning debris:', error);
+      console.error('Error spawning debris:', error);
     }
   }
-  // Add method to spawn field of debris
-  private spawnDebrisField(centerX: number, centerY: number, count: number, radius: number): void {
-    console.log(`🗑️ Spawning debris field: ${count} pieces in ${radius} unit radius`);
+  /**
+   * @param calm When true, debris spawns stationary with no overlaps (grid-spaced).
+   */
+  private spawnDebrisField(centerX: number, centerY: number, count: number, radius: number, calm: boolean = false): void {
+    if (calm) {
+      // Grid layout to avoid overlaps — space pieces by at least 40 units
+      const spacing = 40;
+      const cols = Math.ceil(Math.sqrt(count));
+      const totalW = (cols - 1) * spacing;
+      const startX = centerX - totalW / 2;
+      const startY = centerY - totalW / 2;
+      for (let i = 0; i < count; i++) {
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        this.spawnDebris(startX + col * spacing, startY + row * spacing, undefined, true);
+      }
+    } else {
+      // Original random scatter
+      for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const distance = Math.random() * radius;
+        const x = centerX + Math.cos(angle) * distance;
+        const y = centerY + Math.sin(angle) * distance;
 
-    // Mix of random debris and broken ship parts
-    for (let i = 0; i < count; i++) {
-      // Random position within radius
-      const angle = Math.random() * Math.PI * 2;
-      const distance = Math.random() * radius;
-      const x = centerX + Math.cos(angle) * distance;
-      const y = centerY + Math.sin(angle) * distance;
-
-      // 30% chance to spawn broken ship parts (multiple pieces together)
-      if (Math.random() < 0.3) {
-        this.spawnBrokenShipParts(x, y);
-      } else {
-        this.spawnDebris(x, y);
+        if (Math.random() < 0.3) {
+          this.spawnBrokenShipParts(x, y);
+        } else {
+          this.spawnDebris(x, y);
+        }
       }
     }
   }
@@ -2098,6 +2267,11 @@ export class GameEngine {
     ));
     this.renderSystem.register(new ShieldRenderer(() => this.assemblies));
     this.renderSystem.register(new BeamRenderer(this.beamSystem));
+    this.renderSystem.register(new MissileRenderer(() => this.missileSystem.getMissiles()));
+    this.renderSystem.register(new HarpoonRenderer(
+      () => this.harpoonSystem.getActiveHarpoons(),
+      () => this.assemblies,
+    ));
     this.particleSystem = new ParticleSystem();
     this.renderSystem.register(new ParticleRenderer(this.particleSystem, () => this.assemblies));
     this.shockwaveRenderer = new ShockwaveRenderer(() => this.renderSystem.getStage());
@@ -2206,7 +2380,9 @@ export class GameEngine {
       );
     }
 
-    if (cfg.structuresSandboxMode) {
+    if (cfg.id === 'weapon-test') {
+      this.spawnWeaponTestScenario();
+    } else if (cfg.structuresSandboxMode) {
       this.spawnStructuresSandboxScenario();
     } else if (cfg.shipBuilderMode) {
       this.spawnShipBuilderScenario();
@@ -2239,9 +2415,7 @@ export class GameEngine {
   /** Spawn `count` enemy ships (team 1) near the current camera centre. */
   public debugSpawnEnemy(count: number): void {
     const c     = this.getCameraCenter();
-    const ships = shipsData.ships.filter(
-      s => !s.parts.some(p => p.type.toLowerCase().includes('missile')),
-    );
+    const ships = shipsData.ships;
     for (let i = 0; i < count; i++) {
       const angle    = (i / count) * Math.PI * 2 + Math.random() * 0.5;
       const dist     = 300 + Math.random() * 300;
@@ -2263,9 +2437,7 @@ export class GameEngine {
   /** Spawn a ship from an Assembly Yard. Picks a random small ship design. */
   private spawnShipFromYard(yard: import('../structures/StructureAssemblyYard').StructureAssemblyYard): void {
     // Pick a random ship design (prefer smaller/cheaper ships)
-    const ships = shipsData.ships.filter(
-      s => s.parts.length <= 12 && !s.parts.some(p => p.type.toLowerCase().includes('missile')),
-    );
+    const ships = shipsData.ships.filter(s => s.parts.length <= 12);
     if (ships.length === 0) return;
 
     const shipDef = ships[Math.floor(Math.random() * ships.length)];
@@ -2318,6 +2490,72 @@ export class GameEngine {
   private getCameraCenter(): { x: number; y: number } {
     const b = this.render.bounds;
     return { x: (b.min.x + b.max.x) / 2, y: (b.min.y + b.max.y) / 2 };
+  }
+
+  private spawnWeaponTestScenario(): void {
+    const G = GRID_SIZE;
+    // 3-block test ships: Cockpit (center) + weapon (front, x=+G) + Engine (back, x=-G)
+    // Ships face east. Engine rotation=180 so thrust pushes forward.
+    const weaponTypes: { type: EntityType; label: string }[] = [
+      { type: 'Gun',                  label: 'Gun Fighter' },
+      { type: 'Beam',                 label: 'Beam Fighter' },
+      { type: 'MissileLauncher',      label: 'Missile Fighter' },
+      { type: 'PDC',                  label: 'PDC Fighter' },
+      { type: 'TractorBeam',          label: 'Tractor Fighter' },
+      { type: 'Harpoon',              label: 'Harpoon Fighter' },
+      { type: 'MiningLaser',          label: 'Mining Fighter' },
+    ];
+
+    const spacing = 120;
+    const startY = -((weaponTypes.length - 1) * spacing) / 2;
+
+    // Spawn team-0 test ships in a vertical line on the left
+    for (let i = 0; i < weaponTypes.length; i++) {
+      const { type, label } = weaponTypes[i];
+      const x = -300;
+      const y = startY + i * spacing;
+      const parts: EntityConfig[] = [
+        { type: 'Cockpit', x: 0, y: 0, rotation: 0 },
+        { type, x: G, y: 0, rotation: 0 },
+        { type: 'Engine', x: -G, y: 0, rotation: 180 },
+      ];
+      const assembly = new Assembly(parts, { x, y });
+      assembly.setShipName(label);
+      assembly.setTeam(0);
+      this.assemblies.push(assembly);
+      Matter.World.add(this.world, assembly.rootBody);
+      // AI disabled — player can pilot any ship via observer mode click
+    }
+
+    // Spawn some scrap debris to the east as target practice (calm = stationary, no overlaps)
+    this.spawnDebrisField(400, 0, 20, 400, true);
+
+    // Spawn AI-disabled enemy ships (team 1) to the east as targets
+    const targetShips: { type: EntityType; label: string }[] = [
+      { type: 'Gun',  label: 'Target Drone A' },
+      { type: 'Gun',  label: 'Target Drone B' },
+      { type: 'Beam', label: 'Target Drone C' },
+    ];
+    for (let i = 0; i < targetShips.length; i++) {
+      const { type, label } = targetShips[i];
+      const x = 500;
+      const y = -120 + i * 120;
+      const parts: EntityConfig[] = [
+        { type: 'Cockpit', x: 0, y: 0, rotation: 0 },
+        { type, x: G, y: 0, rotation: 0 },
+        { type: 'Engine', x: -G, y: 0, rotation: 180 },
+      ];
+      const assembly = new Assembly(parts, { x, y });
+      assembly.setShipName(label);
+      assembly.setTeam(1);
+      Matter.Body.setVelocity(assembly.rootBody, { x: 0, y: 0 });
+      Matter.Body.setAngularVelocity(assembly.rootBody, 0);
+      this.assemblies.push(assembly);
+      Matter.World.add(this.world, assembly.rootBody);
+      // No AI — stationary targets
+    }
+
+    this.observerPos = { x: 0, y: 0 };
   }
 
   private spawnStructuresSandboxScenario(): void {

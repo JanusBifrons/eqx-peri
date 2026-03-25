@@ -1,8 +1,7 @@
 // pathfinding is a CJS module; Vite may place exports under .default.
 // Use a default import + fallback to handle both ESM interop patterns.
 import PFModule from 'pathfinding';
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const PF: typeof PFModule = (PFModule as any).default ?? PFModule;
+const PF: typeof PFModule = (PFModule as never as Record<string, unknown>).default as typeof PFModule ?? PFModule;
 import * as Matter from 'matter-js';
 import { Vector2 } from '../../types/GameTypes';
 

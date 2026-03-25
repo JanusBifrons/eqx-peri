@@ -6,6 +6,7 @@ export type EntityType = 'Cockpit' | 'Engine' | 'Gun' | 'Hull' | 'PowerCell' |
   'Beam' | 'LargeBeam' |
   'CargoHold' | 'LargeCargoHold' |
   'MiningLaser' |
+  'PDC' | 'TractorBeam' | 'Harpoon' |
   'RectHull' | 'Hull1x3' | 'Hull1x4' | 'Hull2x2' |
   'Hull5x1' | 'Hull3x2' | 'Hull4x2' | 'Hull5x2' |
   'Hull3x3' | 'Hull4x3' | 'Hull5x3' | 'Hull4x4' | 'Hull5x4' | 'Hull5x5' |
@@ -53,6 +54,16 @@ export interface EntityTypeDefinition {
   beamDps?: number;   // Damage per second (beam weapons only)
   cargoCapacity?: number; // Max cargo storage in kg (cargo hold blocks only)
   miningRate?: number;    // Ore extraction rate in kg/s (mining laser blocks only)
+  /** Fire interval in ms for missile launchers (per-entity cooldown). */
+  missileFireInterval?: number;
+  /** PDC: auto-targeting scan radius in world units. */
+  pdcScanRadius?: number;
+  /** Tractor beam: attractive force magnitude per physics frame. */
+  tractorForce?: number;
+  /** Tractor beam: half-angle of the capture cone in radians. */
+  tractorConeAngle?: number;
+  /** Harpoon: tether constraint stiffness for Matter.Constraint. */
+  harpoonStiffness?: number;
   /** Sides (at rotation 0) where this block has no physical face — used for TriHull. */
   blockedSidesBase?: readonly ('north' | 'east' | 'south' | 'west')[];
   canAttachTo: EntityType[];
@@ -89,6 +100,103 @@ export const BEAM_DISPLAY_DURATION_MS = 80; // How long beam visual persists aft
 export const MINING_LASER_RANGE = 350;   // Max range in world units
 export const MINING_LASER_DPS = 5;       // Low combat damage (5 DPS)
 export const MINING_LASER_RATE = 50;     // Ore extraction rate in kg/s
+
+// Missile launcher constants
+export const MISSILE_LAUNCHER_RANGE = 800;
+export const LARGE_MISSILE_LAUNCHER_RANGE = 1200;
+export const CAPITAL_MISSILE_LAUNCHER_RANGE = 1600;
+export const MISSILE_LAUNCHER_FIRE_INTERVAL_MS = 3000;
+export const LARGE_MISSILE_LAUNCHER_FIRE_INTERVAL_MS = 5000;
+export const CAPITAL_MISSILE_LAUNCHER_FIRE_INTERVAL_MS = 8000;
+
+// PDC constants
+export const PDC_RANGE = 400;
+export const PDC_SCAN_RADIUS = 500;
+export const PDC_FIRE_RATE_MS = 100;
+export const PDC_DAMAGE = 5;
+export const PDC_PROJECTILE_SPEED = 50;
+
+// Tractor beam constants
+export const TRACTOR_BEAM_RANGE = 800;
+export const TRACTOR_BEAM_FORCE = 5.0;
+export const TRACTOR_CONE_HALF_ANGLE = 0.6; // ~34 degrees half-angle — wide fan
+
+// Harpoon constants
+export const HARPOON_RANGE = 600;
+export const HARPOON_SPEED = 25;
+export const HARPOON_STIFFNESS = 0.002;
+export const HARPOON_DAMPING = 0.05;
+export const HARPOON_DAMAGE = 5;
+export const HARPOON_REEL_SPEED = 35; // Speed when reeling back after miss
+export const HARPOON_FIRE_RATE_MS = 4000;
+
+// Missile configuration (used by MissileSystem)
+export type MissileVariant = 'tracking' | 'standard' | 'torpedo';
+
+export interface MissileConfig {
+  variant: MissileVariant;
+  damage: number;
+  initialSpeed: number;    // world units per physics tick at launch
+  maxSpeed: number;        // terminal velocity
+  acceleration: number;    // world units/s^2
+  turnRate: number;        // radians per second (0 = no steering)
+  fuel: number;            // seconds of burn time
+  launcherSize: 'small' | 'large' | 'capital';
+}
+
+export const MISSILE_CONFIGS: Record<string, MissileConfig> = {
+  tracking: {
+    variant: 'tracking',
+    damage: 25,
+    initialSpeed: 3,
+    maxSpeed: 25,
+    acceleration: 15,
+    turnRate: 2.5,
+    fuel: 10,
+    launcherSize: 'small',
+  },
+  standard: {
+    variant: 'standard',
+    damage: 40,
+    initialSpeed: 3,
+    maxSpeed: 30,
+    acceleration: 20,
+    turnRate: 1.5,
+    fuel: 12,
+    launcherSize: 'large',
+  },
+  torpedo: {
+    variant: 'torpedo',
+    damage: 80,
+    initialSpeed: 2,
+    maxSpeed: 35,
+    acceleration: 10,
+    turnRate: 0,
+    fuel: 15,
+    launcherSize: 'capital',
+  },
+};
+
+// Missile launch request interface
+export interface MissileLaunchRequest {
+  position: Vector2;
+  angle: number;
+  config: MissileConfig;
+  sourceAssemblyId: string;
+  sourceTeam: number;
+  targetAssembly?: unknown; // Assembly reference (typed as unknown to avoid circular import)
+}
+
+// Harpoon fire request interface
+export interface HarpoonFireRequest {
+  position: Vector2;
+  angle: number;
+  sourceAssemblyId: string;
+  sourceTeam: number;
+  /** The harpoon weapon entity's physics part body, for entity-local anchor tracking. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  entityBody: any;
+}
 
 // Cargo hold constants
 export const CARGO_HOLD_CAPACITY = 5000;       // 5 tonnes for small cargo hold
@@ -243,7 +351,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     type: 'Cockpit',
     width: GRID_SIZE,
     height: GRID_SIZE,
-    mass: 500,
+    mass: 5000,
     defaultHealth: 1000,
     color: '#00ff00',
     shape: 'rect',
@@ -313,12 +421,12 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     height: GRID_SIZE * 2,
     gridCols: 2,
     gridRows: 2,
-    mass: 2000,
+    mass: 20000,
     defaultHealth: 2500,
     color: '#00aa00',
     shape: 'rect',
     thrust: 2.0, // Emergency RCS (same efficiency as Cockpit — 0.001 thrust/mass)
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher', 'PDC', 'TractorBeam', 'Harpoon'],
     attachmentPoints: [
       { x: 0, y: -2 }, // top center
       { x: 1, y: -1 }, // top right
@@ -341,7 +449,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     color: '#cc4400',
     shape: 'rect',
     thrust: 8.0, // Primary propulsion (0.00267 thrust/mass — consistent with Engine)
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher', 'PDC', 'TractorBeam', 'Harpoon'],
     attachmentPoints: [
       { x: 0, y: -2 }, // top center
       { x: 1, y: -1 }, // top right
@@ -362,7 +470,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     color: '#cc0000',
     shape: 'rect',
     weaponRange: LARGE_GUN_RANGE,
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher', 'PDC', 'TractorBeam', 'Harpoon'],
     attachmentPoints: [
       { x: 1, y: 1 },  // bottom right
       { x: 0, y: 2 },  // bottom center
@@ -382,7 +490,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     defaultHealth: 300,
     color: '#666666',
     shape: 'rect',
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher', 'PDC', 'TractorBeam', 'Harpoon'],
     attachmentPoints: [
       { x: 0, y: -2 }, // top center
       { x: 1, y: -1 }, // top right
@@ -404,7 +512,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     defaultHealth: 100,
     color: '#dddd00',
     shape: 'rect',
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher', 'PDC', 'TractorBeam', 'Harpoon'],
     attachmentPoints: [
       { x: 0, y: -2 }, // top center
       { x: 1, y: -1 }, // top right
@@ -424,12 +532,12 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     height: GRID_SIZE * 4,
     gridCols: 4,
     gridRows: 4,
-    mass: 8000,
+    mass: 80000,
     defaultHealth: 10000,
     color: '#0066ff',
     shape: 'rect',
     thrust: 8.0, // Emergency RCS (0.001 thrust/mass — consistent with Cockpit tier)
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher', 'PDC', 'TractorBeam', 'Harpoon'],
     attachmentPoints: [
       { x: 0, y: -4 }, // top center
       { x: 2, y: -2 }, // top right
@@ -452,7 +560,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     color: '#ff3300',
     shape: 'rect',
     thrust: 32.0, // Primary propulsion (0.00267 thrust/mass — consistent with Engine tier)
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher', 'PDC', 'TractorBeam', 'Harpoon'],
     attachmentPoints: [
       { x: 0, y: -4 }, // top center
       { x: 2, y: -2 }, // top right
@@ -473,7 +581,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     color: '#aa0000',
     shape: 'rect',
     weaponRange: CAPITAL_WEAPON_RANGE,
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher', 'PDC', 'TractorBeam', 'Harpoon'],
     attachmentPoints: [
       { x: 2, y: 2 },  // bottom right
       { x: 0, y: 4 },  // bottom center
@@ -533,15 +641,17 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     type: 'MissileLauncher',
     width: GRID_SIZE,
     height: GRID_SIZE,
-    mass: 450, // Similar to guns but slightly heavier
+    mass: 450,
     defaultHealth: 70,
-    color: '#ff9900', // Orange color for missiles
+    color: '#ff9900',
     shape: 'rect',
+    weaponRange: MISSILE_LAUNCHER_RANGE,
+    missileFireInterval: MISSILE_LAUNCHER_FIRE_INTERVAL_MS,
     canAttachTo: ['Cockpit', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam'],
     attachmentPoints: [
-      { x: 1, y: 0 },  // right
-      { x: 0, y: 1 },  // bottom
-      { x: -1, y: 0 }  // left
+      { x: 1, y: 0 },
+      { x: 0, y: 1 },
+      { x: -1, y: 0 }
     ]
   },
   LargeMissileLauncher: {
@@ -550,17 +660,19 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     height: GRID_SIZE * 2,
     gridCols: 2,
     gridRows: 2,
-    mass: 1800, // 4x mass for 4x size
+    mass: 1800,
     defaultHealth: 180,
-    color: '#ff7700', // Darker orange for large launchers
+    color: '#ff7700',
     shape: 'rect',
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'CapitalMissileLauncher'],
+    weaponRange: LARGE_MISSILE_LAUNCHER_RANGE,
+    missileFireInterval: LARGE_MISSILE_LAUNCHER_FIRE_INTERVAL_MS,
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'CapitalMissileLauncher', 'PDC', 'TractorBeam', 'Harpoon'],
     attachmentPoints: [
-      { x: 1, y: 1 },  // bottom right
-      { x: 0, y: 2 },  // bottom center
-      { x: -1, y: 1 }, // bottom left
-      { x: -2, y: 0 }, // left center
-      { x: 2, y: 0 }   // right center
+      { x: 1, y: 1 },
+      { x: 0, y: 2 },
+      { x: -1, y: 1 },
+      { x: -2, y: 0 },
+      { x: 2, y: 0 }
     ]
   },
   CapitalMissileLauncher: {
@@ -569,17 +681,77 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     height: GRID_SIZE * 4,
     gridCols: 4,
     gridRows: 4,
-    mass: 7200, // 16x mass for 16x size
+    mass: 7200,
     defaultHealth: 720,
-    color: '#ff5500', // Even darker orange for capital launchers
+    color: '#ff5500',
     shape: 'rect',
+    weaponRange: CAPITAL_MISSILE_LAUNCHER_RANGE,
+    missileFireInterval: CAPITAL_MISSILE_LAUNCHER_FIRE_INTERVAL_MS,
     canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher'],
     attachmentPoints: [
-      { x: 2, y: 2 },  // bottom right
-      { x: 0, y: 4 },  // bottom center
-      { x: -2, y: 2 }, // bottom left
-      { x: -4, y: 0 }, // left center
-      { x: 4, y: 0 }   // right center
+      { x: 2, y: 2 },
+      { x: 0, y: 4 },
+      { x: -2, y: 2 },
+      { x: -4, y: 0 },
+      { x: 4, y: 0 }
+    ]
+  },
+
+  // PDC — autonomous anti-missile point defence cannon
+  PDC: {
+    type: 'PDC',
+    width: GRID_SIZE,
+    height: GRID_SIZE,
+    mass: 300,
+    defaultHealth: 50,
+    color: '#88ccff',
+    shape: 'rect',
+    weaponRange: PDC_RANGE,
+    pdcScanRadius: PDC_SCAN_RADIUS,
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher', 'TractorBeam', 'Harpoon'],
+    attachmentPoints: [
+      { x: 1, y: 0 },
+      { x: 0, y: 1 },
+      { x: -1, y: 0 }
+    ]
+  },
+
+  // Tractor Beam — wide beam that attracts objects toward the source
+  TractorBeam: {
+    type: 'TractorBeam',
+    width: GRID_SIZE,
+    height: GRID_SIZE,
+    mass: 500,
+    defaultHealth: 80,
+    color: '#44ff88',
+    shape: 'rect',
+    beamRange: TRACTOR_BEAM_RANGE,
+    tractorForce: TRACTOR_BEAM_FORCE,
+    tractorConeAngle: TRACTOR_CONE_HALF_ANGLE,
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher', 'PDC', 'Harpoon'],
+    attachmentPoints: [
+      { x: 1, y: 0 },
+      { x: 0, y: 1 },
+      { x: -1, y: 0 }
+    ]
+  },
+
+  // Harpoon — fires a tethering projectile that constrains the target
+  Harpoon: {
+    type: 'Harpoon',
+    width: GRID_SIZE,
+    height: GRID_SIZE,
+    mass: 400,
+    defaultHealth: 60,
+    color: '#cc8844',
+    shape: 'rect',
+    weaponRange: HARPOON_RANGE,
+    harpoonStiffness: HARPOON_STIFFNESS,
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher', 'PDC', 'TractorBeam'],
+    attachmentPoints: [
+      { x: 1, y: 0 },
+      { x: 0, y: 1 },
+      { x: -1, y: 0 }
     ]
   },
 
@@ -601,7 +773,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
       'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell',
       'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor',
       'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher',
-      'Beam', 'LargeShield'
+      'Beam', 'LargeShield', 'PDC', 'TractorBeam', 'Harpoon'
     ],
     attachmentPoints: [
       { x: 0, y: -1 }, // top
@@ -627,7 +799,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
       'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell',
       'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor',
       'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher',
-      'Beam', 'LargeBeam', 'Shield'
+      'Beam', 'LargeBeam', 'Shield', 'PDC', 'TractorBeam', 'Harpoon'
     ],
     attachmentPoints: [
       { x: 0, y: -2 }, // top center
@@ -654,7 +826,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     weaponRange: BEAM_SMALL_RANGE,
     beamRange: BEAM_SMALL_RANGE,
     beamDps: BEAM_SMALL_DPS,
-    canAttachTo: ['Cockpit', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'LargeBeam'],
+    canAttachTo: ['Cockpit', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher', 'PDC', 'TractorBeam', 'Harpoon'],
     attachmentPoints: [
       { x: 1, y: 0 },  // right
       { x: 0, y: 1 },  // bottom
@@ -675,7 +847,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     weaponRange: BEAM_LARGE_RANGE,
     beamRange: BEAM_LARGE_RANGE,
     beamDps: BEAM_LARGE_DPS,
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher', 'PDC', 'TractorBeam', 'Harpoon'],
     attachmentPoints: [
       { x: 1, y: 1 },  // bottom right
       { x: 0, y: 2 },  // bottom center
@@ -696,7 +868,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     color: '#8B7355',
     shape: 'rect',
     cargoCapacity: CARGO_HOLD_CAPACITY,
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher', 'LargeCargoHold', 'MiningLaser'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher', 'LargeCargoHold', 'MiningLaser', 'PDC', 'TractorBeam', 'Harpoon'],
     attachmentPoints: [
       { x: 0, y: -1 }, // top
       { x: 1, y: 0 },  // right
@@ -715,7 +887,7 @@ export const ENTITY_DEFINITIONS: Record<EntityType, EntityTypeDefinition> = {
     color: '#7A6545',
     shape: 'rect',
     cargoCapacity: LARGE_CARGO_HOLD_CAPACITY,
-    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher', 'CargoHold', 'MiningLaser'],
+    canAttachTo: ['Cockpit', 'Engine', 'Gun', 'PowerCell', 'LargeCockpit', 'LargeEngine', 'LargeGun', 'HeavyHull', 'LargePowerCell', 'CapitalCore', 'CapitalEngine', 'CapitalWeapon', 'MegaHull', 'PowerReactor', 'Shield', 'LargeShield', 'Beam', 'LargeBeam', 'MissileLauncher', 'LargeMissileLauncher', 'CapitalMissileLauncher', 'CargoHold', 'MiningLaser', 'PDC', 'TractorBeam', 'Harpoon'],
     attachmentPoints: [
       { x: 0, y: -2 }, // top center
       { x: 1, y: -1 }, // top right
@@ -936,7 +1108,7 @@ export function getEntityOccupiedGridCells(
   return cells;
 }
 
-export type ScenarioId = 'debug' | 'duel' | 'small-battle' | 'medium-battle' | 'huge' | 'sandbox' | 'open-world' | 'ship-builder' | 'structures-sandbox';
+export type ScenarioId = 'debug' | 'duel' | 'small-battle' | 'medium-battle' | 'huge' | 'sandbox' | 'open-world' | 'ship-builder' | 'structures-sandbox' | 'weapon-test';
 
 export interface ScenarioConfig {
   id: ScenarioId;
@@ -968,9 +1140,10 @@ export const SCENARIOS: Readonly<Record<ScenarioId, ScenarioConfig>> = {
   huge:                  { id: 'huge',                label: 'Huge',                description: '100v100 — maximum chaos.',                                              teamSize: 100, spawnX: BATTLE_SPAWN_X, shipIndex: 0, lineFormation: true,  spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false, structuresSandboxMode: false },
   sandbox:               { id: 'sandbox',             label: 'Sandbox',             description: 'Start as a bare cockpit. Scavenge blocks to build your ship.',          teamSize: 0,   spawnX: 0,              shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0,  sandboxMode: true,  spawnAsteroids: false, shipBuilderMode: false, structuresSandboxMode: false },
   'open-world':          { id: 'open-world',          label: 'Open World',          description: 'Build your ship and explore a procedural asteroid field.',              teamSize: 0,   spawnX: 0,              shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0,  sandboxMode: true,  spawnAsteroids: true,  shipBuilderMode: false, structuresSandboxMode: false },
+  'weapon-test':         { id: 'weapon-test',         label: 'Weapon Test Range',   description: 'Test every weapon type. Pilot any ship.',                               teamSize: 0,   spawnX: 0,              shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false, structuresSandboxMode: false },
 } as const;
 
-export const SCENARIO_ORDER: ScenarioId[] = ['ship-builder', 'structures-sandbox', 'sandbox', 'open-world', 'debug', 'duel', 'small-battle', 'medium-battle', 'huge'];
+export const SCENARIO_ORDER: ScenarioId[] = ['weapon-test', 'ship-builder', 'structures-sandbox', 'sandbox', 'open-world', 'debug', 'duel', 'small-battle', 'medium-battle', 'huge'];
 
 // ── Resource Economy ──────────────────────────────────────────────────────────
 

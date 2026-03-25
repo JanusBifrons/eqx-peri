@@ -1,5 +1,5 @@
 import * as Matter from 'matter-js';
-import { EntityType, ENTITY_DEFINITIONS, BEAM_DISPLAY_DURATION_MS, AsteroidClass } from '../../types/GameTypes';
+import { EntityType, ENTITY_DEFINITIONS, BEAM_DISPLAY_DURATION_MS, AsteroidClass, TRACTOR_BEAM_FORCE, TRACTOR_CONE_HALF_ANGLE } from '../../types/GameTypes';
 import { Assembly } from '../core/Assembly';
 import { Entity } from '../core/Entity';
 import { SoundSystem } from '../systems/SoundSystem';
@@ -26,6 +26,10 @@ export interface ActiveBeam {
   sourceAssemblyId: string;
   weaponType: EntityType;
   lastUpdatedAt: number;  // ms timestamp — beam fades after BEAM_DISPLAY_DURATION_MS
+  /** For tractor beam cone rendering — half-angle in radians. */
+  coneHalfAngle?: number;
+  /** For tractor beam — the firing angle in radians. */
+  beamAngle?: number;
 }
 
 type EntityDestroyedCallback = (entity: Entity, hitAssembly: Assembly, sourceAssemblyId: string) => void;
@@ -273,6 +277,83 @@ export class BeamSystem {
       sourceAssemblyId: spec.sourceAssemblyId,
       weaponType: spec.weaponType,
       lastUpdatedAt: Date.now(),
+    });
+  }
+
+  /**
+   * Process a tractor beam fire — applies attractive force to all bodies within the cone.
+   * Does not deal damage. Returns the furthest body hit for visual rendering.
+   */
+  processTractorBeamFire(spec: BeamFireSpec, assemblies: Assembly[], _deltaTime: number): void {
+    const dirX = Math.cos(spec.angle);
+    const dirY = Math.sin(spec.angle);
+    const sourceAssembly = assemblies.find(a => a.id === spec.sourceAssemblyId);
+    const sourceTeam = sourceAssembly?.getTeam() ?? -1;
+    const baseForce = ENTITY_DEFINITIONS[spec.weaponType]?.tractorForce ?? TRACTOR_BEAM_FORCE;
+    const halfAngle = ENTITY_DEFINITIONS[spec.weaponType]?.tractorConeAngle ?? TRACTOR_CONE_HALF_ANGLE;
+
+    // No deltaTime scaling — engines apply thrust per frame without it,
+    // so tractor beam force is calibrated to the same scale (Engine thrust = 2.0).
+
+    let furthestT = 0;
+    let hitSomething = false;
+
+    // Check all assemblies for bodies within the cone
+    for (const assembly of assemblies) {
+      if (assembly.destroyed || assembly.id === spec.sourceAssemblyId) continue;
+      // Skip same-team
+      if (sourceTeam >= 0 && assembly.getTeam() === sourceTeam) continue;
+
+      const rootPos = assembly.rootBody.position;
+      const toX = rootPos.x - spec.origin.x;
+      const toY = rootPos.y - spec.origin.y;
+      const dist = Math.sqrt(toX * toX + toY * toY);
+      if (dist < 1 || dist > spec.maxRange) continue;
+
+      // Check if within cone angle
+      const dot = (toX * dirX + toY * dirY) / dist;
+      const angleToTarget = Math.acos(Math.min(1, Math.max(-1, dot)));
+      if (angleToTarget > halfAngle) continue;
+
+      // Inverse-square falloff: full force at close range, tapering with distance.
+      // Uses a minimum distance floor to prevent infinite force at point-blank.
+      const nx = -toX / dist;
+      const ny = -toY / dist;
+      const centerFactor = 1.0 - (angleToTarget / halfAngle) * 0.5;
+      const minDist = 50;
+      const effectiveDist = Math.max(dist, minDist);
+      const falloff = (minDist * minDist) / (effectiveDist * effectiveDist);
+      const fx = nx * baseForce * centerFactor * falloff;
+      const fy = ny * baseForce * centerFactor * falloff;
+      Matter.Body.applyForce(assembly.rootBody, rootPos, { x: fx, y: fy });
+
+      hitSomething = true;
+      const t = dist;
+      if (t > furthestT) furthestT = t;
+    }
+
+    // Also attract loose world bodies (debris, asteroids) within the cone
+    // (handled via assemblies above for ships)
+
+    // Visual endpoint always at full range
+    const hitEndX = spec.origin.x + dirX * spec.maxRange;
+    const hitEndY = spec.origin.y + dirY * spec.maxRange;
+
+    SoundSystem.getInstance().playBeamFire();
+
+    // Store visual beam record with cone data
+    this.activeBeams.set(spec.weaponId, {
+      weaponId: spec.weaponId,
+      startX: spec.origin.x,
+      startY: spec.origin.y,
+      endX: hitEndX,
+      endY: hitEndY,
+      hit: hitSomething,
+      sourceAssemblyId: spec.sourceAssemblyId,
+      weaponType: spec.weaponType,
+      lastUpdatedAt: Date.now(),
+      coneHalfAngle: halfAngle,
+      beamAngle: spec.angle,
     });
   }
 

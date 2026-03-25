@@ -191,23 +191,22 @@ export class Entity {
       console.log(`🗑️ Entity ${this.type} body removed from physics world`);
     }
   }public canFire(): boolean {
-    // Traditional weapons
-    if ((this.type === 'Gun' || this.type === 'LargeGun' || this.type === 'CapitalWeapon') && !this.destroyed) {
+    if (this.destroyed) return false;
+
+    // Projectile weapons (guns + PDC + harpoon)
+    if (this.type === 'Gun' || this.type === 'LargeGun' || this.type === 'CapitalWeapon' ||
+        this.type === 'PDC' || this.type === 'Harpoon') {
       return true;
     }
 
     // Missile launchers
-    if ((this.type === 'MissileLauncher' || this.type === 'LargeMissileLauncher' || this.type === 'CapitalMissileLauncher') && !this.destroyed) {
-      return true;
-    }
+    if (this.isMissileLauncher()) return true;
 
-    // Beam weapons
-    if ((this.type === 'Beam' || this.type === 'LargeBeam') && !this.destroyed) {
-      return true;
-    }
+    // Beam weapons (includes tractor beam)
+    if (this.isBeamWeapon()) return true;
 
     // Cockpit weapons - can fire if nothing is connected on top
-    if ((this.type === 'Cockpit' || this.type === 'LargeCockpit' || this.type === 'CapitalCore') && !this.destroyed) {
+    if (this.type === 'Cockpit' || this.type === 'LargeCockpit' || this.type === 'CapitalCore') {
       return this.canUseCockpitWeapon();
     }
 
@@ -221,11 +220,23 @@ export class Entity {
   }
 
   public isBeamWeapon(): boolean {
-    return this.type === 'Beam' || this.type === 'LargeBeam' || this.type === 'MiningLaser';
+    return this.type === 'Beam' || this.type === 'LargeBeam' || this.type === 'MiningLaser' || this.type === 'TractorBeam';
   }
 
   public isMiningLaser(): boolean {
     return this.type === 'MiningLaser';
+  }
+
+  public isPDC(): boolean {
+    return this.type === 'PDC';
+  }
+
+  public isTractorBeam(): boolean {
+    return this.type === 'TractorBeam';
+  }
+
+  public isHarpoon(): boolean {
+    return this.type === 'Harpoon';
   }
 
   public isCargoHold(): boolean {

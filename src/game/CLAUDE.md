@@ -8,7 +8,7 @@ All game logic, physics, AI, and entity management. No React imports here — th
 |-----------|----------|
 | `core/`       | `GameEngine`, `Assembly`, `Entity`, `RenderSystem` — fundamental physics objects and render loop |
 | `ai/`         | `AIController`, `FlightController`, `ControllerManager`, `Controller` |
-| `weapons/`    | `Missile`, `MissileSystem`, `BeamSystem` |
+| `weapons/`    | `Missile`, `MissileSystem`, `BeamSystem`, `HarpoonSystem` |
 | `ship/`       | `BlockSystem`, `ShipDesigner`, `ShipDesignManager` |
 | `systems/`    | `ToastSystem`, `SoundSystem`, `BlockPickupSystem`, `AsteroidFieldSystem` — singletons and support services |
 | `rendering/`  | `IRenderer` interface, `Viewport`, and one renderer class per visual concern (grid, blocks, frills, shields, highlights, aiming, block-pickup, structures) |
@@ -32,6 +32,7 @@ All game logic, physics, AI, and entity management. No React imports here — th
 **Singletons:**
 - `ToastSystem` — access via the instance on `GameEngine`
 - `MissileSystem` — accessed via `GameEngine.missileSystem`
+- `HarpoonSystem` — accessed via `GameEngine.harpoonSystem`
 - `SoundSystem` — access via `SoundSystem.getInstance()`; call `init()` after user interaction, uses Web Audio API for procedural sounds
 - Do not create additional singletons without documenting them here
 
@@ -65,9 +66,24 @@ All game logic, physics, AI, and entity management. No React imports here — th
 - `FlightController` makes decisions every 50 ms; use its `follow` / `orbit` modes rather than writing raw thrust logic in AI controllers
 
 **Missiles:**
-- Three types: `Torpedo`, `HeatSeeker`, `Guided` — add new types by extending `MissileType` enum and handling in `MissileSystem`
-- Thrust phases: Launch (1.5×) → Search/Cruise (0.6–0.8×) → Full Throttle (2.0×); preserve this phase structure for any new missile type
-- Proximity collision uses distance checks per frame — do not rely on Matter's built-in collision for missile hits
+- Three variants: `tracking` (MissileLauncher), `standard` (LargeMissileLauncher), `torpedo` (CapitalMissileLauncher) — configured via `MISSILE_CONFIGS` in `GameTypes.ts`
+- Phase-based flight: launch (0–0.5 s, no steering) → boost (0.5–2.5 s, accelerating) → cruise (2.5 s+, max speed)
+- Velocity-vector steering with proportional navigation for tracking missiles
+- Matter.js CCD (`bullet: true`) + `collisionStart` events for hit detection
+- PDC interception: missile bodies included in laser raycast candidates; `handleLaserHitMissile()` destroys both
+
+**Harpoons:**
+- `HarpoonSystem` fires a projectile; on hit creates a `Matter.Constraint` tether between source and target assemblies
+- Tethers break if either assembly is destroyed or separation exceeds `TETHER_BREAK_LENGTH` (800 units)
+- Rendered by `HarpoonRenderer` (priority 44, world-space)
+
+**Tractor Beam:**
+- Extension of `BeamSystem` — `processTractorBeamFire()` applies attractive force within a cone instead of damage
+- Targets can escape with sufficient engine thrust
+
+**PDC (Point Defence Cannon):**
+- Autonomous anti-missile weapon; fires via `Assembly.getPDCFires()` without fire input
+- Creates laser bodies that travel through the existing raycast system
 
 ## Test Scripts
 

@@ -1,17 +1,6 @@
 import * as Matter from 'matter-js';
 import { Entity } from './Entity';
-import { EntityConfig, Vector2, EntityType, ENTITY_DEFINITIONS, ShieldState, SHIELD_REGEN_DELAY_MS, SHIELD_REGEN_DURATION_MS, SHIELD_COLLAPSE_COOLDOWN_MS, getEntityOccupiedGridCells, getEntityBodyOffset, getBlockedConnectionDirs, canTypesConnect, InventoryItemType } from '../../types/GameTypes';
-import { MissileType } from '../weapons/Missile';
-
-// Interface for missile launch requests
-export interface MissileLaunchRequest {
-  position: Vector2;
-  angle: number;
-  missileType: MissileType;
-  sourceAssemblyId: string;
-  sourceTeam: number;
-  targetAssembly?: Assembly;
-}
+import { EntityConfig, Vector2, EntityType, ENTITY_DEFINITIONS, ShieldState, SHIELD_REGEN_DELAY_MS, SHIELD_REGEN_DURATION_MS, SHIELD_COLLAPSE_COOLDOWN_MS, getEntityOccupiedGridCells, getEntityBodyOffset, getBlockedConnectionDirs, canTypesConnect, InventoryItemType, MissileLaunchRequest, MISSILE_CONFIGS, HarpoonFireRequest, HARPOON_FIRE_RATE_MS, PDC_FIRE_RATE_MS, PDC_PROJECTILE_SPEED, PDC_DAMAGE, PDC_RANGE } from '../../types/GameTypes';
 
 // Interface for beam fire requests (continuous raycast weapons)
 export interface BeamFireSpec {
@@ -63,8 +52,9 @@ export class Assembly {
   /** Set by createFreshBody() so GameEngine can swap the old compound out of the physics world. */
   public pendingBodySwap: { oldBody: Matter.Body } | null = null;
   public lastFireTime: number = 0;
-  public lastMissileFireTime: number = 0; // Separate timing for missiles
   public fireRate: number = 300;
+  /** Per-entity fire timing for weapons with independent cooldowns (missiles, harpoons, PDCs). */
+  private entityFireTimes: Map<string, number> = new Map();
   public team: number = 0;
 
   // Targeting system properties
@@ -562,7 +552,7 @@ export class Assembly {
     // Enforce firing rate limit
     if (currentTime - this.lastFireTime < effectiveFireRate) {
       return []; // Can't fire yet, return empty array
-    } const weapons = this.entities.filter(e => e.canFire() && !e.isMissileLauncher() && !e.isBeamWeapon());
+    } const weapons = this.entities.filter(e => e.canFire() && !e.isMissileLauncher() && !e.isBeamWeapon() && !e.isPDC() && !e.isHarpoon());
     const lasers: Matter.Body[] = [];
 
     weapons.forEach(weapon => {
@@ -588,59 +578,147 @@ export class Assembly {
     if (weaponEfficiency === 0) return [];
 
     const currentTime = Date.now();
-    const effectiveFireRate = this.fireRate * (3 - 2 * weaponEfficiency);
+    const launchers = this.entities.filter(e => e.isMissileLauncher() && e.canFire());
+    const requests: MissileLaunchRequest[] = [];
 
-    // Enforce firing rate limit - Use separate lastMissileFireTime to avoid conflicts with regular weapons
-    if (!this.lastMissileFireTime) {
-      this.lastMissileFireTime = 0;
-    }
-    
-    if (currentTime - this.lastMissileFireTime < effectiveFireRate) {
-      return [];
-    }
+    for (const launcher of launchers) {
+      const def = ENTITY_DEFINITIONS[launcher.type];
+      const interval = def.missileFireInterval ?? 3000;
+      // Power efficiency scales interval: at 0% -> 3x slower, at 100% -> normal
+      const effectiveInterval = interval * (3 - 2 * weaponEfficiency);
+      const lastFire = this.entityFireTimes.get(launcher.id) ?? 0;
+      if (currentTime - lastFire < effectiveInterval) continue;
 
-    const missileLaunchers = this.entities.filter(e => e.isMissileLauncher() && e.canFire());
-    const missileRequests: MissileLaunchRequest[] = [];
-
-    missileLaunchers.forEach(launcher => {
-      // Trigger visual firing effect
       launcher.triggerWeaponFire();
+      const firingAngle = launcher.getCurrentFiringAngle(this.rootBody.angle);
 
-      const currentFiringAngle = launcher.getCurrentFiringAngle(this.rootBody.angle);
-
-      // Determine missile type based on launcher type
-      let missileType: MissileType;
+      // Select missile config by launcher type
+      let config = MISSILE_CONFIGS.tracking;
       switch (launcher.type) {
-        case 'MissileLauncher':
-          missileType = MissileType.HEAT_SEEKER; // Default to heat seekers for small launchers
-          break;
-        case 'LargeMissileLauncher':
-          missileType = MissileType.GUIDED; // Guided missiles for large launchers
-          break;
-        case 'CapitalMissileLauncher':
-          missileType = MissileType.TORPEDO; // Heavy torpedoes for capital launchers
-          break;
-        default:
-          missileType = MissileType.HEAT_SEEKER;
+        case 'MissileLauncher':         config = MISSILE_CONFIGS.tracking; break;
+        case 'LargeMissileLauncher':    config = MISSILE_CONFIGS.standard; break;
+        case 'CapitalMissileLauncher':  config = MISSILE_CONFIGS.torpedo; break;
       }
 
-      // If we have a primary target and it's a guided missile, use it
-      const targetAssembly = (missileType === MissileType.GUIDED && this.primaryTarget && !this.primaryTarget.destroyed)
-        ? this.primaryTarget
-        : undefined;      missileRequests.push({
+      requests.push({
         position: launcher.getMuzzlePosition(this.rootBody.angle),
-        angle: currentFiringAngle,
-        missileType,
+        angle: firingAngle,
+        config,
         sourceAssemblyId: this.id,
         sourceTeam: this.team,
-        targetAssembly
+        targetAssembly: this.primaryTarget && !this.primaryTarget.destroyed ? this.primaryTarget : undefined,
       });
-    });    // Update missile fire time if we have requests
-    if (missileRequests.length > 0) {
-      this.lastMissileFireTime = currentTime;
+
+      this.entityFireTimes.set(launcher.id, currentTime);
     }
 
-    return missileRequests;
+    return requests;
+  }
+
+  /** Returns harpoon fire requests for all ready harpoon weapons. */
+  public getHarpoonFires(): HarpoonFireRequest[] {
+    if (this.destroyed) return [];
+
+    const currentTime = Date.now();
+    const harpoons = this.entities.filter(e => e.isHarpoon() && e.canFire());
+    const requests: HarpoonFireRequest[] = [];
+
+    for (const h of harpoons) {
+      const lastFire = this.entityFireTimes.get(h.id) ?? 0;
+      if (currentTime - lastFire < HARPOON_FIRE_RATE_MS) continue;
+
+      h.triggerWeaponFire();
+      requests.push({
+        position: h.getMuzzlePosition(this.rootBody.angle),
+        angle: h.getCurrentFiringAngle(this.rootBody.angle),
+        sourceAssemblyId: this.id,
+        sourceTeam: this.team,
+        entityBody: h.body,
+      });
+      this.entityFireTimes.set(h.id, currentTime);
+    }
+
+    return requests;
+  }
+
+  /**
+   * Autonomous PDC fire: scans for nearby enemy missiles and fires small fast projectiles.
+   * Called every frame regardless of fire input. Returns laser bodies for the existing
+   * collision detection path.
+   */
+  public getPDCFires(missiles: { body: Matter.Body; sourceTeam: number; destroyed: boolean }[]): Matter.Body[] {
+    if (this.destroyed) return [];
+
+    const currentTime = Date.now();
+    const pdcs = this.entities.filter(e => e.isPDC() && e.canFire());
+    const lasers: Matter.Body[] = [];
+
+    for (const pdc of pdcs) {
+      const lastFire = this.entityFireTimes.get(pdc.id) ?? 0;
+      if (currentTime - lastFire < PDC_FIRE_RATE_MS) continue;
+
+      // Find closest enemy missile within scan radius
+      const pdcWorldPos = pdc.body.position;
+      let closestMissile: typeof missiles[0] | null = null;
+      let closestDist = PDC_RANGE * PDC_RANGE;
+
+      for (const m of missiles) {
+        if (m.destroyed || m.sourceTeam === this.team) continue;
+        const dx = m.body.position.x - pdcWorldPos.x;
+        const dy = m.body.position.y - pdcWorldPos.y;
+        const distSq = dx * dx + dy * dy;
+        if (distSq < closestDist) {
+          closestDist = distSq;
+          closestMissile = m;
+        }
+      }
+
+      if (!closestMissile) continue;
+
+      // Lead prediction: aim at where the missile will be
+      const mPos = closestMissile.body.position;
+      const mVel = closestMissile.body.velocity;
+      const dist = Math.sqrt(closestDist);
+      const travelTime = dist / PDC_PROJECTILE_SPEED;
+      const predictedX = mPos.x + mVel.x * travelTime;
+      const predictedY = mPos.y + mVel.y * travelTime;
+
+      const angle = Math.atan2(predictedY - pdcWorldPos.y, predictedX - pdcWorldPos.x);
+
+      // Create a small fast projectile (uses existing laser collision path)
+      const laserLength = 8;
+      const startX = pdcWorldPos.x + Math.cos(angle) * 10;
+      const startY = pdcWorldPos.y + Math.sin(angle) * 10;
+
+      const body = Matter.Bodies.rectangle(startX, startY, laserLength, 2, {
+        isSensor: true,
+        frictionAir: 0,
+        angle,
+        render: {
+          fillStyle: '#88ccff',
+          strokeStyle: '#aaddff',
+          lineWidth: 1,
+        },
+      });
+
+      body.isLaser = true;
+      (body as unknown as Record<string, unknown>).isPDCProjectile = true;
+      (body as unknown as Record<string, unknown>).sourceAssemblyId = this.id;
+      (body as unknown as Record<string, unknown>).createdAt = Date.now();
+      (body as unknown as Record<string, unknown>).ttl = (PDC_RANGE / PDC_PROJECTILE_SPEED) * (1000 / 60) * 1.2;
+      (body as unknown as Record<string, unknown>).damage = PDC_DAMAGE;
+
+      Matter.Body.setVelocity(body, {
+        x: Math.cos(angle) * PDC_PROJECTILE_SPEED,
+        y: Math.sin(angle) * PDC_PROJECTILE_SPEED,
+      });
+
+      pdc.triggerWeaponFire();
+      lasers.push(body);
+      this.entityFireTimes.set(pdc.id, currentTime);
+    }
+
+    return lasers;
   }
 
   /**

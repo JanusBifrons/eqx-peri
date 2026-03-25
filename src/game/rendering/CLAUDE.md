@@ -26,7 +26,7 @@ interface IRenderer {
 
 **Renderer routing**: `RenderSystem.register()` reads `renderer.renderSpace` and adds the renderer's PIXI objects to the appropriate container. Defaults to `'screen'` for backwards compatibility.
 
-**World-space renderers** (`renderSpace = 'world'`): GridRenderer, ConnectionRenderer, BlockBodyRenderer, ParticleRenderer, BlockFrillsRenderer, ShieldRenderer, BeamRenderer, OrderRenderer, PathfindingDebugRenderer, StructurePlacementRenderer. These draw at world positions directly — no `viewport.worldToScreen()` calls.
+**World-space renderers** (`renderSpace = 'world'`): GridRenderer, ConnectionRenderer, BlockBodyRenderer, ParticleRenderer, MissileRenderer, BlockFrillsRenderer, ShieldRenderer, HarpoonRenderer, BeamRenderer, OrderRenderer, PathfindingDebugRenderer, StructurePlacementRenderer. These draw at world positions directly — no `viewport.worldToScreen()` calls.
 
 **Screen-space renderers** (default): StarfieldRenderer, StructureRenderer, ShipHighlightRenderer, StrategicIconRenderer, AimingDebugRenderer, RingRadarRenderer, BlockPickupRenderer, ShockwaveRenderer.
 
@@ -55,9 +55,11 @@ interface IRenderer {
 | 20 | `BlockBodyRenderer` | world | Block bodies with glow; bullets/missiles without glow |
 | 21 | `StrategicIconRenderer` | screen | Diamond/circle icons for objects too small to render at zoom |
 | 22 | `ParticleRenderer` | world | Drives `ParticleSystem` thrust puffs per engine each frame |
+| 23 | `MissileRenderer` | world | Missile bodies as elongated arrows with thrust trails; color by variant |
 | 30 | `BlockFrillsRenderer` | world | Decorative edge frills on blocks |
 | 40 | `ShieldRenderer` | world | Shield gradient ring + collapse flash |
-| 45 | `BeamRenderer` | world | Continuous beam visuals (glow + core line + impact flash) |
+| 44 | `HarpoonRenderer` | world | In-flight harpoon darts + animated tether lines between connected assemblies |
+| 45 | `BeamRenderer` | world | Continuous beam visuals (glow + core line + impact flash); tractor beam (green) |
 | 46 | `ShockwaveRenderer` | screen | Expanding ring when an assembly is fully destroyed |
 | 50 | `ShipHighlightRenderer` | screen | Hover/selected bounding boxes, lock-on brackets |
 | 52 | `OrderRenderer` | world | AI move order lines (green line + dots from cockpit to target) |

@@ -1,107 +1,97 @@
 import * as Matter from 'matter-js';
-import { Missile, MissileType } from './Missile';
-import { Assembly } from '../core/Assembly';
-import { Vector2 } from '../../types/GameTypes';
+import { Missile } from './Missile';
+import { MissileConfig, Vector2 } from '../../types/GameTypes';
 import { SoundSystem } from '../systems/SoundSystem';
 
+/** Minimal assembly interface to avoid circular imports. */
+interface MissileTarget {
+  rootBody: Matter.Body;
+  destroyed: boolean;
+  id: string;
+  team: number;
+  damageShield?: (damage: number, now: number) => boolean;
+  getTeam?: () => number;
+  lastHitByAssemblyId?: string | null;
+  lastHitByPlayer?: boolean;
+  isPlayerControlled?: boolean;
+}
+
 export class MissileSystem {
-    private missiles: Missile[] = [];
-    private world: Matter.World;
+  private missiles: Missile[] = [];
+  private readonly world: Matter.World;
 
-    constructor(world: Matter.World) {
-        this.world = world;
+  constructor(world: Matter.World) {
+    this.world = world;
+  }
+
+  public createMissile(
+    position: Vector2,
+    angle: number,
+    config: MissileConfig,
+    sourceAssemblyId: string,
+    sourceTeam: number,
+    targetAssembly?: MissileTarget,
+  ): Missile {
+    const missile = new Missile(position, angle, config, sourceAssemblyId, sourceTeam, targetAssembly);
+    this.missiles.push(missile);
+    Matter.World.add(this.world, missile.body);
+    SoundSystem.getInstance().playMissileLaunch();
+    return missile;
+  }
+
+  public update(deltaTime: number, assemblies: MissileTarget[]): void {
+    const availableTargets = assemblies.filter(a => !a.destroyed);
+
+    for (let i = this.missiles.length - 1; i >= 0; i--) {
+      const missile = this.missiles[i];
+      if (missile.destroyed) {
+        Matter.World.remove(this.world, missile.body);
+        this.missiles.splice(i, 1);
+        continue;
+      }
+      missile.update(deltaTime, availableTargets);
     }
+  }
 
-    public createMissile(
-        position: Vector2,
-        angle: number,
-        missileType: MissileType,
-        sourceAssemblyId: string,
-        sourceTeam: number,
-        targetAssembly?: Assembly
-    ): Missile {
-        const missile = new Missile(position, angle, missileType, sourceAssemblyId, sourceTeam, targetAssembly);
-        this.missiles.push(missile);
-        Matter.World.add(this.world, missile.body);
+  /**
+   * Handle a missile colliding with an entity.
+   * Returns true if the hit was valid and processed.
+   */
+  public handleMissileHit(missile: Missile, targetEntity: { takeDamage?: (d: number) => boolean; body?: { assembly?: MissileTarget } }): boolean {
+    if (missile.age < missile.launchCollisionDelay) return false;
 
-        // Play missile launch sound
-        SoundSystem.getInstance().playMissileLaunch();
+    // Prevent self-hits
+    const targetAssembly = (targetEntity.body as Record<string, unknown>)?.assembly as MissileTarget | undefined;
+    if (targetAssembly?.id === missile.sourceAssemblyId) return false;
 
-        return missile;
-    }    public update(deltaTime: number, assemblies: Assembly[]): void {
-        // Filter out non-destroyed assemblies (not including missiles as assemblies)
-        const availableTargets = assemblies.filter(a => !a.destroyed && a.entities && a.entities.length > 0);
+    SoundSystem.getInstance().playMissileExplosion();
 
-        // Update all missiles
-        for (let i = this.missiles.length - 1; i >= 0; i--) {
-            const missile = this.missiles[i];
-
-            if (missile.destroyed) {
-                // Remove destroyed missile
-                Matter.World.remove(this.world, missile.body);
-                this.missiles.splice(i, 1);
-                continue;
-            }
-
-            // Update missile logic
-            missile.update(deltaTime, availableTargets);
-        }
-    }    public handleMissileHit(missile: Missile, targetEntity: any): boolean {
-        // Check collision delay - missiles shouldn't collide immediately after launch
-        if (missile.age < missile.launchCollisionDelay) {
-            console.log(`🚀 Missile collision ignored - still in launch phase (${missile.age.toFixed(2)}s)`);
-            return false;
-        }
-
-        // Prevent self-hits - check if the target entity belongs to the source assembly
-        if (targetEntity.body?.assembly?.id === missile.sourceAssemblyId) {
-            console.log(`🚀 Missile collision ignored - hitting source assembly`);
-            return false;
-        }
-
-        // Play missile explosion sound
-        SoundSystem.getInstance().playMissileExplosion();
-
-        // Shield interception — if the target assembly has an active shield it absorbs the hit.
-        // Friendly weapons bypass allied shields (same team).
-        const targetAssembly = (targetEntity.body as any)?.assembly;
-        const isFriendlyFire = missile.sourceTeam >= 0 && targetAssembly && targetAssembly.getTeam() === missile.sourceTeam;
-        if (!isFriendlyFire && targetAssembly && typeof targetAssembly.damageShield === 'function') {
-            if (targetAssembly.damageShield(missile.getDamage(), Date.now())) {
-                missile.destroy();
-                return true; // shield absorbed — still counts as a hit
-            }
-        }
-
-        // Apply damage to the entity directly
-        if (targetEntity.takeDamage) {
-            targetEntity.takeDamage(missile.getDamage());
-        }
-
-        // Mark missile as destroyed
+    // Shield interception (skip friendly fire)
+    const isFriendlyFire = missile.sourceTeam >= 0 && targetAssembly && targetAssembly.getTeam?.() === missile.sourceTeam;
+    if (!isFriendlyFire && targetAssembly?.damageShield) {
+      if (targetAssembly.damageShield(missile.getDamage(), Date.now())) {
         missile.destroy();
         return true;
+      }
     }
 
-    public removeMissile(missile: Missile): void {
-        const index = this.missiles.indexOf(missile);
-        if (index !== -1) {
-            Matter.World.remove(this.world, missile.body);
-            this.missiles.splice(index, 1);
-        }
-    } public getMissiles(): Missile[] {
-        return [...this.missiles];
+    // Apply damage to the entity
+    if (targetEntity.takeDamage) {
+      targetEntity.takeDamage(missile.getDamage());
     }
 
-    public getMissilesForDebug(): Missile[] {
-        return this.missiles;
-    }
+    missile.destroy();
+    return true;
+  }
 
-    public cleanup(): void {
-        // Remove all missiles
-        this.missiles.forEach(missile => {
-            Matter.World.remove(this.world, missile.body);
-        });
-        this.missiles = [];
+  public getMissiles(): Missile[] {
+    return this.missiles;
+  }
+
+  public cleanup(): void {
+    for (const missile of this.missiles) {
+      Matter.World.remove(this.world, missile.body);
     }
+    this.missiles = [];
+  }
 }

@@ -4,12 +4,14 @@ import { IController, ControlInput, PlayerController } from './Controller';
 import { AIController } from './AIController';
 import { MissileSystem } from '../weapons/MissileSystem';
 import { BeamSystem } from '../weapons/BeamSystem';
+import { HarpoonSystem } from '../weapons/HarpoonSystem';
 
 // Manages all controllers and applies their inputs to assemblies
 export class ControllerManager {    private controllers: Map<string, IController> = new Map();
     private playerController?: PlayerController;
     private missileSystem?: MissileSystem;
     private beamSystem?: BeamSystem;
+    private harpoonSystem?: HarpoonSystem;
     private beamExtraBodies: Matter.Body[] = [];
 
     // Set the missile system reference
@@ -20,6 +22,11 @@ export class ControllerManager {    private controllers: Map<string, IController
     // Set the beam system reference
     setBeamSystem(beamSystem: BeamSystem): void {
         this.beamSystem = beamSystem;
+    }
+
+    // Set the harpoon system reference
+    setHarpoonSystem(harpoonSystem: HarpoonSystem): void {
+        this.harpoonSystem = harpoonSystem;
     }
 
     /** Set extra bodies (e.g., structures) that beams can hit. */
@@ -139,28 +146,53 @@ export class ControllerManager {    private controllers: Map<string, IController
             const newLasers = assembly.fireWeapons();
             lasers.push(...newLasers);
 
-            // Also fire missiles
+            // Fire missiles
             if (this.missileSystem) {
                 const missileRequests = assembly.getMissileLaunchRequests();
-                missileRequests.forEach(request => {
-                    this.missileSystem!.createMissile(
-                        request.position,
-                        request.angle,
-                        request.missileType,
-                        request.sourceAssemblyId,
-                        request.sourceTeam,
-                        request.targetAssembly
+                for (const req of missileRequests) {
+                    this.missileSystem.createMissile(
+                        req.position,
+                        req.angle,
+                        req.config,
+                        req.sourceAssemblyId,
+                        req.sourceTeam,
+                        req.targetAssembly as Parameters<typeof this.missileSystem.createMissile>[5],
                     );
-                });
+                }
+            }
+
+            // Fire harpoons
+            if (this.harpoonSystem) {
+                const harpoonRequests = assembly.getHarpoonFires();
+                for (const req of harpoonRequests) {
+                    this.harpoonSystem.fireHarpoon(
+                        req.position,
+                        req.angle,
+                        req.sourceAssemblyId,
+                        req.sourceTeam,
+                        assembly.rootBody,
+                        req.entityBody,
+                    );
+                }
             }
 
             // Fire beam weapons (continuous raycast, no physics bodies)
             if (this.beamSystem) {
                 const beamFires = assembly.getBeamFires();
-                beamFires.forEach(spec => {
-                    this.beamSystem!.processBeamFire(spec, assemblies, deltaTime, this.beamExtraBodies);
-                });
+                for (const spec of beamFires) {
+                    if (spec.weaponType === 'TractorBeam') {
+                        this.beamSystem.processTractorBeamFire(spec, assemblies, deltaTime);
+                    } else {
+                        this.beamSystem.processBeamFire(spec, assemblies, deltaTime, this.beamExtraBodies);
+                    }
+                }
             }
+        }
+
+        // PDC fires autonomously (not gated by fire input)
+        if (this.missileSystem) {
+            const pdcLasers = assembly.getPDCFires(this.missileSystem.getMissiles());
+            lasers.push(...pdcLasers);
         }
 
         return lasers;
@@ -257,6 +289,9 @@ export class ControllerManager {    private controllers: Map<string, IController
                 case 'CapitalMissileLauncher': power += 7.0; break;
                 case 'Beam':                   power += 1.5; break;
                 case 'LargeBeam':              power += 4.0; break;
+                case 'PDC':                    power += 0.5; break;
+                case 'TractorBeam':            power += 1.0; break;
+                case 'Harpoon':                power += 1.0; break;
                 case 'Cockpit':                power += 0.5; break;
                 case 'LargeCockpit':           power += 1.0; break;
                 case 'CapitalCore':            power += 2.0; break;

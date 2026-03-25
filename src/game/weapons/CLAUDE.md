@@ -1,36 +1,86 @@
-# /src/game/weapons — Missile & Weapon Systems
+# /src/game/weapons — Weapon Systems
 
-`Missile` (individual projectile) and `MissileSystem` (lifecycle manager).
+Missile, Beam, and Harpoon weapon subsystems. Each system is instantiated by `GameEngine` and accessed via named fields.
 
-## Rules
+## Systems Overview
 
-- Three missile types: `Torpedo`, `HeatSeeker`, `Guided` — extend `MissileType` enum to add new types; handle the new type in `MissileSystem`.
-- Thrust phases: Launch (1.5×) → Search/Cruise (0.6–0.8×) → Full Throttle (2.0×); preserve this phase structure for any new missile type.
-- `MissileSystem` is accessed via `GameEngine.missileSystem` — do not instantiate it elsewhere.
-- Import paths from files in this directory: `../core/Assembly`, `../../types/GameTypes`
+| System | File | Accessed via | Role |
+|--------|------|--------------|------|
+| `MissileSystem` | `MissileSystem.ts` | `GameEngine.missileSystem` | Missile lifecycle: creation, update, hit handling |
+| `BeamSystem` | `BeamSystem.ts` | `GameEngine.beamSystem` | Beam/tractor beam raycast, damage, and force application |
+| `HarpoonSystem` | `HarpoonSystem.ts` | `GameEngine.harpoonSystem` | Harpoon projectile + tether constraint lifecycle |
 
-## Collision Detection
+Import paths from files in this directory: `../core/Assembly`, `../../types/GameTypes`
 
-Missiles use Matter.js for collision detection:
-1. **Matter.js CCD**: Bodies are created with `bullet: true` for continuous collision detection to prevent tunneling.
-2. **Matter.js collision events**: `collisionStart` events trigger `MissileSystem.handleMissileHit()`.
+## Missile System (rewritten)
 
-## Mining Callback (BeamSystem)
+Three missile variants configured via `MISSILE_CONFIGS` in `GameTypes.ts`:
 
-- `BeamSystem` has an optional `onMiningHit: MiningCallback` set via `setMiningCallback(cb)`.
-- When a beam hits an asteroid body (`body.label === 'asteroid'`), `processBeamFire` checks if the weapon type has `miningRate` in its `EntityTypeDefinition`.
-- If it does, calls `onMiningHit(sourceAssemblyId, asteroidClass, oreKg)` where `oreKg = miningRate * deltaTime`.
-- `GameEngine.handleMiningHit()` receives this callback and routes ore to:
-  - **Assembly cargo**: if `sourceAssemblyId` matches an assembly, calls `assembly.addToCargo(oreType, oreKg)`.
-  - **Structure inventory**: if `sourceAssemblyId` matches a structure ID, adds to `structure.storedResources`.
-- Asteroid class → ore type mapping uses `ASTEROID_ORE_MAP` from `GameTypes.ts`.
+| Launcher | Variant | Damage | Behaviour |
+|----------|---------|--------|-----------|
+| `MissileLauncher` | `tracking` | 25 | Proportional navigation, full steering |
+| `LargeMissileLauncher` | `standard` | 40 | Moderate turn rate, accelerates fast |
+| `CapitalMissileLauncher` | `torpedo` | 80 | No turning, straight-line heavy hitter |
+
+**Phase-based flight** (`Missile.ts`):
+- `launch` (0–0.5 s): `initialSpeed`, no steering, no collisions (launch delay)
+- `boost` (0.5–2.5 s): linear ramp from `initialSpeed` to `maxSpeed`, steering active
+- `cruise` (2.5 s+): `maxSpeed`, full tracking
+
+**Velocity-vector steering**: `steerTowardTarget()` blends the current velocity direction toward the desired direction by `turnRate * deltaTime`. Proportional navigation with pure-pursuit blending for tracking missiles. Body angle set to velocity direction each frame.
+
+**Body tagging**: `(body).isMissile = true`, `(body).missile = this`, `render.visible = false` (MissileRenderer handles drawing).
+
+**Collision detection**: Matter.js `collisionStart` events trigger `MissileSystem.handleMissileHit()`. Bodies created with `bullet: true` for CCD.
+
+**PDC interception**: missile bodies are included in the laser raycast candidate list. `GameEngine.handleLaserHitMissile()` destroys both the laser and the missile on hit.
+
+## Beam System
+
+`BeamSystem.processBeamFire()` performs ray-convex-polygon intersection against entity bodies + shield parts. Handles damage, shield interception, mining, structures, shield walls.
+
+### Tractor Beam
+
+`TractorBeam` weapon type is routed to `BeamSystem.processTractorBeamFire()` instead of the regular damage path.
+
+- Finds all enemy assemblies within a cone (`TRACTOR_CONE_HALF_ANGLE`, ~14°) of the beam direction
+- Applies `Matter.Body.applyForce()` toward the beam origin, scaled by target mass and cone centering
+- No damage dealt
+- Force constant: `TRACTOR_BEAM_FORCE` (0.015), range: `TRACTOR_BEAM_RANGE` (300)
+- Rendered with green beam style in `BeamRenderer` (`BEAM_STYLES.TractorBeam`)
+
+### Mining Callback
+
+- `BeamSystem.setMiningCallback(cb)` wires asteroid ore extraction.
+- When a beam hits an asteroid body and the weapon has `miningRate`, calls `onMiningHit(sourceAssemblyId, asteroidClass, oreKg)`.
+- `GameEngine.handleMiningHit()` routes ore to assembly cargo or structure inventory.
+
+## Harpoon System
+
+`HarpoonSystem` manages harpoon projectiles and tether constraints.
+
+- `fireHarpoon()`: spawns a small physics body (`isHarpoon = true`, collision category `0x0008`)
+- `handleHarpoonHit()`: removes projectile, creates `Matter.Constraint` between source and target assemblies with `HARPOON_STIFFNESS` (0.001) and `HARPOON_DAMPING` (0.05)
+- `update()`: validates tethers (assemblies alive, distance < `TETHER_BREAK_LENGTH` = 800), removes expired projectiles (TTL 5 s)
+- Shield interception: `GameEngine.handleHarpoonHitShield()` damages shield and destroys harpoon
+- Friendly pass-through: `tryDisableFriendlyShieldPair` checks `harpoonData.sourceTeam`
 
 ## Friendly Shield Pass-Through
 
-- `Missile` stores `sourceTeam: number` (set at construction from `MissileLaunchRequest.sourceTeam`).
-- `MissileSystem.handleMissileHit()` skips `damageShield` interception when `targetAssembly.getTeam() === missile.sourceTeam`.
-- `GameEngine.handleMissileHitShield()` also checks team — same-team missiles pass through allied shield circles.
-- `BeamSystem.processBeamFire()` excludes same-team shield circle parts from the raycast candidate list and skips `damageShield` for friendly beam-entity hits.
+All weapon types check team before shield interaction:
+- `Missile.sourceTeam` → `MissileSystem.handleMissileHit()` and `GameEngine.handleMissileHitShield()`
+- `BeamSystem.processBeamFire()` excludes same-team shield parts from candidates
+- `HarpoonSystem` → `GameEngine.handleHarpoonHitShield()` checks source team
+- `GameEngine.tryDisableFriendlyShieldPair()` handles missiles, harpoons, and entity bodies
+
+## PDC System
+
+PDCs (`Assembly.getPDCFires()`) fire autonomously — not gated by the fire input. They:
+- Scan for the nearest enemy missile within `PDC_SCAN_RADIUS` (500)
+- Compute lead prediction based on missile velocity
+- Create laser bodies with `isLaser = true`, `isPDCProjectile = true`
+- Per-entity fire timing via `entityFireTimes` Map at `PDC_FIRE_RATE_MS` (100 ms)
+- PDC projectiles travel through the existing laser raycast path; `handleLaserHitMissile()` handles interception
 
 ---
 
