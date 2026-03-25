@@ -2,7 +2,7 @@ import * as Matter from 'matter-js';
 import Stats from 'stats.js';
 import { Assembly } from './Assembly';
 import { Entity } from './Entity';
-import { EntityConfig, GRID_SIZE, ENTITY_DEFINITIONS, EntityType, ScenarioConfig, SCENARIOS, SHIP_SPAWN_SPACING, Vector2, PerformanceMetrics, isStructuralBlock, StructureType, ASTEROID_ORE_MAP, AsteroidClass, AIOrder } from '../../types/GameTypes';
+import { EntityConfig, GRID_SIZE, ENTITY_DEFINITIONS, EntityType, ScenarioConfig, SCENARIOS, SHIP_SPAWN_SPACING, Vector2, PerformanceMetrics, StructureType, ASTEROID_ORE_MAP, AsteroidClass, AIOrder } from '../../types/GameTypes';
 import shipsData from '../../data/ships.json';
 import { ControllerManager } from '../ai/ControllerManager';
 import { FlightController } from '../ai/FlightController';
@@ -23,6 +23,7 @@ import { BlockFrillsRenderer } from '../rendering/BlockFrillsRenderer';
 import { ShieldRenderer } from '../rendering/ShieldRenderer';
 import { ShipHighlightRenderer } from '../rendering/ShipHighlightRenderer';
 import { OrderRenderer } from '../rendering/OrderRenderer';
+import { EngagementRenderer, EngagementTarget } from '../rendering/EngagementRenderer';
 import { PathfindingDebugRenderer } from '../rendering/PathfindingDebugRenderer';
 import { AimingDebugRenderer } from '../rendering/AimingDebugRenderer';
 import { RingRadarRenderer } from '../rendering/RingRadarRenderer';
@@ -2292,6 +2293,9 @@ export class GameEngine {
     this.renderSystem.register(new OrderRenderer(
       () => this.getActiveAIOrders(),
     ));
+    this.renderSystem.register(new EngagementRenderer(
+      () => this.getSelectedEngagementTargets(),
+    ));
     this.pathfindingDebugRenderer = new PathfindingDebugRenderer(
       () => this.pathfindingSystem.lastDebugData,
     );
@@ -2662,121 +2666,9 @@ export class GameEngine {
   }
 
   private spawnSandboxScenario(): void {
-    // All structural hull types (auto-populated from ENTITY_DEFINITIONS) + functional blocks
-    const allTypes = Object.keys(ENTITY_DEFINITIONS) as EntityType[];
-    const SANDBOX_BLOCK_TYPES: EntityType[] = [
-      'Cockpit', 'Cockpit',
-      ...allTypes.filter(t => isStructuralBlock(t)),
-      'Beam', 'LargeBeam',
-      'Gun', 'Gun',
-      'Engine', 'Engine', 'Engine',
-      'LargeEngine',
-      'Shield', 'LargeShield',
-      'PowerCell', 'PowerCell',
-      'MissileLauncher',
-    ];
-
-    // Scatter ALL blocks — no count limit; this lets us test every hull size
-    for (let i = 0; i < SANDBOX_BLOCK_TYPES.length; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const distance = 150 + Math.random() * 350; // 150–500 units from origin
-      const x = Math.cos(angle) * distance;
-      const y = Math.sin(angle) * distance;
-
-      const blockType = SANDBOX_BLOCK_TYPES[i];
-      // Cockpits must always spawn at rotation 0 so the AI's nose-direction
-      // (rootBody.angle) aligns with the laser firing angle
-      // (rootBody.angle + entity.rotation). Any random rotation bakes a
-      // permanent offset between the two, causing the ship to fly sideways.
-      const rotation = blockType === 'Cockpit' ? 0 : Math.floor(Math.random() * 4) * 90;
-      const config: EntityConfig = {
-        type: blockType,
-        x: 0,
-        y: 0,
-        rotation,
-      };
-      const blockAssembly = new Assembly([config], { x, y });
-      if (blockType === 'Cockpit') {
-        // Cockpit blocks are friendly AI-controlled ships the player can pilot
-        blockAssembly.setTeam(0);
-        blockAssembly.setShipName('Cockpit');
-        const ai = this.controllerManager.createAIController(blockAssembly);
-        ai.setAggressionLevel(0.5);
-      } else {
-        blockAssembly.setTeam(-1);
-        blockAssembly.setShipName(`${blockType} Block`);
-      }
-      // Gentle random spin
-      Matter.Body.setAngularVelocity(blockAssembly.rootBody, (Math.random() - 0.5) * 0.16);
-      this.assemblies.push(blockAssembly);
-      Matter.World.add(this.world, blockAssembly.rootBody);
-    }
-
-    // Spawn compound scrap assemblies — pre-built multi-block fragments for snap testing
-    const compoundScraps: { name: string; parts: EntityConfig[] }[] = [
-      {
-        // Hull + Engine: a single thruster nacelle
-        name: 'Engine Nacelle',
-        parts: [
-          { type: 'Hull',   x: 0,            y: 0, rotation: 0 },
-          { type: 'Engine', x: -GRID_SIZE,   y: 0, rotation: 0 },
-        ],
-      },
-      {
-        // Hull pair + forward Gun: a simple gun platform
-        name: 'Gun Platform',
-        parts: [
-          { type: 'Hull', x: -GRID_SIZE, y: 0, rotation: 0 },
-          { type: 'Hull', x: 0,          y: 0, rotation: 0 },
-          { type: 'Gun',  x: GRID_SIZE,  y: 0, rotation: 0 },
-        ],
-      },
-      {
-        // Engine + PowerCell + Hull in a line: a compact power spine
-        name: 'Power Spine',
-        parts: [
-          { type: 'Engine',    x: -GRID_SIZE, y: 0, rotation: 0 },
-          { type: 'PowerCell', x: 0,          y: 0, rotation: 0 },
-          { type: 'Hull',      x: GRID_SIZE,  y: 0, rotation: 0 },
-        ],
-      },
-      {
-        // L-shaped 4-block wing section: Hull spine with PowerCell above and Engine aft
-        name: 'Wing Section',
-        parts: [
-          { type: 'Engine',    x: -GRID_SIZE, y: 0,          rotation: 0 },
-          { type: 'Hull',      x: 0,          y: 0,          rotation: 0 },
-          { type: 'Hull',      x: GRID_SIZE,  y: 0,          rotation: 0 },
-          { type: 'PowerCell', x: 0,          y: -GRID_SIZE, rotation: 0 },
-        ],
-      },
-      {
-        // Twin guns on a hull base: a gun turret fragment
-        name: 'Twin Gun Mount',
-        parts: [
-          { type: 'Hull', x: 0,          y: 0,          rotation: 0 },
-          { type: 'Gun',  x: GRID_SIZE,  y: -GRID_SIZE, rotation: 0 },
-          { type: 'Gun',  x: GRID_SIZE,  y: GRID_SIZE,  rotation: 0 },
-        ],
-      },
-    ];
-
-    for (const scrap of compoundScraps) {
-      const angle = Math.random() * Math.PI * 2;
-      const distance = 180 + Math.random() * 300;
-      const x = Math.cos(angle) * distance;
-      const y = Math.sin(angle) * distance;
-
-      const scrapAssembly = new Assembly(scrap.parts, { x, y });
-      scrapAssembly.setTeam(-1);
-      scrapAssembly.setShipName(scrap.name);
-      // Gentle spin, slower than single blocks so they're easier to grab
-      Matter.Body.setAngularVelocity(scrapAssembly.rootBody, (Math.random() - 0.5) * 0.06);
-      this.assemblies.push(scrapAssembly);
-      Matter.World.add(this.world, scrapAssembly.rootBody);
-    }
-
-    this.toastSystem.showGameEvent('Sandbox — Select a friendly ship and click Pilot!');
+    // Blank slate — nothing spawns. Observer camera at origin.
+    this.observerPos = { x: 0, y: 0 };
+    this.toastSystem.showGameEvent('Sandbox — Empty world.');
   }
 
   private spawnShipBuilderScenario(): void {
@@ -3271,6 +3163,24 @@ export class GameEngine {
         continue;
       }
       result.push({ assembly, order });
+    }
+    return result;
+  }
+
+  /**
+   * Returns engagement targets for currently selected AI ships.
+   * Used by EngagementRenderer to draw red lines from ship to combat target.
+   */
+  public getSelectedEngagementTargets(): EngagementTarget[] {
+    const result: EngagementTarget[] = [];
+    for (const assembly of this.selectedAssemblies) {
+      if (assembly.destroyed || assembly.isPlayerControlled) continue;
+      const controller = this.controllerManager.getAIControllerForAssembly(assembly.id);
+      if (!controller) continue;
+      const target = controller.getTarget();
+      if (target && !target.destroyed) {
+        result.push({ assembly, target });
+      }
     }
     return result;
   }

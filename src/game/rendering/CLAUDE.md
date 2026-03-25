@@ -26,7 +26,7 @@ interface IRenderer {
 
 **Renderer routing**: `RenderSystem.register()` reads `renderer.renderSpace` and adds the renderer's PIXI objects to the appropriate container. Defaults to `'screen'` for backwards compatibility.
 
-**World-space renderers** (`renderSpace = 'world'`): GridRenderer, ConnectionRenderer, BlockBodyRenderer, ParticleRenderer, MissileRenderer, BlockFrillsRenderer, ShieldRenderer, HarpoonRenderer, BeamRenderer, OrderRenderer, PathfindingDebugRenderer, StructurePlacementRenderer. These draw at world positions directly — no `viewport.worldToScreen()` calls.
+**World-space renderers** (`renderSpace = 'world'`): GridRenderer, ConnectionRenderer, BlockBodyRenderer, ParticleRenderer, MissileRenderer, BlockFrillsRenderer, ShieldRenderer, HarpoonRenderer, BeamRenderer, OrderRenderer, EngagementRenderer, PathfindingDebugRenderer, StructurePlacementRenderer. These draw at world positions directly — no `viewport.worldToScreen()` calls.
 
 **Screen-space renderers** (default): StarfieldRenderer, StructureRenderer, ShipHighlightRenderer, StrategicIconRenderer, AimingDebugRenderer, RingRadarRenderer, BlockPickupRenderer, ShockwaveRenderer.
 
@@ -63,6 +63,7 @@ interface IRenderer {
 | 46 | `ShockwaveRenderer` | screen | Expanding ring when an assembly is fully destroyed |
 | 50 | `ShipHighlightRenderer` | screen | Hover/selected bounding boxes, lock-on brackets |
 | 52 | `OrderRenderer` | world | AI move order lines (green line + dots from cockpit to target) |
+| 53 | `EngagementRenderer` | world | Red line from selected AI ship to its combat target |
 | 55 | `RingRadarRenderer` | screen | Ring radar directional arrows |
 | 60 | `AimingDebugRenderer` | screen | Weapon arc, distance rings, aim line |
 | 70 | `BlockPickupRenderer` | screen | Block pickup ghost and snap overlay |

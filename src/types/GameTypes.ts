@@ -102,9 +102,9 @@ export const MINING_LASER_DPS = 5;       // Low combat damage (5 DPS)
 export const MINING_LASER_RATE = 50;     // Ore extraction rate in kg/s
 
 // Missile launcher constants
-export const MISSILE_LAUNCHER_RANGE = 800;
-export const LARGE_MISSILE_LAUNCHER_RANGE = 1200;
-export const CAPITAL_MISSILE_LAUNCHER_RANGE = 1600;
+export const MISSILE_LAUNCHER_RANGE = 8000;
+export const LARGE_MISSILE_LAUNCHER_RANGE = 12000;
+export const CAPITAL_MISSILE_LAUNCHER_RANGE = 16000;
 export const MISSILE_LAUNCHER_FIRE_INTERVAL_MS = 3000;
 export const LARGE_MISSILE_LAUNCHER_FIRE_INTERVAL_MS = 5000;
 export const CAPITAL_MISSILE_LAUNCHER_FIRE_INTERVAL_MS = 8000;
@@ -115,6 +115,10 @@ export const PDC_SCAN_RADIUS = 500;
 export const PDC_FIRE_RATE_MS = 100;
 export const PDC_DAMAGE = 5;
 export const PDC_PROJECTILE_SPEED = 50;
+export const PDC_AIM_ARC = Math.PI * 0.75;       // 135° total arc (67.5° each side of facing)
+export const PDC_TURRET_SPEED = 4.0;              // rad/s — fast but not instant
+export const PDC_BASE_SPREAD = 0.04;              // radians (~2.3°) base inaccuracy at point-blank
+export const PDC_RANGE_SPREAD = 0.12;             // radians (~6.9°) additional spread at max range
 
 // Tractor beam constants
 export const TRACTOR_BEAM_RANGE = 800;
@@ -194,7 +198,6 @@ export interface HarpoonFireRequest {
   sourceAssemblyId: string;
   sourceTeam: number;
   /** The harpoon weapon entity's physics part body, for entity-local anchor tracking. */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   entityBody: any;
 }
 

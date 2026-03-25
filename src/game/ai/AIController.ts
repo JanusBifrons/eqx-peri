@@ -1,6 +1,6 @@
 import { Assembly } from '../core/Assembly';
 import { Controller, ControlInput } from './Controller';
-import { Vector2, ENTITY_DEFINITIONS, AIOrder, MoveOrder } from '../../types/GameTypes';
+import { Vector2, ENTITY_DEFINITIONS, AIOrder, MoveOrder, EntityType } from '../../types/GameTypes';
 
 // ─── Steering constants ────────────────────────────────────────────────────
 const MAX_SPEED    = 3.0;  // world units / physics frame (base)
@@ -65,11 +65,18 @@ const POWER_RATIO_PURSUE = 1.40;
  */
 const POWER_RATIO_RETREAT = 0.65;
 
-/** Preferred standoff range for each state (world units). */
-const RANGE_SIZING_UP = 600; // Hang back just outside firing range while assessing
-const RANGE_ENGAGE    = 400; // Standard engagement: slug it out at medium range
-const RANGE_PURSUE    = 250; // Aggressive close-in when we have the advantage
-const RANGE_RETREAT   = 800; // Back off and create distance when outmatched
+/**
+ * Range multipliers per state, applied to the weapon-derived base engagement range.
+ * The base range is computed from the ship's weapon loadout — missile-heavy ships
+ * stand off near max missile range; beam-heavy ships close to near point-blank.
+ */
+const RANGE_MULT_SIZING_UP = 1.15; // Hang back slightly outside optimal range while assessing
+const RANGE_MULT_PURSUE    = 0.60; // Aggressive close-in when we have the advantage
+const RANGE_MULT_RETREAT   = 1.50; // Back off well beyond optimal range
+
+/** Minimum / maximum clamped engagement range (world units). */
+const MIN_ENGAGEMENT_RANGE = 150;
+const MAX_ENGAGEMENT_RANGE = 14000;
 
 /** Speed multipliers applied on top of MAX_SPEED × aggressionLevel. */
 const SPEED_SIZING_UP = 0.65; // Measured approach — don't rush in blind
@@ -120,6 +127,11 @@ export class AIController extends Controller {
     // ── Move order ────────────────────────────────────────────────────────
     private moveOrder: AIOrder | null = null;
 
+    // ── Weapon-derived engagement range (cached) ────────────────────────
+    /** Base engagement range derived from weapon loadout. Recomputed when entities change. */
+    private cachedBaseEngagementRange = 400;
+    private cachedEntityCount = -1; // force recompute on first frame
+
     constructor(assembly: Assembly) {
         super(assembly);
     }
@@ -148,9 +160,14 @@ export class AIController extends Controller {
         this.formationSlotCount = total;
     }
 
-    /** Expose the current target for formation slot computation. */
+    /** Expose the current target for formation slot computation and rendering. */
     getTarget(): Assembly | undefined {
         return this.target;
+    }
+
+    /** Expose the current weapon-derived engagement range for rendering/debugging. */
+    getEngagementRange(): number {
+        return this.getBaseEngagementRange();
     }
 
     /** Set a move/attack/patrol order. Replaces any existing order. */
@@ -425,10 +442,11 @@ export class AIController extends Controller {
             : this.computeOptimalHeading(targetPos);
 
         // Engagement mode (dead-band + small radial corrections) only when holding
-        // position in ENGAGE or SIZING_UP within firing range.
+        // position in ENGAGE or SIZING_UP within the weapon-derived engagement range.
+        const engagementRange = preferred * 1.3; // switch to engagement mode when within 130% of preferred range
         const holdingPosition =
             (this.combatState === CombatState.ENGAGE || this.combatState === CombatState.SIZING_UP)
-            && distance < FIRING_RANGE;
+            && distance < engagementRange;
 
         const thrust = this.combatState === CombatState.RETREAT
             ? this.retreatThrust()
@@ -461,11 +479,79 @@ export class AIController extends Controller {
     }
 
     private statePreferredRange(): number {
+        const base = this.getBaseEngagementRange();
         switch (this.combatState) {
-            case CombatState.SIZING_UP: return RANGE_SIZING_UP;
-            case CombatState.ENGAGE:    return RANGE_ENGAGE;
-            case CombatState.PURSUE:    return RANGE_PURSUE;
-            case CombatState.RETREAT:   return RANGE_RETREAT;
+            case CombatState.SIZING_UP: return Math.min(MAX_ENGAGEMENT_RANGE, base * RANGE_MULT_SIZING_UP);
+            case CombatState.ENGAGE:    return base;
+            case CombatState.PURSUE:    return Math.max(MIN_ENGAGEMENT_RANGE, base * RANGE_MULT_PURSUE);
+            case CombatState.RETREAT:   return Math.min(MAX_ENGAGEMENT_RANGE, base * RANGE_MULT_RETREAT);
+        }
+    }
+
+    /**
+     * Computes the optimal engagement range from the ship's weapon loadout.
+     * Each weapon contributes its `weaponRange` weighted by its combat power.
+     * Beam weapons prefer 70% of their range (close-in); missile launchers
+     * prefer 85% of their range (standoff); guns use 80%.
+     * Result is cached until the entity count changes (block destroyed/attached).
+     */
+    private getBaseEngagementRange(): number {
+        const entities = this.assembly.entities;
+        if (entities.length !== this.cachedEntityCount) {
+            this.cachedEntityCount = entities.length;
+            this.cachedBaseEngagementRange = this.computeBaseEngagementRange();
+        }
+        return this.cachedBaseEngagementRange;
+    }
+
+    private computeBaseEngagementRange(): number {
+        let weightedRange = 0;
+        let totalWeight = 0;
+
+        for (const e of this.assembly.entities) {
+            if (e.destroyed || !e.canFire()) continue;
+            const def = ENTITY_DEFINITIONS[e.type as EntityType];
+            if (!def?.weaponRange) continue;
+
+            const range = def.weaponRange;
+            // Weight = combat power contribution of this weapon type
+            const weight = this.weaponPowerRating(e.type as EntityType);
+
+            // Range preference factor: beams want to be close, missiles want standoff
+            let rangePref: number;
+            if (e.isBeamWeapon()) {
+                rangePref = 0.70; // close to point-blank
+            } else if (e.isMissileLauncher()) {
+                rangePref = 0.85; // near max range
+            } else {
+                rangePref = 0.80; // guns: moderate standoff
+            }
+
+            weightedRange += range * rangePref * weight;
+            totalWeight += weight;
+        }
+
+        if (totalWeight === 0) return 400; // unarmed fallback
+        const result = weightedRange / totalWeight;
+        return Math.max(MIN_ENGAGEMENT_RANGE, Math.min(MAX_ENGAGEMENT_RANGE, result));
+    }
+
+    /** Power rating per weapon type — mirrors computeCombatPower weights. */
+    private weaponPowerRating(type: EntityType): number {
+        switch (type) {
+            case 'Gun':                    return 1.0;
+            case 'LargeGun':               return 2.5;
+            case 'CapitalWeapon':          return 5.0;
+            case 'MissileLauncher':        return 1.5;
+            case 'LargeMissileLauncher':   return 3.5;
+            case 'CapitalMissileLauncher': return 7.0;
+            case 'Beam':                   return 1.5;
+            case 'LargeBeam':              return 4.0;
+            case 'Harpoon':                return 1.0;
+            case 'PDC':                    return 0.5;
+            case 'TractorBeam':            return 0.3;
+            case 'MiningLaser':            return 0.2;
+            default:                       return 0;
         }
     }
 
@@ -543,8 +629,10 @@ export class AIController extends Controller {
         const toDes = { x: desired.x - myPos.x, y: desired.y - myPos.y };
         const dist  = Math.sqrt(toDes.x * toDes.x + toDes.y * toDes.y);
 
+        // Scale arrival radius with engagement range so long-range ships brake smoothly
+        const arrivalRadius = Math.max(ARRIVAL_RADIUS, this.getBaseEngagementRange() * 0.4);
         const topSpeed  = MAX_SPEED * this.aggressionLevel * speedMult;
-        const spTarget  = topSpeed * Math.min(1, dist / ARRIVAL_RADIUS);
+        const spTarget  = topSpeed * Math.min(1, dist / arrivalRadius);
         const norm      = dist > 0.1 ? { x: toDes.x / dist, y: toDes.y / dist } : { x: 0, y: 0 };
         const desVel    = { x: norm.x * spTarget, y: norm.y * spTarget };
 
@@ -584,7 +672,8 @@ export class AIController extends Controller {
      * Outside the band, small radial corrections push toward the preferred range.
      */
     private engagementThrust(distance: number, preferredRange: number): Vector2 {
-        const DEAD_BAND = 120;
+        // Scale dead-band with engagement range: at least 120, up to 15% of preferred range
+        const DEAD_BAND = Math.max(120, preferredRange * 0.15);
         const distError = distance - preferredRange;
 
         const myPos = this.assembly.rootBody.position;

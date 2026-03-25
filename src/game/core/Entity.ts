@@ -131,6 +131,7 @@ export class Entity {
       case 'CapitalMissileLauncher': return 1.0;
       case 'Beam': return 3.0;
       case 'LargeBeam': return 2.2;
+      case 'PDC': return 4.0; // Fast tracking — CIWS turret
       case 'Cockpit':
       case 'LargeCockpit':
       case 'CapitalCore': return 1.5;

@@ -1,6 +1,6 @@
 import * as Matter from 'matter-js';
 import { Entity } from './Entity';
-import { EntityConfig, Vector2, EntityType, ENTITY_DEFINITIONS, ShieldState, SHIELD_REGEN_DELAY_MS, SHIELD_REGEN_DURATION_MS, SHIELD_COLLAPSE_COOLDOWN_MS, getEntityOccupiedGridCells, getEntityBodyOffset, getBlockedConnectionDirs, canTypesConnect, InventoryItemType, MissileLaunchRequest, MISSILE_CONFIGS, HarpoonFireRequest, HARPOON_FIRE_RATE_MS, PDC_FIRE_RATE_MS, PDC_PROJECTILE_SPEED, PDC_DAMAGE, PDC_RANGE } from '../../types/GameTypes';
+import { EntityConfig, Vector2, EntityType, ENTITY_DEFINITIONS, ShieldState, SHIELD_REGEN_DELAY_MS, SHIELD_REGEN_DURATION_MS, SHIELD_COLLAPSE_COOLDOWN_MS, getEntityOccupiedGridCells, getEntityBodyOffset, getBlockedConnectionDirs, canTypesConnect, InventoryItemType, MissileLaunchRequest, MISSILE_CONFIGS, HarpoonFireRequest, HARPOON_FIRE_RATE_MS, PDC_FIRE_RATE_MS, PDC_PROJECTILE_SPEED, PDC_DAMAGE, PDC_RANGE, PDC_AIM_ARC, PDC_BASE_SPREAD, PDC_RANGE_SPREAD } from '../../types/GameTypes';
 
 // Interface for beam fire requests (continuous raycast weapons)
 export interface BeamFireSpec {
@@ -645,6 +645,11 @@ export class Assembly {
    * Autonomous PDC fire: scans for nearby enemy missiles and fires small fast projectiles.
    * Called every frame regardless of fire input. Returns laser bodies for the existing
    * collision detection path.
+   *
+   * PDC turrets have a limited aiming arc, a rotation speed, and built-in inaccuracy
+   * that increases with distance — creating a CIWS spray effect rather than aimbot sniping.
+   * The turret tracks toward the predicted intercept point each frame; it only fires when
+   * the turret has rotated close enough to the target direction.
    */
   public getPDCFires(missiles: { body: Matter.Body; sourceTeam: number; destroyed: boolean }[]): Matter.Body[] {
     if (this.destroyed) return [];
@@ -652,12 +657,10 @@ export class Assembly {
     const currentTime = Date.now();
     const pdcs = this.entities.filter(e => e.isPDC() && e.canFire());
     const lasers: Matter.Body[] = [];
+    const halfArc = PDC_AIM_ARC / 2;
 
     for (const pdc of pdcs) {
-      const lastFire = this.entityFireTimes.get(pdc.id) ?? 0;
-      if (currentTime - lastFire < PDC_FIRE_RATE_MS) continue;
-
-      // Find closest enemy missile within scan radius
+      // Find closest enemy missile within range
       const pdcWorldPos = pdc.body.position;
       let closestMissile: typeof missiles[0] | null = null;
       let closestDist = PDC_RANGE * PDC_RANGE;
@@ -683,17 +686,51 @@ export class Assembly {
       const predictedX = mPos.x + mVel.x * travelTime;
       const predictedY = mPos.y + mVel.y * travelTime;
 
-      const angle = Math.atan2(predictedY - pdcWorldPos.y, predictedX - pdcWorldPos.x);
+      // Desired aim angle in world space
+      const desiredWorldAngle = Math.atan2(predictedY - pdcWorldPos.y, predictedX - pdcWorldPos.x);
+
+      // PDC's natural facing direction in world space
+      const weaponNaturalAngle = this.rootBody.angle + (pdc.rotation * Math.PI / 180);
+
+      // Check if target is within the PDC's aiming arc
+      let arcDiff = desiredWorldAngle - weaponNaturalAngle;
+      while (arcDiff > Math.PI) arcDiff -= 2 * Math.PI;
+      while (arcDiff < -Math.PI) arcDiff += 2 * Math.PI;
+      if (Math.abs(arcDiff) > halfArc) continue; // target outside aiming arc
+
+      // Set target aim angle so the turret tracking system rotates toward the missile.
+      // targetAimAngle is relative to weapon's natural direction.
+      pdc.setTargetAimAngle(arcDiff);
+
+      // Check if turret has rotated close enough to fire (within ~8° of target)
+      let aimError = pdc.targetAimAngle - pdc.currentAimAngle;
+      while (aimError > Math.PI) aimError -= 2 * Math.PI;
+      while (aimError < -Math.PI) aimError += 2 * Math.PI;
+      const AIM_FIRE_THRESHOLD = 0.14; // ~8° — turret must be roughly on-target
+      if (Math.abs(aimError) > AIM_FIRE_THRESHOLD) continue;
+
+      // Fire rate cooldown
+      const lastFire = this.entityFireTimes.get(pdc.id) ?? 0;
+      if (currentTime - lastFire < PDC_FIRE_RATE_MS) continue;
+
+      // Inaccuracy: base spread + range-proportional spread (CIWS spray effect)
+      const rangeFraction = dist / PDC_RANGE; // 0 at point-blank, 1 at max range
+      const totalSpread = PDC_BASE_SPREAD + PDC_RANGE_SPREAD * rangeFraction;
+      const spreadAngle = (Math.random() - 0.5) * 2 * totalSpread;
+
+      // Final firing angle = turret's current world angle + random spread
+      const currentWorldAngle = weaponNaturalAngle + pdc.currentAimAngle;
+      const fireAngle = currentWorldAngle + spreadAngle;
 
       // Create a small fast projectile (uses existing laser collision path)
       const laserLength = 8;
-      const startX = pdcWorldPos.x + Math.cos(angle) * 10;
-      const startY = pdcWorldPos.y + Math.sin(angle) * 10;
+      const startX = pdcWorldPos.x + Math.cos(fireAngle) * 10;
+      const startY = pdcWorldPos.y + Math.sin(fireAngle) * 10;
 
       const body = Matter.Bodies.rectangle(startX, startY, laserLength, 2, {
         isSensor: true,
         frictionAir: 0,
-        angle,
+        angle: fireAngle,
         render: {
           fillStyle: '#88ccff',
           strokeStyle: '#aaddff',
@@ -709,8 +746,8 @@ export class Assembly {
       (body as unknown as Record<string, unknown>).damage = PDC_DAMAGE;
 
       Matter.Body.setVelocity(body, {
-        x: Math.cos(angle) * PDC_PROJECTILE_SPEED,
-        y: Math.sin(angle) * PDC_PROJECTILE_SPEED,
+        x: Math.cos(fireAngle) * PDC_PROJECTILE_SPEED,
+        y: Math.sin(fireAngle) * PDC_PROJECTILE_SPEED,
       });
 
       pdc.triggerWeaponFire();
@@ -790,6 +827,8 @@ export class Assembly {
       case 'CapitalWeapon':
       case 'CapitalCore':
         return Math.PI * 1.5; // 270 degrees total arc
+      case 'PDC':
+        return PDC_AIM_ARC; // 135 degrees total arc
       default:
         return Math.PI; // Default 180 degrees
     }

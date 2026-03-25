@@ -20,12 +20,14 @@
 
 Ships cycle through four states. Transitions are evaluated every 350 ms.
 
-| State | Preferred range | Speed | Lateral damp | Fire | Heading |
-|-------|----------------|-------|--------------|------|---------|
-| `SIZING_UP` | 600 | 0.65× | 0.96 approach / 0.98 holding | **no** | weapons-optimal |
-| `ENGAGE` | 400 | 1.0× | 0.96 approach / 0.98 holding | yes | weapons-optimal |
-| `PURSUE` | 250 | 1.45× | 0.96 always | yes | weapons-optimal |
-| `RETREAT` | 800 | 1.4× | **none** | yes (if arc) | nose away from target |
+| State | Range multiplier | Speed | Lateral damp | Fire | Heading |
+|-------|-----------------|-------|--------------|------|---------|
+| `SIZING_UP` | base × 1.15 | 0.65× | 0.96 approach / 0.98 holding | **no** | weapons-optimal |
+| `ENGAGE` | base × 1.00 | 1.0× | 0.96 approach / 0.98 holding | yes | weapons-optimal |
+| `PURSUE` | base × 0.60 | 1.45× | 0.96 always | yes | weapons-optimal |
+| `RETREAT` | base × 1.50 | 1.4× | **none** | yes (if arc) | nose away from target |
+
+**Weapon-aware base engagement range**: `getBaseEngagementRange()` computes the optimal standoff from the weapon loadout. Each weapon contributes `weaponRange × rangePref × powerWeight`. Range preferences: beams 70% (close-in), missiles 85% (standoff), guns 80%. Cached until entity count changes. Arrival radius and engagement dead-band scale proportionally. `getEngagementRange()` is public for rendering/debugging.
 
 **Assessment axes:**
 - `ownHealth` = total current HP / total max HP across all blocks
