@@ -209,6 +209,18 @@ src/
 - **Dashed lines**: approximated as solid semi-transparent lines (PIXI v7 has no native dash support).
 - `pixi-filters@5` — active filters: `CRTFilter` (per-structure readout panels), `GlowFilter`/`AdvancedBloomFilter` (beams), `ShockwaveFilter` (destruction rings). See `src/game/rendering/CLAUDE.md`.
 
+**Sector Conquest mode (`sectorConquestMode: boolean` in `ScenarioConfig`):**
+- Game mode ID: `'sector-conquest'`. Launched via the full-width featured button in `MainMenu.tsx`.
+- Scenario spawner: `GameEngine.spawnSectorConquestScenario()` — sets up Core at origin, player cockpit, 8 hand-placed asteroids, `WaveManager`, and `ObjectivesManager`.
+- `WaveManager` (`src/game/systems/WaveManager.ts`): activated by `ObjectivesManager` after phase 2. Tracks countdown, picks random angle + radius (3500–4500 units from Core), fires `onSpawnWave(WaveSpec)` callback into `GameEngine._spawnEnemyWave()`.
+- `ObjectivesManager` (`src/game/systems/ObjectivesManager.ts`): 4-phase mission flow (Connector+MiningLaser → Refinery → Turret → TCU). Activates waves at phase 2. Starts `TCU_CAPTURE_DURATION_MS` (5min) countdown when `TerritoryControlUnit` is fully constructed.
+- `TerritoryControlUnit` is a `StructureType` with `shape: 'hex'`, defined in `STRUCTURE_DEFINITIONS`. No special StructureManager logic — `ObjectivesManager` detects it by type + `isConstructed`.
+- Enemy ships: ships.json indices 6 (`Scout Raider`) and 7 (`Missile Boat`) — simple 3-block designs used only for wave spawning.
+- `galaxyStore.ts` (`src/stores/galaxyStore.ts`): Zustand store with `zustand/middleware` `persist` (localStorage key `'eqx-galaxy'`). Stores `capturedSectors: string[]`. `captureSector('sector-0')` called on victory.
+- HUD components: `ObjectivesPanel.tsx` (top-left, phase checklist + TCU countdown), `WaveInfoPanel.tsx` (top-right, ETA + ship types), `SectorVictoryScreen.tsx` (full-screen overlay on capture).
+- `App.tsx` wires: `isSectorConquest` flag mirrors `scenario.sectorConquestMode`; shows same `StructuresPanel`/`StructureActionPanel`/`ModeToggle` as structures-sandbox mode.
+- `GalaxyMapView.tsx` reads `capturedSectors` from `galaxyStore` and draws an amber overlay on hex(0,0) (conquerable) or purple overlay (captured).
+
 ---
 
 MAINTENANCE MANDATE: If you establish a new pattern, change a library, or fix a systemic bug within the scope of this directory, you must update this CLAUDE.md file to reflect the new standard before concluding your task.

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import * as PIXI from 'pixi.js';
+import { useGalaxyStore } from '../stores/galaxyStore';
 
 // ---- Types ----
 
@@ -437,8 +438,16 @@ function buildStarBackground(width: number, height: number, rng: () => number): 
 
 // ---- Component ----
 
+/** The sector ID corresponding to the conquerable sector at hex (0,0). */
+const CONQUERABLE_SECTOR_ID = 'sector-0';
+/** Axial coordinates of the conquerable sector — hex(0,0) is the map centre. */
+const CONQUERABLE_HEX = { q: 0, r: 0 };
+
 const GalaxyMapView: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const capturedSectors = useGalaxyStore(s => s.capturedSectors);
+  const capturedRef = useRef(capturedSectors);
+  capturedRef.current = capturedSectors;
 
   useEffect(() => {
     const el = containerRef.current;
@@ -497,6 +506,51 @@ const GalaxyMapView: React.FC = () => {
 
     const { gfx: iconGfx, iconInfos } = buildIconGraphics(hexMap);
     mapContainer.addChild(iconGfx);
+
+    // ---- Sector Conquest overlay for conquerable/captured sector ----
+    {
+      const isCaptured = capturedRef.current.includes(CONQUERABLE_SECTOR_ID);
+      const { x: cx, y: cy } = hexToPixel(CONQUERABLE_HEX.q, CONQUERABLE_HEX.r);
+      const overlayGfx = new PIXI.Graphics();
+
+      if (isCaptured) {
+        // Captured: purple glow hex
+        overlayGfx.lineStyle(3, 0x8844ff, 1.0);
+        overlayGfx.beginFill(0x4422aa, 0.35);
+        const v = hexVerts(cx, cy, HEX_SIZE * 0.93);
+        overlayGfx.moveTo(v[0], v[1]);
+        for (let vi = 2; vi < v.length; vi += 2) overlayGfx.lineTo(v[vi], v[vi + 1]);
+        overlayGfx.closePath();
+        overlayGfx.endFill();
+        // Captured label
+        const label = new PIXI.Text('CAPTURED', {
+          fontFamily: 'monospace', fontSize: 9, fill: 0xaa88ff,
+          fontWeight: 'bold', letterSpacing: 2,
+        });
+        label.anchor.set(0.5);
+        label.position.set(cx, cy - 8);
+        mapContainer.addChild(label);
+      } else {
+        // Conquerable: amber dashed border + target icon
+        overlayGfx.lineStyle(2.5, 0xffaa00, 0.9);
+        overlayGfx.beginFill(0x331a00, 0.20);
+        const v = hexVerts(cx, cy, HEX_SIZE * 0.90);
+        overlayGfx.moveTo(v[0], v[1]);
+        for (let vi = 2; vi < v.length; vi += 2) overlayGfx.lineTo(v[vi], v[vi + 1]);
+        overlayGfx.closePath();
+        overlayGfx.endFill();
+        // Target label
+        const label = new PIXI.Text('SECTOR CONQUEST', {
+          fontFamily: 'monospace', fontSize: 8, fill: 0xffaa00,
+          fontWeight: 'bold', letterSpacing: 1,
+        });
+        label.anchor.set(0.5);
+        label.position.set(cx, cy - 8);
+        mapContainer.addChild(label);
+      }
+
+      mapContainer.addChild(overlayGfx);
+    }
 
     // ---- Tooltip ----
     const tooltipDiv = document.createElement('div');

@@ -59,6 +59,33 @@ HUD overlay components rendered on top of the game canvas. Components receive `g
 - In build mode: StructuresPanel is shown, block drag/snap/detach work normally.
 - Switching to select cancels any active structure placement.
 
+## FloatingPanel
+
+`FloatingPanel.tsx` — generic draggable, resizable, localStorage-persistent panel. Use this for any always-on HUD panel that the user might want to reposition.
+
+**Props:**
+- `storageKey: string` — unique ID; saved as `eqx-panel-<key>` in localStorage
+- `title: string` — shown in the drag bar
+- `defaultPos?: { x, y }` — first-launch position. **Choose carefully to avoid fixed UI** (see below).
+- `defaultSize?: { w, h }` — first-launch size (default 220×360)
+- `minWidth?: number`, `minHeight?: number` — resize floor (defaults 160×120)
+- `children` — scrollable panel content
+
+**Fixed UI footprint** to avoid when choosing `defaultPos`:
+| Element | Approximate area |
+|---|---|
+| MiniDrawer | x 0–60 |
+| ObjectivesPanel (sector conquest) | x 68–330, y 16–220 |
+| WaveInfoPanel (sector conquest) | right 16–270, y 16–110 |
+| ModeToggle | bottom-center |
+| ShipActionPanel / FlightControls | bottom 0–80 |
+
+Recommended safe defaults: `{ x: 72, y: 230 }` (below ObjectivesPanel, right of sidebar); for modes without ObjectivesPanel use `{ x: 72, y: 80 }`.
+
+**Persistence:** position and size are written to localStorage on every mouse-up (drag or resize end). Invalid/missing saved state silently falls back to defaults. Position is clamped to the current viewport on mount so panels are never off-screen after a window resize.
+
+**Pattern:** wrap panel content in `<FloatingPanel ...>`. The children render inside a scrollable flex column; no internal layout wrappers needed.
+
 ## GenericModal
 
 - Reusable draggable, resizable modal component (`GenericModal.tsx`).

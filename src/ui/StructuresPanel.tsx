@@ -4,6 +4,7 @@ import { styled } from '@mui/material/styles';
 import { STRUCTURE_DEFINITIONS, StructureType } from '../types/GameTypes';
 import { GameEngine } from '../game/core/GameEngine';
 import { useGameStore } from '../stores/gameStore';
+import FloatingPanel from './FloatingPanel';
 
 interface Props {
   gameEngine: GameEngine | null;
@@ -19,24 +20,8 @@ const BUILD_CATEGORIES: StructureCategory[] = [
   { label: 'Power', types: ['SolarPanel', 'Battery', 'PowerStation'] },
   { label: 'Economy', types: ['Refinery', 'Manufacturer', 'Recycler', 'AssemblyYard', 'StructureMiningLaser'] },
   { label: 'Defense', types: ['SmallTurret', 'MediumTurret', 'LargeTurret'] },
+  { label: 'Conquest', types: ['TerritoryControlUnit'] },
 ];
-
-// Left-side build panel
-const PanelContainer = styled(Box)(() => ({
-  position: 'absolute',
-  top: 60,
-  left: 12,
-  width: 200,
-  backgroundColor: 'rgba(10, 12, 18, 0.88)',
-  border: '1px solid rgba(0, 204, 255, 0.3)',
-  borderRadius: 6,
-  padding: '10px 12px',
-  pointerEvents: 'auto',
-  zIndex: 1000,
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 8,
-}));
 
 const CategoryLabel = styled(Typography)(() => ({
   fontSize: 10,
@@ -67,6 +52,14 @@ const BuildButton = styled(Button)(() => ({
 // Placeholder entries for future structure types (greyed out)
 const COMING_SOON: string[] = [];
 
+/**
+ * Default position: x=72 clears the MiniDrawer (52px); y=230 clears the ObjectivesPanel
+ * (~210px tall at max). In non-conquest modes ObjectivesPanel is hidden, so y=80 would be
+ * fine there too — but 230 is always safe. Users can reposition and it will persist.
+ */
+const PANEL_DEFAULT_POS = { x: 72, y: 230 };
+const PANEL_DEFAULT_SIZE = { w: 210, h: 400 };
+
 const StructuresPanel: React.FC<Props> = ({ gameEngine }) => {
   const activeType = useGameStore(s => s.placingStructureType);
 
@@ -80,20 +73,36 @@ const StructuresPanel: React.FC<Props> = ({ gameEngine }) => {
   };
 
   return (
-    <PanelContainer>
-      <Typography variant="subtitle2" sx={{ color: '#00ccff', fontWeight: 700, fontSize: 13 }}>
-        Build Structures
-      </Typography>
-
+    <FloatingPanel
+      storageKey="structures-panel"
+      title="Build Structures"
+      defaultPos={PANEL_DEFAULT_POS}
+      defaultSize={PANEL_DEFAULT_SIZE}
+      minWidth={160}
+      minHeight={180}
+    >
       {/* Available structure types */}
       {BUILD_CATEGORIES.map((cat) => (
-        <Box key={cat.label}>
+        <Box key={cat.label} sx={{ mb: 1 }}>
           <CategoryLabel>{cat.label}</CategoryLabel>
           {cat.types.map((type) => {
             const def = STRUCTURE_DEFINITIONS[type];
             const isActive = activeType === type;
             return (
-              <Tooltip key={type} title={`${def.label} — HP: ${def.maxHealth}${def.powerOutput > 0 ? `  Power: +${def.powerOutput}` : ''}${def.powerConsumption > 0 ? `  Power: -${def.powerConsumption}` : ''}${def.storageCapacity > 0 ? `  Storage: ${def.storageCapacity}` : ''}${def.weaponRange ? `  Range: ${def.weaponRange}` : ''}${def.constructionCost > 0 ? `  Cost: ${def.constructionCost}` : '  (Pre-built)'}`} placement="right" arrow>
+              <Tooltip
+                key={type}
+                title={[
+                  def.label,
+                  `HP: ${def.maxHealth}`,
+                  def.powerOutput > 0 ? `Power: +${def.powerOutput}` : '',
+                  def.powerConsumption > 0 ? `Power: -${def.powerConsumption}` : '',
+                  def.storageCapacity > 0 ? `Storage: ${def.storageCapacity}` : '',
+                  def.weaponRange ? `Range: ${def.weaponRange}` : '',
+                  def.constructionCost > 0 ? `Cost: ${def.constructionCost}` : '(Pre-built)',
+                ].filter(Boolean).join('  ·  ')}
+                placement="right"
+                arrow
+              >
                 <BuildButton
                   variant="outlined"
                   size="small"
@@ -118,19 +127,13 @@ const StructuresPanel: React.FC<Props> = ({ gameEngine }) => {
         <Box sx={{ mt: 0.5, borderTop: '1px solid rgba(255,255,255,0.08)', pt: 1 }}>
           <CategoryLabel sx={{ color: 'rgba(255,255,255,0.25)' }}>Coming Soon</CategoryLabel>
           {COMING_SOON.map((name) => (
-            <BuildButton
-              key={name}
-              variant="outlined"
-              size="small"
-              fullWidth
-              disabled
-            >
+            <BuildButton key={name} variant="outlined" size="small" fullWidth disabled>
               {name}
             </BuildButton>
           ))}
         </Box>
       )}
-    </PanelContainer>
+    </FloatingPanel>
   );
 };
 

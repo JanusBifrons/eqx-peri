@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { Assembly } from '../game/core/Assembly';
 import { Structure } from '../game/structures/Structure';
-import { PerformanceMetrics, StructureType } from '../types/GameTypes';
+import { IncomingWaveInfo, ObjectiveItem, PerformanceMetrics, StructureType } from '../types/GameTypes';
 
 // ── Derived screen-space data for structure action buttons ──────────
 export interface StructureScreenState {
@@ -68,6 +68,18 @@ export interface GameStore {
   /** Whether the currently selected assembly has an active AI controller. */
   selectedAssemblyAIEnabled: boolean;
 
+  // ── Sector Conquest mode state ──────────────────────────────────
+  /** Incoming enemy wave data, or null when no wave is approaching. */
+  incomingWave: IncomingWaveInfo | null;
+  /** Current objectives phase (0-based). */
+  objectivesPhase: number;
+  /** Current phase objective checklist items. */
+  objectiveItems: ObjectiveItem[];
+  /** Milliseconds remaining on the TCU capture countdown, or null if TCU not yet built. */
+  tcuCountdownMs: number | null;
+  /** True when the TCU countdown has completed — sector is captured. */
+  sectorCaptured: boolean;
+
   // ── Frame counter (increments each push, triggers subscribers) ─
   frameTick: number;
 
@@ -108,6 +120,11 @@ export const useGameStore = create<GameStore>((set) => ({
   setInteractionMode: (mode) => set({ interactionMode: mode }),
   performanceMetrics: DEFAULT_PERF,
   selectedAssemblyAIEnabled: false,
+  incomingWave: null,
+  objectivesPhase: 0,
+  objectiveItems: [],
+  tcuCountdownMs: null,
+  sectorCaptured: false,
   frameTick: 0,
 
   pushFrame: (patch) => set((state) => ({ ...patch, frameTick: state.frameTick + 1 })),

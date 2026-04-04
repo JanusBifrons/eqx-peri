@@ -1111,7 +1111,7 @@ export function getEntityOccupiedGridCells(
   return cells;
 }
 
-export type ScenarioId = 'debug' | 'duel' | 'small-battle' | 'medium-battle' | 'huge' | 'sandbox' | 'open-world' | 'ship-builder' | 'structures-sandbox' | 'weapon-test';
+export type ScenarioId = 'debug' | 'duel' | 'small-battle' | 'medium-battle' | 'huge' | 'sandbox' | 'open-world' | 'ship-builder' | 'structures-sandbox' | 'weapon-test' | 'sector-conquest';
 
 export interface ScenarioConfig {
   id: ScenarioId;
@@ -1127,6 +1127,7 @@ export interface ScenarioConfig {
   spawnAsteroids: boolean; // true = stream procedural asteroid chunks around camera
   shipBuilderMode: boolean; // true = static cockpit at origin, palette-driven block placement
   structuresSandboxMode: boolean; // true = structures test environment with a pre-built Core
+  sectorConquestMode: boolean;    // true = sector conquest campaign mode
 }
 
 export const SHIP_SPAWN_SPACING = 300;
@@ -1134,16 +1135,17 @@ export const DUEL_SPAWN_X = 1200;
 export const BATTLE_SPAWN_X = 2000;
 
 export const SCENARIOS: Readonly<Record<ScenarioId, ScenarioConfig>> = {
-  'ship-builder':        { id: 'ship-builder',        label: 'Ship Builder',        description: 'Design your ship from scratch using a block palette.',                  teamSize: 0,   spawnX: 0,              shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: true,  structuresSandboxMode: false },
-  'structures-sandbox':  { id: 'structures-sandbox',  label: 'Structures Sandbox',  description: 'Test base-building: Core structure, power grid, and placement.',       teamSize: 0,   spawnX: 0,              shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false, structuresSandboxMode: true  },
-  debug:                 { id: 'debug',               label: 'Debug',               description: '1v1 sandbox with debris.',                                              teamSize: 1,   spawnX: DUEL_SPAWN_X,   shipIndex: 5, lineFormation: false, spawnDebris: true,  debrisCount: 12, sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false, structuresSandboxMode: false },
-  duel:                  { id: 'duel',                label: 'Duel',                description: '1v1, clean space, ships face off.',                                     teamSize: 1,   spawnX: DUEL_SPAWN_X,   shipIndex: 5, lineFormation: true,  spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false, structuresSandboxMode: false },
-  'small-battle':        { id: 'small-battle',        label: 'Small Battle',        description: '5v5 — two squads engage.',                                              teamSize: 5,   spawnX: BATTLE_SPAWN_X, shipIndex: 0, lineFormation: true,  spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false, structuresSandboxMode: false },
-  'medium-battle':       { id: 'medium-battle',       label: 'Medium Battle',       description: '10v10 — fleet engagement.',                                             teamSize: 10,  spawnX: BATTLE_SPAWN_X, shipIndex: 0, lineFormation: true,  spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false, structuresSandboxMode: false },
-  huge:                  { id: 'huge',                label: 'Huge',                description: '100v100 — maximum chaos.',                                              teamSize: 100, spawnX: BATTLE_SPAWN_X, shipIndex: 0, lineFormation: true,  spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false, structuresSandboxMode: false },
-  sandbox:               { id: 'sandbox',             label: 'Sandbox',             description: 'Start as a bare cockpit. Scavenge blocks to build your ship.',          teamSize: 0,   spawnX: 0,              shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0,  sandboxMode: true,  spawnAsteroids: false, shipBuilderMode: false, structuresSandboxMode: false },
-  'open-world':          { id: 'open-world',          label: 'Open World',          description: 'Build your ship and explore a procedural asteroid field.',              teamSize: 0,   spawnX: 0,              shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0,  sandboxMode: true,  spawnAsteroids: true,  shipBuilderMode: false, structuresSandboxMode: false },
-  'weapon-test':         { id: 'weapon-test',         label: 'Weapon Test Range',   description: 'Test every weapon type. Pilot any ship.',                               teamSize: 0,   spawnX: 0,              shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false, structuresSandboxMode: false },
+  'ship-builder':        { id: 'ship-builder',        label: 'Ship Builder',        description: 'Design your ship from scratch using a block palette.',                  teamSize: 0,   spawnX: 0,              shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: true,  structuresSandboxMode: false, sectorConquestMode: false },
+  'structures-sandbox':  { id: 'structures-sandbox',  label: 'Structures Sandbox',  description: 'Test base-building: Core structure, power grid, and placement.',       teamSize: 0,   spawnX: 0,              shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false, structuresSandboxMode: true,  sectorConquestMode: false },
+  debug:                 { id: 'debug',               label: 'Debug',               description: '1v1 sandbox with debris.',                                              teamSize: 1,   spawnX: DUEL_SPAWN_X,   shipIndex: 5, lineFormation: false, spawnDebris: true,  debrisCount: 12, sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false, structuresSandboxMode: false, sectorConquestMode: false },
+  duel:                  { id: 'duel',                label: 'Duel',                description: '1v1, clean space, ships face off.',                                     teamSize: 1,   spawnX: DUEL_SPAWN_X,   shipIndex: 5, lineFormation: true,  spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false, structuresSandboxMode: false, sectorConquestMode: false },
+  'small-battle':        { id: 'small-battle',        label: 'Small Battle',        description: '5v5 — two squads engage.',                                              teamSize: 5,   spawnX: BATTLE_SPAWN_X, shipIndex: 0, lineFormation: true,  spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false, structuresSandboxMode: false, sectorConquestMode: false },
+  'medium-battle':       { id: 'medium-battle',       label: 'Medium Battle',       description: '10v10 — fleet engagement.',                                             teamSize: 10,  spawnX: BATTLE_SPAWN_X, shipIndex: 0, lineFormation: true,  spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false, structuresSandboxMode: false, sectorConquestMode: false },
+  huge:                  { id: 'huge',                label: 'Huge',                description: '100v100 — maximum chaos.',                                              teamSize: 100, spawnX: BATTLE_SPAWN_X, shipIndex: 0, lineFormation: true,  spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false, structuresSandboxMode: false, sectorConquestMode: false },
+  sandbox:               { id: 'sandbox',             label: 'Sandbox',             description: 'Start as a bare cockpit. Scavenge blocks to build your ship.',          teamSize: 0,   spawnX: 0,              shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0,  sandboxMode: true,  spawnAsteroids: false, shipBuilderMode: false, structuresSandboxMode: false, sectorConquestMode: false },
+  'open-world':          { id: 'open-world',          label: 'Open World',          description: 'Build your ship and explore a procedural asteroid field.',              teamSize: 0,   spawnX: 0,              shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0,  sandboxMode: true,  spawnAsteroids: true,  shipBuilderMode: false, structuresSandboxMode: false, sectorConquestMode: false },
+  'weapon-test':         { id: 'weapon-test',         label: 'Weapon Test Range',   description: 'Test every weapon type. Pilot any ship.',                               teamSize: 0,   spawnX: 0,              shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0,  sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false, structuresSandboxMode: false, sectorConquestMode: false },
+  'sector-conquest':     { id: 'sector-conquest',     label: 'Sector Conquest',     description: 'Build a base, mine resources, and capture the sector. Defend against enemy waves.', teamSize: 0, spawnX: 0, shipIndex: 0, lineFormation: false, spawnDebris: false, debrisCount: 0, sandboxMode: false, spawnAsteroids: false, shipBuilderMode: false, structuresSandboxMode: false, sectorConquestMode: true },
 } as const;
 
 export const SCENARIO_ORDER: ScenarioId[] = ['weapon-test', 'ship-builder', 'structures-sandbox', 'sandbox', 'open-world', 'debug', 'duel', 'small-battle', 'medium-battle', 'huge'];
@@ -1225,7 +1227,24 @@ export const REFINERY_PROCESS_RATE_KG = 40;
 
 // ── Structure System ─────────────────────────────────────────────────────────
 
-export type StructureType = 'Core' | 'Connector' | 'SolarPanel' | 'Battery' | 'PowerStation' | 'SmallTurret' | 'MediumTurret' | 'LargeTurret' | 'Refinery' | 'ShieldFence' | 'AssemblyYard' | 'Manufacturer' | 'Recycler' | 'StructureMiningLaser';
+export type StructureType = 'Core' | 'Connector' | 'SolarPanel' | 'Battery' | 'PowerStation' | 'SmallTurret' | 'MediumTurret' | 'LargeTurret' | 'Refinery' | 'ShieldFence' | 'AssemblyYard' | 'Manufacturer' | 'Recycler' | 'StructureMiningLaser' | 'TerritoryControlUnit';
+
+/** Duration (ms) to fully capture a sector after building a TerritoryControlUnit. */
+export const TCU_CAPTURE_DURATION_MS = 300_000; // 5 minutes
+
+/** Incoming enemy wave data pushed to the game store each frame. */
+export interface IncomingWaveInfo {
+  /** Milliseconds until the wave spawns. */
+  etaMs: number;
+  /** Ship types and counts in the incoming wave. */
+  ships: { name: string; count: number }[];
+}
+
+/** A single objective checklist item. */
+export interface ObjectiveItem {
+  label: string;
+  done: boolean;
+}
 
 export interface StructureDefinition {
   type: StructureType;
@@ -1528,6 +1547,22 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
     miningRange: 800,
     miningRate: MINING_LASER_RATE,
     miningBeamDps: MINING_LASER_DPS,
+  },
+  TerritoryControlUnit: {
+    type: 'TerritoryControlUnit',
+    label: 'Territory Control Unit',
+    widthPx: 320,
+    heightPx: 320,
+    shape: 'hex',
+    maxHealth: 3000,
+    maxConnections: 4,
+    powerOutput: 0,
+    powerConsumption: 50,
+    storageCapacity: 0,
+    constructionCost: 5000,
+    constructionRecipe: { Iron: 2000, Titanium: 500, Copper: 800, Silicon: 700 },
+    color: '#1a0a2a',
+    borderColor: '#8844ff',
   },
 };
 

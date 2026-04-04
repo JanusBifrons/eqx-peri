@@ -35,6 +35,8 @@ import { StarfieldRenderer } from '../rendering/StarfieldRenderer';
 import { StrategicIconRenderer } from '../rendering/StrategicIconRenderer';
 import { ParticleSystem } from '../systems/ParticleSystem';
 import { AsteroidFieldSystem } from '../systems/AsteroidFieldSystem';
+import { WaveManager, WaveSpec } from '../systems/WaveManager';
+import { ObjectivesManager } from '../systems/ObjectivesManager';
 import { StructureManager } from '../structures/StructureManager';
 import { Structure } from '../structures/Structure';
 import { ShieldWall } from '../structures/ShieldWall';
@@ -139,6 +141,10 @@ export class GameEngine {
   // Structure system (null when the current scenario doesn't use structures)
   private structureManager: StructureManager | null = null;
   private structurePlacementSystem: StructurePlacementSystem | null = null;
+
+  // Sector conquest systems (null outside sector-conquest mode)
+  private waveManager: WaveManager | null = null;
+  private objectivesManager: ObjectivesManager | null = null;
 
   // Current mouse position in world coordinates (updated every frame)
   private mouseWorldPos: Vector2 = { x: 0, y: 0 };
@@ -1466,6 +1472,21 @@ export class GameEngine {
       }
     }
 
+    // Update sector conquest wave and objectives systems
+    if (this.waveManager && this.objectivesManager && this.structureManager) {
+      const incomingWave = this.waveManager.update(deltaTimeMs);
+      const structures = this.structureManager.getStructures();
+      const objState = this.objectivesManager.update(deltaTimeMs, structures, performance.now());
+      const store = useGameStore.getState();
+      store.pushFrame({
+        incomingWave,
+        objectivesPhase: objState.objectivesPhase,
+        objectiveItems: objState.objectiveItems,
+        tcuCountdownMs: objState.tcuCountdownMs,
+        sectorCaptured: objState.sectorCaptured,
+      });
+    }
+
     // Stream asteroid chunks in/out based on camera position
     if (this.asteroidFieldSystem) {
       const b = this.render.bounds;
@@ -2374,6 +2395,17 @@ export class GameEngine {
     this.structureManager = null;
     this.structurePlacementSystem = null;
 
+    // Tear down any existing sector conquest systems and reset store state
+    this.waveManager = null;
+    this.objectivesManager = null;
+    useGameStore.getState().pushFrame({
+      incomingWave: null,
+      objectivesPhase: 0,
+      objectiveItems: [],
+      tcuCountdownMs: null,
+      sectorCaptured: false,
+    });
+
     this.toastSystem.showGameEvent(`${cfg.label} — Battle Start!`);
     this.observerPos = { x: 0, y: 0 };
 
@@ -2389,6 +2421,8 @@ export class GameEngine {
 
     if (cfg.id === 'weapon-test') {
       this.spawnWeaponTestScenario();
+    } else if (cfg.sectorConquestMode) {
+      this.spawnSectorConquestScenario();
     } else if (cfg.structuresSandboxMode) {
       this.spawnStructuresSandboxScenario();
     } else if (cfg.shipBuilderMode) {
@@ -2665,6 +2699,137 @@ export class GameEngine {
       const ax = 2000 + Math.cos(angle) * dist;
       const ay = Math.sin(angle) * dist;
       this.asteroidFieldSystem.spawnAsteroid(ax, ay, asteroidRadius, asteroidTypes[i]);
+    }
+  }
+
+  private spawnSectorConquestScenario(): void {
+    const CORE_POS = { x: 0, y: 0 };
+
+    // ── Structure Manager ──────────────────────────────────────────
+    this.structureManager = new StructureManager(
+      (body) => Matter.World.add(this.world, body),
+      (body) => Matter.World.remove(this.world, body),
+    );
+    this.structureManager.setShipSpawnCallback((yard) => { this.spawnShipFromYard(yard); });
+    this.structureManager.setAsteroidBodiesGetter(() => this.asteroidFieldSystem?.getAllBodies() ?? []);
+
+    this.structurePlacementSystem = new StructurePlacementSystem(
+      this.structureManager,
+      this.structureManager.gridManager,
+      0,
+      () => this.world.bodies,
+    );
+
+    // Start camera at the Core
+    this.observerPos = { x: CORE_POS.x, y: CORE_POS.y };
+
+    // ── Core structure (pre-built, modest resources) ───────────────
+    const core = this.structureManager.spawnCore(CORE_POS, 0);
+    // Give enough materials to build the first Connector without mining
+    // Generous starter stock — enough for several buildings and plenty of trial-and-error.
+    // Construction recipe reference: Connector=600 (Iron+Cu), MiningLaser=3000 (Iron+Cu+Si),
+    // Refinery=3500, SmallTurret=2500, TCU=5000 (Iron+Ti+Cu+Si).
+    core.addToInventory('Iron',    50_000);
+    core.addToInventory('Copper',  20_000);
+    core.addToInventory('Silicon', 15_000);
+    core.addToInventory('Titanium', 5_000);
+    core.addToInventory('Nickel',   5_000);
+    core.addToInventory('Lithium',  3_000);
+
+    // ── Player ship ────────────────────────────────────────────────
+    const cockpitConfig: EntityConfig = { type: 'Cockpit', x: 0, y: 0, rotation: 0 };
+    const playerShip = new Assembly([cockpitConfig], { x: 1200, y: 0 });
+    playerShip.setTeam(0);
+    playerShip.setShipName('Scout');
+    this.assemblies.push(playerShip);
+    Matter.World.add(this.world, playerShip.rootBody);
+
+    // Give the scout a few loose starter blocks nearby
+    const starterBlocks: EntityConfig[] = [
+      { type: 'Engine', x: 0, y: 0, rotation: 180 },
+      { type: 'Engine', x: 0, y: 0, rotation: 180 },
+      { type: 'Gun', x: 0, y: 0, rotation: 0 },
+      { type: 'MiningLaser', x: 0, y: 0, rotation: 0 },
+      { type: 'CargoHold', x: 0, y: 0, rotation: 0 },
+    ];
+    for (let i = 0; i < starterBlocks.length; i++) {
+      const angle = (i / starterBlocks.length) * Math.PI * 2;
+      const dist = 100 + Math.random() * 60;
+      const x = 1200 + Math.cos(angle) * dist;
+      const y = Math.sin(angle) * dist;
+      const block = new Assembly([starterBlocks[i]], { x, y });
+      block.setTeam(-1);
+      block.setShipName(`${starterBlocks[i].type} Block`);
+      Matter.Body.setAngularVelocity(block.rootBody, (Math.random() - 0.5) * 0.05);
+      this.assemblies.push(block);
+      Matter.World.add(this.world, block.rootBody);
+    }
+
+    // ── Asteroids (hand-placed, no streaming) ─────────────────────
+    this.asteroidFieldSystem = new AsteroidFieldSystem(
+      (body) => Matter.World.add(this.world, body),
+      (body) => Matter.World.remove(this.world, body),
+      false,
+    );
+    const ASTEROID_CLASSES: AsteroidClass[] = ['C-Type', 'S-Type', 'M-Type', 'M-Type', 'S-Type', 'C-Type', 'M-Type', 'S-Type'];
+    const ASTEROID_COUNT = 8;
+    for (let i = 0; i < ASTEROID_COUNT; i++) {
+      const angle = (i / ASTEROID_COUNT) * Math.PI * 2 + Math.PI * 0.15;
+      const dist = 1000 + Math.random() * 1500;
+      const radius = 90 + Math.random() * 110;
+      const ax = CORE_POS.x + Math.cos(angle) * dist;
+      const ay = CORE_POS.y + Math.sin(angle) * dist;
+      this.asteroidFieldSystem.spawnAsteroid(ax, ay, radius, ASTEROID_CLASSES[i]);
+    }
+
+    // ── Sector Conquest Systems ────────────────────────────────────
+    this.waveManager = new WaveManager(CORE_POS, (spec: WaveSpec) => {
+      this._spawnEnemyWave(spec);
+    });
+
+    this.objectivesManager = new ObjectivesManager(
+      this.waveManager,
+      (phase: number) => {
+        const phaseMessages = [
+          'Phase 1: Establish your economy.',
+          'Phase 2: Build a Refinery.',
+          'Phase 3: Construct a defense. Enemy forces incoming!',
+          'Build a Territory Control Unit to capture the sector!',
+        ];
+        if (phaseMessages[phase]) {
+          this.toastSystem.showGameEvent(phaseMessages[phase]);
+        }
+      },
+      () => {
+        this.toastSystem.showGameEvent('Sector Captured!');
+      },
+    );
+
+    // Start in build mode so the player can immediately place structures
+    useGameStore.getState().setInteractionMode('build');
+    this.toastSystem.showGameEvent('Sector Conquest — Establish your base and capture the sector.');
+  }
+
+  /** Spawn an enemy wave at the position described by the WaveSpec. */
+  private _spawnEnemyWave(spec: WaveSpec): void {
+    const ships = (shipsData as { ships: { name: string; parts: EntityConfig[] }[] }).ships;
+    for (const group of spec.ships) {
+      const shipDef = ships[group.shipIndex];
+      if (!shipDef) continue;
+      for (let i = 0; i < group.count; i++) {
+        const offsetX = (Math.random() - 0.5) * 400;
+        const offsetY = (Math.random() - 0.5) * 400;
+        const pos = { x: spec.spawnPosition.x + offsetX, y: spec.spawnPosition.y + offsetY };
+        const assembly = new Assembly(shipDef.parts as EntityConfig[], pos);
+        assembly.setTeam(1);
+        assembly.setShipName(shipDef.name);
+        // Rotate to face the general direction of the Core (roughly toward origin)
+        const angleToCore = Math.atan2(-pos.y, -pos.x);
+        Matter.Body.setAngle(assembly.rootBody, angleToCore);
+        this.assemblies.push(assembly);
+        Matter.World.add(this.world, assembly.rootBody);
+        this.controllerManager.createAIController(assembly);
+      }
     }
   }
 

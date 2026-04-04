@@ -801,9 +801,14 @@ export class AIController extends Controller {
      * primary-target COM.
      */
     private hasWeaponsReadyToFire(distanceToTarget: number): boolean {
-        // Quick reject: if target is beyond the longest weapon's range, skip per-weapon checks
-        if (distanceToTarget > FIRING_RANGE * 2) return false;
         const weapons = this.assembly.entities.filter(e => e.canFire() && !e.destroyed);
+        if (weapons.length === 0) return false;
+        // Quick reject: if assembly distance exceeds the longest weapon's range, skip per-weapon checks
+        const maxWeaponRange = weapons.reduce(
+            (m, w) => Math.max(m, ENTITY_DEFINITIONS[w.type].weaponRange ?? FIRING_RANGE),
+            0,
+        );
+        if (distanceToTarget > maxWeaponRange) return false;
         return weapons.some(w => {
             // Per-weapon range check — use the weapon's defined range, fall back to FIRING_RANGE
             const weaponRange = ENTITY_DEFINITIONS[w.type].weaponRange ?? FIRING_RANGE;

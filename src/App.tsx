@@ -13,12 +13,16 @@ import StructureActionPanel from './ui/StructureActionPanel';
 import ConfirmDialog from './ui/ConfirmDialog';
 import PerformanceBar from './ui/PerformanceBar';
 import GalaxyMapView from './ui/GalaxyMapView';
+import WaveInfoPanel from './ui/WaveInfoPanel';
+import ObjectivesPanel from './ui/ObjectivesPanel';
+import SectorVictoryScreen from './ui/SectorVictoryScreen';
 import {
   ThemeProvider,
   createTheme
 } from '@mui/material';
 import { ScenarioConfig } from './types/GameTypes';
 import { useGameStore } from './stores/gameStore';
+import { useGalaxyStore } from './stores/galaxyStore';
 
 // Create a dark theme for the space game
 const darkTheme = createTheme({
@@ -67,9 +71,12 @@ const App: React.FC = () => {
   const [showPerfBar, setShowPerfBar] = useState(false);
   const [isShipBuilder, setIsShipBuilder] = useState(false);
   const [isStructuresSandbox, setIsStructuresSandbox] = useState(false);
+  const [isSectorConquest, setIsSectorConquest] = useState(false);
   const [showGalaxyMap, setShowGalaxyMap] = useState(false);
 
   const interactionMode = useGameStore(s => s.interactionMode);
+  const sectorCaptured = useGameStore(s => s.sectorCaptured);
+  const captureSector = useGalaxyStore(s => s.captureSector);
 
   // Cancel active structure placement when switching to select mode
   useEffect(() => {
@@ -90,8 +97,15 @@ const App: React.FC = () => {
     setGameEngine(null);
     setIsShipBuilder(false);
     setIsStructuresSandbox(false);
+    setIsSectorConquest(false);
     setConfirmOpen(false);
     setScreen('main-menu');
+  };
+
+  const handleSectorVictory = (): void => {
+    captureSector('sector-0');
+    returnToMenu();
+    setShowGalaxyMap(true);
   };
 
   const handleScenarioStart = (scenario: ScenarioConfig): void => {
@@ -103,6 +117,7 @@ const App: React.FC = () => {
     engine.start();
     setIsShipBuilder(scenario.shipBuilderMode);
     setIsStructuresSandbox(scenario.structuresSandboxMode);
+    setIsSectorConquest(scenario.sectorConquestMode);
     setScreen('playing');
   };
 
@@ -160,8 +175,8 @@ const App: React.FC = () => {
           <ShipBuilderPanel gameEngine={gameEngine} />
         )}
 
-        {/* Structures build menu — shown only in build mode within structures sandbox */}
-        {isPlaying && isStructuresSandbox && interactionMode === 'build' && (
+        {/* Structures build menu — shown in build mode for structures sandbox and sector conquest */}
+        {isPlaying && (isStructuresSandbox || isSectorConquest) && interactionMode === 'build' && (
           <>
             <StructuresPanel gameEngine={gameEngine} />
             <StructureActionPanel gameEngine={gameEngine} />
@@ -169,8 +184,21 @@ const App: React.FC = () => {
         )}
 
         {/* Structure action panel — always visible when a structure is selected */}
-        {isPlaying && isStructuresSandbox && interactionMode === 'select' && (
+        {isPlaying && (isStructuresSandbox || isSectorConquest) && interactionMode === 'select' && (
           <StructureActionPanel gameEngine={gameEngine} />
+        )}
+
+        {/* Sector Conquest HUD panels */}
+        {isPlaying && isSectorConquest && (
+          <>
+            <ObjectivesPanel />
+            <WaveInfoPanel />
+          </>
+        )}
+
+        {/* Sector victory full-screen overlay */}
+        {isPlaying && isSectorConquest && sectorCaptured && (
+          <SectorVictoryScreen onOpenGalaxyMap={handleSectorVictory} />
         )}
 
         {/* Combat HUD — hidden in ship builder mode */}
@@ -187,7 +215,7 @@ const App: React.FC = () => {
           </>
         )}
 
-        {/* Select / Build mode toggle — bottom center */}
+        {/* Select / Build mode toggle — bottom center (all non-builder modes) */}
         {isPlaying && !isShipBuilder && <ModeToggle />}
 
         {/* Settings dialog (no gear button — opened via MiniDrawer) */}
