@@ -9,6 +9,17 @@ Offline/design-time helpers for composing and validating ship layouts. These are
 | `BlockSystem.ts` | Types, registries, validators, and coordinate helpers for block-based ship designs |
 | `ShipDesigner.ts` | Static factory methods that return preset `EntityConfig[]` layouts (BasicFighter, HeavyCruiser, etc.) |
 | `ShipDesignManager.ts` | Converts a `ShipDesign` (from `BlockSystem`) into `EntityConfig[]` via `ENTITY_DEFINITIONS` |
+| `ShipLibraryService.ts` | localStorage-backed CRUD for user-created ship records; merges with built-in `ships.json` ships |
+
+## ShipLibraryService
+
+- `ShipRecord` — extends `EntityConfig[]` parts with `id`, `name`, `createdAt`, `updatedAt` (ISO 8601), and optional `isBuiltIn: true` for ships.json entries.
+- `ShipStats` — `{ blockCount, totalMass, engineCount, weaponCount }` computed from parts.
+- `computeShipStats(parts)` — standalone function that sums mass from `ENTITY_DEFINITIONS[type].mass` and counts engines/weapons.
+- `shipLibraryService` — module-level singleton instance. Use this in UI components; do not instantiate multiple instances.
+- Built-in ships (from `ships.json`) have `id: 'builtin-<index>'`, empty `createdAt`/`updatedAt`, and `isBuiltIn: true`. They are read-only: `update()` and `delete()` silently ignore built-in ids.
+- localStorage key: `eqx_ship_library_v1`. Schema is a `ShipRecord[]` array (user ships only; built-ins are derived at runtime).
+- `getAll()` returns built-ins first (preserving `ships.json` order), then user ships sorted by `updatedAt` descending.
 
 ## BlockSystem Concepts
 

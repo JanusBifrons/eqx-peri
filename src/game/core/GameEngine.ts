@@ -2377,6 +2377,9 @@ export class GameEngine {
     this.toastSystem.showGameEvent(`${cfg.label} — Battle Start!`);
     this.observerPos = { x: 0, y: 0 };
 
+    // Ship builder mode needs drag/snap; all other scenarios start in select (camera-pan) mode.
+    useGameStore.getState().setInteractionMode(cfg.shipBuilderMode ? 'build' : 'select');
+
     if (cfg.spawnAsteroids) {
       this.asteroidFieldSystem = new AsteroidFieldSystem(
         (body) => Matter.World.add(this.world, body),
@@ -2722,8 +2725,68 @@ export class GameEngine {
     return JSON.stringify({ name: 'My Ship', parts }, null, 2);
   }
 
+  /**
+   * Returns the current builder assembly's parts as a structured array.
+   * Returns null when not in ship builder mode or the assembly is destroyed.
+   */
+  public getBuilderShipParts(): import('../../types/GameTypes').EntityConfig[] | null {
+    if (!this.shipBuilderMode || !this.shipBuilderAssembly || this.shipBuilderAssembly.destroyed) {
+      return null;
+    }
+    return this.shipBuilderAssembly.entities.map(entity => ({
+      type: entity.type,
+      x: entity.localOffset.x,
+      y: entity.localOffset.y,
+      rotation: entity.rotation,
+      health: entity.health,
+      maxHealth: entity.maxHealth,
+    }));
+  }
+
+  /**
+   * Clear the current builder scene and load a ship design from parts.
+   * Removes all loose blocks and the existing builder assembly, then spawns
+   * the new design at the origin. No-op when not in ship builder mode.
+   */
+  public loadShipIntoBuilder(parts: import('../../types/GameTypes').EntityConfig[]): void {
+    if (!this.shipBuilderMode) return;
+
+    // Drop any held block before clearing the world
+    if (this.blockPickupSystem?.isHolding()) {
+      this.blockPickupSystem.forceDropAtCurrentPosition();
+    }
+
+    // Remove all assemblies from the physics world
+    for (const assembly of this.assemblies) {
+      if (!assembly.destroyed) {
+        this.removeBodyWithParts(assembly.rootBody);
+      }
+    }
+    this.assemblies = [];
+    this.shipBuilderAssembly = null;
+
+    // Spawn the new design at origin
+    const newAssembly = new Assembly(parts, { x: 0, y: 0 });
+    newAssembly.setTeam(0);
+    newAssembly.setShipName('Builder Ship');
+    this.shipBuilderAssembly = newAssembly;
+    this.assemblies.push(newAssembly);
+    Matter.World.add(this.world, newAssembly.rootBody);
+    this.toastSystem.showGameEvent('Ship loaded — continue editing or save');
+  }
+
   public isShipBuilderMode(): boolean {
     return this.shipBuilderMode;
+  }
+
+  /** Show a success toast from UI code (e.g. ship library save confirmations). */
+  public showSuccess(message: string): void {
+    this.toastSystem.showSuccess(message);
+  }
+
+  /** Show an error toast from UI code. */
+  public showError(message: string): void {
+    this.toastSystem.showError(message);
   }
 
   public isStructuresSandboxMode(): boolean {

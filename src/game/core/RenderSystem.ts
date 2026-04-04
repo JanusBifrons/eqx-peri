@@ -75,6 +75,7 @@ export class RenderSystem {
 
     // Use the PIXI canvas dimensions for viewport transforms
     this.viewport = new Viewport(getBounds(), pixiCanvas);
+
   }
 
   public register(renderer: IRenderer): void {

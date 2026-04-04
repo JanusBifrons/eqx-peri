@@ -66,6 +66,19 @@ HUD overlay components rendered on top of the game canvas. Components receive `g
 - Drag via title bar, resize via bottom-right handle.
 - Dark themed, fixed z-index 2000.
 
+## Ship Builder UI
+
+- `ShipBuilderPanel.tsx` — left sidebar palette offset by `MINI_DRAWER_CLOSED_WIDTH` (52 px) to avoid overlapping MiniDrawer. Footer has Save (floppy) + Load (folder) icon buttons.
+- `ShipLibraryModal.tsx` — MUI Dialog (not GenericModal) for ship library CRUD. Table columns: Name, Blocks, Mass, Engines, Weapons, Created, Updated. Toolbar: Create | Edit | Delete. Create opens an inline name-input sub-dialog; Delete opens an inline confirm sub-dialog; Edit calls `onEditShip(record)` and closes.
+- **BuilderSession state** (in ShipBuilderPanel): `{ name, savedId, isFromExisting, saveResolution }`. Save button:
+  - No session → opens library modal.
+  - Session + not from existing + no savedId → creates new record via `shipLibraryService.create()`.
+  - Session + not from existing + has savedId → updates existing record.
+  - Session + from existing + saveResolution='none' → opens overwrite/copy dialog.
+  - After overwrite/copy choice → saves directly on subsequent clicks.
+- Built-in ships (`isBuiltIn: true`) can be loaded for editing but save always creates a copy (they have no user-editable record to overwrite).
+- `GameEngine.showSuccess(msg)` / `showError(msg)` — public wrappers for `ToastSystem` used by UI code.
+
 ## World-Space Overlay System
 
 A generic mechanism for attaching action buttons to world-space entities that track camera movement with zero React re-render overhead for position.

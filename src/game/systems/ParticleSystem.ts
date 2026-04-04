@@ -86,7 +86,7 @@ export class ParticleSystem {
     for (let i = 0; i < MAX_PARTICLES; i++) {
       const sprite = new PIXI.Sprite(this.frames[0]);
       sprite.anchor.set(0.5);
-      sprite.visible = false;
+      sprite.alpha = 0;
       this.container.addChild(sprite);
       this.free.push({
         sprite, worldX: 0, worldY: 0, vx: 0, vy: 0,
@@ -190,7 +190,8 @@ export class ParticleSystem {
     p.sprite.tint = tintStart;
     p.sprite.alpha = alphaStart;
     p.sprite.rotation = rotation;
-    p.sprite.visible = true;
+    // Note: alpha is set via alphaStart — no need for visible flag
+    // (PIXI.ParticleContainer does not respect sprite.visible)
     this.active.push(p);
   }
 
@@ -544,7 +545,7 @@ export class ParticleSystem {
   }
 
   dispose(): void {
-    for (const p of this.active) p.sprite.visible = false;
+    for (const p of this.active) p.sprite.alpha = 0;
     this.free.push(...this.active);
     this.active = [];
   }
