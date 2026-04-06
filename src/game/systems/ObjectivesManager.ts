@@ -62,12 +62,12 @@ export class ObjectivesManager {
 
   private tickPhase0(structures: Structure[], now: number): ObjectivesState {
     const hasConnector = this.hasBuilt(structures, 'Connector');
-    const hasMiningLaser = this.hasBuilt(structures, 'StructureMiningLaser');
+    const hasMiningPlatform = this.hasBuilt(structures, 'MiningPlatform');
     const items: ObjectiveItem[] = [
       { label: 'Build a Connector', done: hasConnector },
-      { label: 'Build a Mining Laser', done: hasMiningLaser },
+      { label: 'Build a Mining Platform', done: hasMiningPlatform },
     ];
-    if (hasConnector && hasMiningLaser) {
+    if (hasConnector && hasMiningPlatform) {
       this.advancePhase(1, now);
     }
     return this.buildState(items, null, false);

@@ -7,10 +7,10 @@ import { StructureTurret } from '../structures/StructureTurret';
 import { StructureAssemblyYard } from '../structures/StructureAssemblyYard';
 import { StructureManufacturer } from '../structures/StructureManufacturer';
 import { StructureRecycler } from '../structures/StructureRecycler';
-import { StructureMiningLaser } from '../structures/StructureMiningLaser';
+import { StructureMiningPlatform } from '../structures/StructureMiningPlatform';
 import { ShieldWall } from '../structures/ShieldWall';
 import { StructureManager } from '../structures/StructureManager';
-import { SHIELD_WALL_THICKNESS } from '../../types/GameTypes';
+import { SHIELD_WALL_THICKNESS, StructurePartDefinition, StructurePartDetail } from '../../types/GameTypes';
 
 const CORE_ICON_FRACTION = 0.35;
 const CONSTRUCTION_BORDER_COLOR = 0xd4a843; // amber for scaffolding
@@ -165,7 +165,7 @@ function computeStructureStatus(
     return { text: 'Armed', color: '#44cc44' };
   }
 
-  if (structure instanceof StructureMiningLaser) {
+  if (structure instanceof StructureMiningPlatform) {
     if (structure.hasActiveTarget()) return { text: 'Mining', color: '#44ccaa' };
     return { text: 'Seeking', color: '#666666' };
   }
@@ -297,41 +297,49 @@ export class StructureRenderer implements IRenderer {
         : (isBuilding ? CONSTRUCTION_BORDER_COLOR : PIXI.utils.string2hex(structure.definition.borderColor));
       const borderWidth = Math.max(1.5, 2 * scale);
 
-      // Opaque dark base for under-construction / deconstructing (hides connection lines behind)
-      if (isBuilding || isDeconstructing) {
-        this.graphics.lineStyle(0);
-        this.graphics.beginFill(0x0a0a0a, 0.95);
+      const hasParts = structure.definition.parts && structure.definition.parts.length > 0;
+
+      if (hasParts) {
+        // Composite parts rendering — draw each sub-part (base, turret, etc.)
+        this.drawCompositeParts(structure, cx, cy, scale, isBuilding, isDeconstructing);
+      } else {
+        // Default single-shape rendering
+        // Opaque dark base for under-construction / deconstructing (hides connection lines behind)
+        if (isBuilding || isDeconstructing) {
+          this.graphics.lineStyle(0);
+          this.graphics.beginFill(0x0a0a0a, 0.95);
+          if (structure.definition.shape === 'hex') {
+            this.drawHexagon(cx, cy, hw);
+          } else {
+            this.graphics.drawRect(cx - hw, cy - hh, hw * 2, hh * 2);
+          }
+          this.graphics.endFill();
+        }
+
+        const fillAlpha = (isBuilding || isDeconstructing) ? 0.45 : 1.0;
+        this.graphics.lineStyle(borderWidth, borderColor, (isBuilding || isDeconstructing) ? 0.6 : 1);
+        this.graphics.beginFill(fillColor, fillAlpha);
         if (structure.definition.shape === 'hex') {
           this.drawHexagon(cx, cy, hw);
         } else {
           this.graphics.drawRect(cx - hw, cy - hh, hw * 2, hh * 2);
         }
         this.graphics.endFill();
-      }
 
-      const fillAlpha = (isBuilding || isDeconstructing) ? 0.45 : (structure.isPoweredOn ? 0.9 : 0.5);
-      this.graphics.lineStyle(borderWidth, borderColor, (isBuilding || isDeconstructing) ? 0.6 : 1);
-      this.graphics.beginFill(fillColor, fillAlpha);
-      if (structure.definition.shape === 'hex') {
-        this.drawHexagon(cx, cy, hw);
-      } else {
-        this.graphics.drawRect(cx - hw, cy - hh, hw * 2, hh * 2);
-      }
-      this.graphics.endFill();
+        // Cross-hatch overlay for under-construction structures
+        if (isBuilding && hw > 3) {
+          this.drawCrossHatch(cx, cy, hw, hh, scale, structure.definition.shape === 'hex');
+        }
 
-      // Cross-hatch overlay for under-construction structures
-      if (isBuilding && hw > 3) {
-        this.drawCrossHatch(cx, cy, hw, hh, scale, structure.definition.shape === 'hex');
-      }
-
-      // "Powered off" overlay — dim X pattern
-      if (!structure.isPoweredOn && structure.isConstructed && !isDeconstructing) {
-        const lw = Math.max(1, 2 * scale);
-        this.graphics.lineStyle(lw, 0xcc4444, 0.4);
-        this.graphics.moveTo(cx - hw * 0.5, cy - hh * 0.5);
-        this.graphics.lineTo(cx + hw * 0.5, cy + hh * 0.5);
-        this.graphics.moveTo(cx + hw * 0.5, cy - hh * 0.5);
-        this.graphics.lineTo(cx - hw * 0.5, cy + hh * 0.5);
+        // "Powered off" overlay — dim X pattern
+        if (!structure.isPoweredOn && structure.isConstructed && !isDeconstructing) {
+          const lw = Math.max(1, 2 * scale);
+          this.graphics.lineStyle(lw, 0xcc4444, 0.4);
+          this.graphics.moveTo(cx - hw * 0.5, cy - hh * 0.5);
+          this.graphics.lineTo(cx + hw * 0.5, cy + hh * 0.5);
+          this.graphics.moveTo(cx + hw * 0.5, cy - hh * 0.5);
+          this.graphics.lineTo(cx - hw * 0.5, cy + hh * 0.5);
+        }
       }
 
       // ── Progress bars ──────────────────────────────────────────────
@@ -396,76 +404,78 @@ export class StructureRenderer implements IRenderer {
         }
       }
 
-      // Shield fence icon (small shield emblem)
-      if (!isBuilding && structure.type === 'ShieldFence') {
-        this.drawShieldFenceIcon(cx, cy, Math.min(hw, hh) * 0.5, scale);
-      }
+      // Structure-type-specific icons (only for non-composite, constructed structures)
+      if (!hasParts) {
+        // Shield fence icon (small shield emblem)
+        if (!isBuilding && structure.type === 'ShieldFence') {
+          this.drawShieldFenceIcon(cx, cy, Math.min(hw, hh) * 0.5, scale);
+        }
 
-      // Refinery icon (gear/refine)
-      if (!isBuilding && structure.type === 'Refinery') {
-        this.drawRefineryIcon(cx, cy, Math.min(hw, hh) * 0.4, scale);
-      }
+        // Refinery icon (gear/refine)
+        if (!isBuilding && structure.type === 'Refinery') {
+          this.drawRefineryIcon(cx, cy, Math.min(hw, hh) * 0.4, scale);
+        }
 
-      // Structure-type-specific icons (only when constructed)
-      if (!isBuilding) {
-        if (structure.type === 'Core') {
-          // Diamond icon
-          const iconR = Math.min(hw, hh) * CORE_ICON_FRACTION;
-          this.graphics.lineStyle(Math.max(1, 1.5 * scale), PIXI.utils.string2hex(structure.definition.borderColor), 0.9);
-          this.graphics.moveTo(cx, cy - iconR);
-          this.graphics.lineTo(cx + iconR, cy);
-          this.graphics.lineTo(cx, cy + iconR);
-          this.graphics.lineTo(cx - iconR, cy);
-          this.graphics.closePath();
-        } else if (structure.type === 'SolarPanel') {
-          this.drawSolarIcon(cx, cy, Math.min(hw, hh) * 0.5, scale);
-        } else if (structure.type === 'Battery') {
-          this.drawBatteryIcon(cx, cy, Math.min(hw, hh) * 0.45, scale);
-        } else if (structure.type === 'PowerStation') {
-          this.drawLightningIcon(cx, cy, Math.min(hw, hh) * 0.4, scale);
-        } else if (structure instanceof StructureTurret) {
-          this.drawTurretBarrel(cx, cy, structure, scale);
-        } else if (structure instanceof StructureAssemblyYard) {
-          this.drawAssemblyYardIcon(cx, cy, Math.min(hw, hh) * 0.35, scale);
+        if (!isBuilding) {
+          if (structure.type === 'Core') {
+            // Diamond icon
+            const iconR = Math.min(hw, hh) * CORE_ICON_FRACTION;
+            this.graphics.lineStyle(Math.max(1, 1.5 * scale), PIXI.utils.string2hex(structure.definition.borderColor), 0.9);
+            this.graphics.moveTo(cx, cy - iconR);
+            this.graphics.lineTo(cx + iconR, cy);
+            this.graphics.lineTo(cx, cy + iconR);
+            this.graphics.lineTo(cx - iconR, cy);
+            this.graphics.closePath();
+          } else if (structure.type === 'SolarPanel') {
+            this.drawSolarIcon(cx, cy, Math.min(hw, hh) * 0.5, scale);
+          } else if (structure.type === 'Battery') {
+            this.drawBatteryIcon(cx, cy, Math.min(hw, hh) * 0.45, scale);
+          } else if (structure.type === 'PowerStation') {
+            this.drawLightningIcon(cx, cy, Math.min(hw, hh) * 0.4, scale);
+          } else if (structure instanceof StructureTurret) {
+            this.drawTurretBarrel(cx, cy, structure, scale);
+          } else if (structure instanceof StructureAssemblyYard) {
+            this.drawAssemblyYardIcon(cx, cy, Math.min(hw, hh) * 0.35, scale);
 
-          // Build progress bar (orange)
-          const buildFrac = structure.getBuildFraction();
-          if (buildFrac > 0 && buildFrac < 1) {
-            const bBarW = Math.max(hw * 1.4, 14 * scale);
-            const bBarH = Math.max(2, 4 * scale);
-            this.graphics.lineStyle(0);
-            this.graphics.beginFill(0x333333, 0.7);
-            this.graphics.drawRect(cx - bBarW / 2, barY, bBarW, bBarH);
-            this.graphics.endFill();
-            this.graphics.beginFill(0xcc8844, 0.9);
-            this.graphics.drawRect(cx - bBarW / 2, barY, bBarW * buildFrac, bBarH);
-            this.graphics.endFill();
-            barY += bBarH + 2;
+            // Build progress bar (orange)
+            const buildFrac = structure.getBuildFraction();
+            if (buildFrac > 0 && buildFrac < 1) {
+              const bBarW = Math.max(hw * 1.4, 14 * scale);
+              const bBarH = Math.max(2, 4 * scale);
+              this.graphics.lineStyle(0);
+              this.graphics.beginFill(0x333333, 0.7);
+              this.graphics.drawRect(cx - bBarW / 2, barY, bBarW, bBarH);
+              this.graphics.endFill();
+              this.graphics.beginFill(0xcc8844, 0.9);
+              this.graphics.drawRect(cx - bBarW / 2, barY, bBarW * buildFrac, bBarH);
+              this.graphics.endFill();
+              barY += bBarH + 2;
+            }
+          } else if (structure instanceof StructureManufacturer) {
+            this.drawManufacturerIcon(cx, cy, Math.min(hw, hh) * 0.35, scale);
+
+            // Build progress bar (green-yellow)
+            const buildFrac = structure.getBuildFraction();
+            if (buildFrac > 0 && buildFrac < 1) {
+              const bBarW = Math.max(hw * 1.4, 14 * scale);
+              const bBarH = Math.max(2, 4 * scale);
+              this.graphics.lineStyle(0);
+              this.graphics.beginFill(0x333333, 0.7);
+              this.graphics.drawRect(cx - bBarW / 2, barY, bBarW, bBarH);
+              this.graphics.endFill();
+              this.graphics.beginFill(0xaacc44, 0.9);
+              this.graphics.drawRect(cx - bBarW / 2, barY, bBarW * buildFrac, bBarH);
+              this.graphics.endFill();
+              barY += bBarH + 2;
+            }
+          } else if (structure instanceof StructureRecycler) {
+            this.drawRecyclerIcon(cx, cy, Math.min(hw, hh) * 0.4, scale);
           }
-        } else if (structure instanceof StructureManufacturer) {
-          this.drawManufacturerIcon(cx, cy, Math.min(hw, hh) * 0.35, scale);
-
-          // Build progress bar (green-yellow)
-          const buildFrac = structure.getBuildFraction();
-          if (buildFrac > 0 && buildFrac < 1) {
-            const bBarW = Math.max(hw * 1.4, 14 * scale);
-            const bBarH = Math.max(2, 4 * scale);
-            this.graphics.lineStyle(0);
-            this.graphics.beginFill(0x333333, 0.7);
-            this.graphics.drawRect(cx - bBarW / 2, barY, bBarW, bBarH);
-            this.graphics.endFill();
-            this.graphics.beginFill(0xaacc44, 0.9);
-            this.graphics.drawRect(cx - bBarW / 2, barY, bBarW * buildFrac, bBarH);
-            this.graphics.endFill();
-            barY += bBarH + 2;
-          }
-        } else if (structure instanceof StructureRecycler) {
-          this.drawRecyclerIcon(cx, cy, Math.min(hw, hh) * 0.4, scale);
         }
       }
 
       // ── World-space readouts (power + storage) drawn ON the structure ──
-      if (!SKIP_READOUT_TYPES.has(structure.type)) {
+      if (!SKIP_READOUT_TYPES.has(structure.type) && !hasParts) {
         this.renderStructureReadout(structure, cx, cy, hw, hh, scale, mgr);
       }
     }
@@ -894,6 +904,210 @@ export class StructureRenderer implements IRenderer {
     text.y = y;
     text.anchor.set(anchorX, anchorY);
     text.visible = true;
+  }
+
+  // ── Composite structure parts ───────────────────────────────────────────
+
+  /**
+   * Draw all sub-parts of a composite structure (base, turret arm, etc.).
+   * Parts are drawn in zOrder. 'aim' parts rotate with structure.currentAimAngle.
+   */
+  private drawCompositeParts(
+    structure: Structure,
+    cx: number, cy: number,
+    scale: number,
+    isBuilding: boolean,
+    isDeconstructing: boolean,
+  ): void {
+    const parts = structure.definition.parts!;
+    const sorted = [...parts].sort((a, b) => a.zOrder - b.zOrder);
+    const aimAngle = structure.currentAimAngle;
+    const fillAlphaBase = (isBuilding || isDeconstructing) ? 0.45 : 1.0;
+    const borderAlpha = (isBuilding || isDeconstructing) ? 0.6 : 1;
+
+    for (const part of sorted) {
+      // Compute part center in screen coords
+      let partCx: number;
+      let partCy: number;
+      let partAngle: number;
+
+      if (part.rotation === 'aim') {
+        // Resolve aim angle: use turretIndex if defined, otherwise single currentAimAngle
+        const resolvedAngle = (part.turretIndex !== undefined && structure.turretAngles.length > part.turretIndex)
+          ? structure.turretAngles[part.turretIndex]
+          : aimAngle;
+        // Offset is static (arm tip position) — only the turret shape itself rotates
+        partCx = cx + part.offsetX * scale;
+        partCy = cy + part.offsetY * scale;
+        partAngle = resolvedAngle;
+      } else {
+        // Fixed parts can have a fixedAngle for angled arms
+        const fixedAngle = part.fixedAngle ?? 0;
+        if (Math.abs(fixedAngle) > 0.001) {
+          // Offset is defined in the arm's direction — not rotated, offset already in world frame
+          partCx = cx + part.offsetX * scale;
+          partCy = cy + part.offsetY * scale;
+          partAngle = fixedAngle;
+        } else {
+          partCx = cx + part.offsetX * scale;
+          partCy = cy + part.offsetY * scale;
+          partAngle = 0;
+        }
+      }
+
+      const phw = (part.widthPx / 2) * scale;
+      const phh = (part.heightPx / 2) * scale;
+      const lw = Math.max(1, (part.lineWidth ?? 2) * scale);
+
+      // Dark background for construction/deconstruction
+      if (isBuilding || isDeconstructing) {
+        this.graphics.lineStyle(0);
+        this.graphics.beginFill(0x0a0a0a, 0.9);
+        this.drawPartShape(part.shape, partCx, partCy, phw, phh, partAngle);
+        this.graphics.endFill();
+      }
+
+      // Fill + border
+      const fillColor = (isBuilding || isDeconstructing)
+        ? (isDeconstructing ? 0x1a0a0a : 0x1a1a10)
+        : PIXI.utils.string2hex(part.color);
+      const borderColor = isDeconstructing
+        ? DECONSTRUCTION_COLOR
+        : (isBuilding ? CONSTRUCTION_BORDER_COLOR : PIXI.utils.string2hex(part.borderColor));
+
+      this.graphics.lineStyle(lw, borderColor, borderAlpha);
+      this.graphics.beginFill(fillColor, fillAlphaBase);
+      this.drawPartShape(part.shape, partCx, partCy, phw, phh, partAngle);
+      this.graphics.endFill();
+
+      // Draw detail elements (only when not building)
+      if (!isBuilding && part.details) {
+        this.drawPartDetails(part.details, partCx, partCy, partAngle, scale);
+      }
+    }
+
+    // Cross-hatch overlay over the entire structure footprint
+    const hw = (structure.definition.widthPx / 2) * scale;
+    const hh = (structure.definition.heightPx / 2) * scale;
+    if (isBuilding && hw > 3) {
+      this.drawCrossHatch(cx, cy, hw, hh, scale, structure.definition.shape === 'hex');
+    }
+
+    // Powered-off X overlay
+    if (!structure.isPoweredOn && structure.isConstructed && !isDeconstructing) {
+      const lw = Math.max(1, 2 * scale);
+      this.graphics.lineStyle(lw, 0xcc4444, 0.4);
+      this.graphics.moveTo(cx - hw * 0.5, cy - hh * 0.5);
+      this.graphics.lineTo(cx + hw * 0.5, cy + hh * 0.5);
+      this.graphics.moveTo(cx + hw * 0.5, cy - hh * 0.5);
+      this.graphics.lineTo(cx - hw * 0.5, cy + hh * 0.5);
+    }
+  }
+
+  /** Draw a shape (rect, hex, circle) at a given screen position with optional rotation. */
+  private drawPartShape(
+    shape: StructurePartDefinition['shape'],
+    cx: number, cy: number,
+    hw: number, hh: number,
+    angle: number,
+  ): void {
+    if (shape === 'hex') {
+      this.drawHexagon(cx, cy, hw);
+    } else if (shape === 'circle') {
+      this.graphics.drawCircle(cx, cy, hw);
+    } else {
+      // Rotated rectangle
+      if (Math.abs(angle) < 0.001) {
+        this.graphics.drawRect(cx - hw, cy - hh, hw * 2, hh * 2);
+      } else {
+        this.drawRotatedRect(cx, cy, hw, hh, angle);
+      }
+    }
+  }
+
+  /** Draw a rotated rectangle by computing corner vertices. */
+  private drawRotatedRect(
+    cx: number, cy: number,
+    hw: number, hh: number,
+    angle: number,
+  ): void {
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    // Corners relative to center, then rotated
+    const corners = [
+      { x: -hw, y: -hh },
+      { x: hw, y: -hh },
+      { x: hw, y: hh },
+      { x: -hw, y: hh },
+    ];
+    for (let i = 0; i < 4; i++) {
+      const rx = corners[i].x * cos - corners[i].y * sin + cx;
+      const ry = corners[i].x * sin + corners[i].y * cos + cy;
+      if (i === 0) this.graphics.moveTo(rx, ry);
+      else this.graphics.lineTo(rx, ry);
+    }
+    this.graphics.closePath();
+  }
+
+  /** Draw decorative detail elements within a part, transformed by part angle. */
+  private drawPartDetails(
+    details: StructurePartDetail[],
+    partCx: number, partCy: number,
+    angle: number,
+    scale: number,
+  ): void {
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    // Transform a part-local point to screen coords
+    const tx = (lx: number, ly: number) => partCx + (lx * cos - ly * sin) * scale;
+    const ty = (lx: number, ly: number) => partCy + (lx * sin + ly * cos) * scale;
+
+    for (const d of details) {
+      const alpha = d.alpha ?? 1;
+      const lw = Math.max(1, (d.lineWidth ?? 1.5) * scale);
+
+      if (d.type === 'line') {
+        this.graphics.lineStyle(lw, PIXI.utils.string2hex(d.color), alpha);
+        this.graphics.moveTo(tx(d.x1 ?? 0, d.y1 ?? 0), ty(d.x1 ?? 0, d.y1 ?? 0));
+        this.graphics.lineTo(tx(d.x2 ?? 0, d.y2 ?? 0), ty(d.x2 ?? 0, d.y2 ?? 0));
+      } else if (d.type === 'circle') {
+        const dcx = tx(d.cx ?? 0, d.cy ?? 0);
+        const dcy = ty(d.cx ?? 0, d.cy ?? 0);
+        const r = (d.radius ?? 5) * scale;
+        if (d.fill) {
+          this.graphics.lineStyle(0);
+          this.graphics.beginFill(PIXI.utils.string2hex(d.color), alpha);
+          this.graphics.drawCircle(dcx, dcy, r);
+          this.graphics.endFill();
+        } else {
+          this.graphics.lineStyle(lw, PIXI.utils.string2hex(d.color), alpha);
+          this.graphics.drawCircle(dcx, dcy, r);
+        }
+      } else if (d.type === 'rect') {
+        const rx = d.x ?? 0;
+        const ry = d.y ?? 0;
+        const rw = d.w ?? 10;
+        const rh = d.h ?? 10;
+        // Draw as a rotated rect centered on the detail's center
+        const rcx = rx + rw / 2;
+        const rcy = ry + rh / 2;
+        const screenCx = tx(rcx, rcy);
+        const screenCy = ty(rcx, rcy);
+        const rhw = (rw / 2) * scale;
+        const rhh = (rh / 2) * scale;
+        if (d.fill) {
+          this.graphics.lineStyle(0);
+          this.graphics.beginFill(PIXI.utils.string2hex(d.color), alpha);
+          this.drawRotatedRect(screenCx, screenCy, rhw, rhh, angle);
+          this.graphics.endFill();
+        } else {
+          this.graphics.lineStyle(lw, PIXI.utils.string2hex(d.color), alpha);
+          this.graphics.beginFill(0, 0);
+          this.drawRotatedRect(screenCx, screenCy, rhw, rhh, angle);
+          this.graphics.endFill();
+        }
+      }
+    }
   }
 
   // ── Structure-type icons ──────────────────────────────────────────────

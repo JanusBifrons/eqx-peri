@@ -17,6 +17,27 @@ Static structures for base-building, defense, resource production, and trading. 
 | `Connection` | Data-only link between two structures (throughput, flash state) |
 | `GridManager` | Network graph, connected components (BFS), A* routing, power aggregation, pulse transfer, shield wall management |
 
+## Composite Structure Parts
+
+Structures can define an optional `parts: StructurePartDefinition[]` on their `StructureDefinition` to render as composite multi-part objects instead of a single shape.
+
+- **`StructurePartDefinition`** and **`StructurePartDetail`** interfaces are in `GameTypes.ts`.
+- Each part has `shape`, `widthPx/heightPx`, `offsetX/offsetY` (from structure center), `color/borderColor`, and `zOrder` (lower = drawn first).
+- `rotation: 'fixed'` = static (uses `fixedAngle` if set); `rotation: 'aim'` = rotates with `structure.currentAimAngle` (single turret) or `structure.turretAngles[turretIndex]` (multi-turret).
+- `fixedAngle?: number` — for 'fixed' parts that need a static rotation (e.g. diagonal arms).
+- `turretIndex?: number` — for 'aim' parts with multiple independent turrets; indexes into `Structure.turretAngles[]`.
+- `details` array adds decorative sub-elements (lines, circles, rects) in part-local coordinates.
+- **Physics**: the primary collision body still comes from the definition's `widthPx/heightPx/shape`. Parts are visual-only (no separate collision bodies).
+- **`Structure.currentAimAngle`** lives on the base class (inherited by `StructureTurret`). `Structure.turretAngles: number[]` supports multi-turret structures (inherited by `StructureMiningPlatform`).
+- **Rendering**: `StructureRenderer.drawCompositeParts()` handles all part drawing. When `definition.parts` exists, the default single-shape fill, icon drawing, and CRT readout panel are all skipped.
+- **First use case**: `MiningPlatform` — X-shaped base with 4 diagonal arms + center hub (fixed parts) and 4 independent rotating turrets at the arm tips (aim parts with `turretIndex` 0–3).
+
+## Line-of-Sight (LOS) Checks
+
+- **`checkLineOfSight(from, to, obstacles, excludeIds)`** in `src/game/weapons/WeaponUtils.ts` — shared utility using `Matter.Query.ray()`.
+- Both `StructureTurret` and `StructureMiningPlatform` use LOS checks before firing. Obstacle bodies = asteroids + all structure bodies (excluding self).
+- `StructureManager.update()` builds the obstacle body list once per frame and passes it to all turrets and mining platforms.
+
 ## Physics Conventions
 
 - All structure bodies are **`isStatic: true`** — they do not move.
@@ -156,18 +177,19 @@ Defined in `GameTypes.ts` as `STRUCTURE_DEFINITIONS: Record<StructureType, Struc
 - Currently uses simplified single-resource model. Will output specific `MaterialType` quantities once inventory system is live.
 - Rendered by `StructureRenderer`: triangular recycle-arrows icon, NO POWER indicator when brownout.
 
-## StructureMiningLaser (Autonomous Mining)
+## StructureMiningPlatform (Multi-Turret Autonomous Mining)
 
-- Extends `Structure` with autonomous asteroid targeting + barrel rotation.
-- `updateMiningLaser(deltaTimeMs, now, asteroidBodies, gridSummary)` — called each frame by `StructureManager`; returns `BeamFireSpec | null`.
+- Extends `Structure` with 4 independent turret slots on an X-shaped base.
+- `updateTurrets(deltaTimeMs, now, asteroidBodies, gridSummary, obstacleBodies)` — called each frame by `StructureManager`; returns `BeamFireSpec[]` (up to 4).
 - **Power-gated**: requires `gridSummary.powerEfficiency > 0` and `isOperational()`.
-- **Targeting**: finds closest asteroid body (label `'asteroid'`) within `miningRange` (from definition); re-scans every `ASTEROID_SCAN_INTERVAL_MS` (1s). Drops target at 1.2× range.
-- **Barrel rotation**: smoothly rotates `currentAimAngle` at 1.5 rad/s; fires only when within `AIM_THRESHOLD_RAD` (0.2 rad).
-- **Beam spec**: `weaponType: 'MiningLaser'` so `BeamSystem` triggers the mining callback. `sourceAssemblyId` = structure ID (not an assembly).
-- `getBarrelEndpoint()` — world-space barrel tip for beam origin.
-- `getTargetAsteroidClass()` — returns the current target's `AsteroidClass` (for UI).
-- `StructureManager` routes `'StructureMiningLaser'` to this subclass in `spawnStructure()`.
-- `StructureManager` collects beam specs from all mining lasers in `update()` and exposes them via `getMiningBeamSpecs()`. `GameEngine` routes these to `BeamSystem.processBeamFire()`.
+- **Targeting**: each turret independently finds closest asteroid within `miningRange`; prefers unclaimed asteroids (not targeted by other turrets on same platform). Re-scans every `ASTEROID_SCAN_INTERVAL_MS` (1s). Drops target at 1.2× range.
+- **Barrel rotation**: each turret smoothly rotates `turretAngles[i]` at 1.5 rad/s; fires only when within `AIM_THRESHOLD_RAD` (0.2 rad).
+- **LOS check**: uses `checkLineOfSight()` before firing — won't fire through obstacles.
+- **Beam spec**: `weaponType: 'MiningLaser'` so `BeamSystem` triggers the mining callback. `weaponId` includes turret index.
+- `getTurretBarrelEndpoint(i)` — world-space barrel tip for turret `i`.
+- `getTargetAsteroidClass()` — returns any current target's `AsteroidClass` (for UI).
+- `StructureManager` routes `'MiningPlatform'` to this subclass in `spawnStructure()`.
+- `StructureManager` collects beam specs from all mining platforms in `update()` and exposes them via `getMiningBeamSpecs()`. `GameEngine` routes these to `BeamSystem.processBeamFire()`.
 
 ## Sensor Areas (Refinery Ore Deposit)
 

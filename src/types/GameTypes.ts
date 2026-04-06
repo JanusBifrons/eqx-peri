@@ -1227,7 +1227,7 @@ export const REFINERY_PROCESS_RATE_KG = 40;
 
 // ── Structure System ─────────────────────────────────────────────────────────
 
-export type StructureType = 'Core' | 'Connector' | 'SolarPanel' | 'Battery' | 'PowerStation' | 'SmallTurret' | 'MediumTurret' | 'LargeTurret' | 'Refinery' | 'ShieldFence' | 'AssemblyYard' | 'Manufacturer' | 'Recycler' | 'StructureMiningLaser' | 'TerritoryControlUnit';
+export type StructureType = 'Core' | 'Connector' | 'SolarPanel' | 'Battery' | 'PowerStation' | 'SmallTurret' | 'MediumTurret' | 'LargeTurret' | 'Refinery' | 'ShieldFence' | 'AssemblyYard' | 'Manufacturer' | 'Recycler' | 'MiningPlatform' | 'TerritoryControlUnit';
 
 /** Duration (ms) to fully capture a sector after building a TerritoryControlUnit. */
 export const TCU_CAPTURE_DURATION_MS = 300_000; // 5 minutes
@@ -1244,6 +1244,45 @@ export interface IncomingWaveInfo {
 export interface ObjectiveItem {
   label: string;
   done: boolean;
+}
+
+/** A decorative sub-element drawn within a structure part (coordinates in part-local space). */
+export interface StructurePartDetail {
+  type: 'line' | 'circle' | 'rect';
+  // Line endpoints (part-local, pre-rotation)
+  x1?: number; y1?: number; x2?: number; y2?: number;
+  // Circle center + radius (part-local)
+  cx?: number; cy?: number; radius?: number;
+  // Rect position + size (part-local, top-left corner)
+  x?: number; y?: number; w?: number; h?: number;
+  color: string;
+  alpha?: number;
+  lineWidth?: number;
+  fill?: boolean;
+}
+
+/** One visual sub-object in a composite structure (e.g. base mount, rotating turret arm). */
+export interface StructurePartDefinition {
+  partId: string;
+  shape: 'rect' | 'hex' | 'circle';
+  widthPx: number;
+  heightPx: number;
+  /** Offset of part center from structure center, in part's local frame. */
+  offsetX: number;
+  offsetY: number;
+  color: string;
+  borderColor: string;
+  lineWidth?: number;
+  /** 'fixed' = no rotation (uses fixedAngle); 'aim' = rotates with structure's currentAimAngle or turretAngles[turretIndex]. */
+  rotation: 'fixed' | 'aim';
+  /** For 'fixed' parts: static angle in radians (default 0). */
+  fixedAngle?: number;
+  /** For 'aim' parts with multiple turrets: index into Structure.turretAngles[]. When absent, uses currentAimAngle. */
+  turretIndex?: number;
+  /** Drawing order (lower = drawn first / behind). */
+  zOrder: number;
+  /** Extra decorative shapes drawn within this part. */
+  details?: StructurePartDetail[];
 }
 
 export interface StructureDefinition {
@@ -1279,6 +1318,8 @@ export interface StructureDefinition {
   miningRange?: number;       // max asteroid engagement range (world units)
   miningRate?: number;        // ore extraction rate in kg/s
   miningBeamDps?: number;     // optional combat DPS for mining beam (very low)
+  /** Composite visual parts — when defined, replaces the default single-shape rendering. */
+  parts?: StructurePartDefinition[];
 }
 
 /** Max world-unit distance between two structures to form a connection. */
@@ -1529,24 +1570,121 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
     color: '#1a2a2a',
     borderColor: '#44ccaa',
   },
-  StructureMiningLaser: {
-    type: 'StructureMiningLaser',
-    label: 'Mining Laser',
-    widthPx: 240,
-    heightPx: 240,
+  MiningPlatform: {
+    type: 'MiningPlatform',
+    label: 'Mining Platform',
+    widthPx: 400,
+    heightPx: 400,
     shape: 'rect',
-    maxHealth: 800,
+    maxHealth: 2000,
     maxConnections: 1,
     powerOutput: 0,
-    powerConsumption: 20,
-    storageCapacity: 100000,
-    constructionCost: 3000,
-    constructionRecipe: { Iron: 1800, Copper: 700, Silicon: 500 },
-    color: '#2a1a1a',
-    borderColor: '#cc3333',
+    powerConsumption: 60,
+    storageCapacity: 200000,
+    constructionCost: 8000,
+    constructionRecipe: { Iron: 5000, Copper: 1800, Silicon: 1200 },
+    color: '#1a2a3a',
+    borderColor: '#3a6a8a',
     miningRange: 800,
     miningRate: MINING_LASER_RATE,
     miningBeamDps: MINING_LASER_DPS,
+    parts: (() => {
+      const ARM_LENGTH = 100;
+      const ARM_WIDTH = 24;
+      const BASE_SIZE = 70;       // hex base at each turret tip
+      const TURRET_W = 90;
+      const TURRET_H = 22;
+      const TURRET_ARM_OFFSET = 20; // turret center forward of turret base center
+      const arms: { angle: number; idx: number }[] = [
+        { angle: Math.PI / 4, idx: 0 },       // NE (45°)
+        { angle: 3 * Math.PI / 4, idx: 1 },   // NW (135°)
+        { angle: 5 * Math.PI / 4, idx: 2 },   // SW (225°)
+        { angle: 7 * Math.PI / 4, idx: 3 },   // SE (315°)
+      ];
+      const parts: StructurePartDefinition[] = [
+        // Center hub
+        {
+          partId: 'hub',
+          shape: 'hex',
+          widthPx: 70,
+          heightPx: 70,
+          offsetX: 0,
+          offsetY: 0,
+          color: '#1a2a3a',
+          borderColor: '#3a6a8a',
+          lineWidth: 3,
+          rotation: 'fixed',
+          zOrder: 0,
+          details: [
+            { type: 'circle', cx: 0, cy: 0, radius: 14, color: '#4a6a8a', fill: true, alpha: 0.6 },
+          ],
+        },
+      ];
+      for (const arm of arms) {
+        const cos = Math.cos(arm.angle);
+        const sin = Math.sin(arm.angle);
+        const armCenterDist = ARM_LENGTH / 2 + 20;
+        // Arm connecting center hub to turret base
+        parts.push({
+          partId: `arm-${arm.idx}`,
+          shape: 'rect',
+          widthPx: ARM_LENGTH,
+          heightPx: ARM_WIDTH,
+          offsetX: cos * armCenterDist,
+          offsetY: sin * armCenterDist,
+          color: '#1e2e3e',
+          borderColor: '#3a6a8a',
+          lineWidth: 2,
+          rotation: 'fixed',
+          fixedAngle: arm.angle,
+          zOrder: 0,
+        });
+        // Hex base at arm tip (turret mount)
+        const baseDist = armCenterDist + ARM_LENGTH / 2 + BASE_SIZE / 2 - 8;
+        parts.push({
+          partId: `base-${arm.idx}`,
+          shape: 'hex',
+          widthPx: BASE_SIZE,
+          heightPx: BASE_SIZE,
+          offsetX: cos * baseDist,
+          offsetY: sin * baseDist,
+          color: '#1a2a3a',
+          borderColor: '#3a6a8a',
+          lineWidth: 2,
+          rotation: 'fixed',
+          zOrder: 0,
+          details: [
+            // Inner ring on turret base
+            { type: 'circle', cx: 0, cy: 0, radius: 14, color: '#2a3a4a', lineWidth: 1.5, fill: false },
+            // Center pivot dot
+            { type: 'circle', cx: 0, cy: 0, radius: 5, color: '#4a6a8a', fill: true },
+          ],
+        });
+        // Turret arm (rotates on top of the hex base)
+        parts.push({
+          partId: `turret-${arm.idx}`,
+          shape: 'rect',
+          widthPx: TURRET_W,
+          heightPx: TURRET_H,
+          offsetX: cos * baseDist + TURRET_ARM_OFFSET * cos,
+          offsetY: sin * baseDist + TURRET_ARM_OFFSET * sin,
+          color: '#2a3a4a',
+          borderColor: '#4a7a9a',
+          lineWidth: 2,
+          rotation: 'aim',
+          turretIndex: arm.idx,
+          zOrder: 1,
+          details: [
+            // Barrel tip cap
+            { type: 'rect', x: 32, y: -6, w: 8, h: 12, color: '#3a5a6a', fill: true },
+            // Rear housing
+            { type: 'rect', x: -38, y: -8, w: 16, h: 16, color: '#1a2a3a', fill: true },
+            { type: 'rect', x: -38, y: -8, w: 16, h: 16, color: '#4a7a9a', lineWidth: 1, fill: false },
+          ],
+        });
+      }
+      return parts;
+    })(),
   },
   TerritoryControlUnit: {
     type: 'TerritoryControlUnit',

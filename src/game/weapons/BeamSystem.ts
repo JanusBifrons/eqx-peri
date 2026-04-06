@@ -198,10 +198,12 @@ export class BeamSystem {
       hitEndY = spec.origin.y + dirY * closestT;
     }
 
-    // Sound: beam-fire hum always; impact sizzle only when the ray hit something
-    const sound = SoundSystem.getInstance();
-    sound.playBeamFire();
-    if (closestBody !== null) sound.playBeamHit();
+    // Sound: beam-fire hum always (except mining laser); impact sizzle only when the ray hit something
+    if (spec.weaponType !== 'MiningLaser') {
+      const sound = SoundSystem.getInstance();
+      sound.playBeamFire();
+      if (closestBody !== null) sound.playBeamHit();
+    }
 
     // Apply damage based on what was hit
     if (closestBody) {

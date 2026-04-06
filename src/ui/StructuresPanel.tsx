@@ -18,7 +18,7 @@ interface StructureCategory {
 const BUILD_CATEGORIES: StructureCategory[] = [
   { label: 'Infrastructure', types: ['Core', 'Connector', 'ShieldFence'] },
   { label: 'Power', types: ['SolarPanel', 'Battery', 'PowerStation'] },
-  { label: 'Economy', types: ['Refinery', 'Manufacturer', 'Recycler', 'AssemblyYard', 'StructureMiningLaser'] },
+  { label: 'Economy', types: ['Refinery', 'Manufacturer', 'Recycler', 'AssemblyYard', 'MiningPlatform'] },
   { label: 'Defense', types: ['SmallTurret', 'MediumTurret', 'LargeTurret'] },
   { label: 'Conquest', types: ['TerritoryControlUnit'] },
 ];

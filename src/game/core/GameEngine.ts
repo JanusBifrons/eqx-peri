@@ -155,7 +155,6 @@ export class GameEngine {
   // Observer-mode camera state
   private observerPos: { x: number; y: number } = { x: 0, y: 0 };
   private readonly OBSERVER_PAN_SPEED = 600;  // world units/s at zoom 1
-  private readonly EDGE_SCROLL_MARGIN = 8;    // CSS px from canvas edge that triggers scroll
   private lastTouchDistance: number = 0;
   private touchStartPos: { x: number; y: number } | null = null;
   // Mouse drag-to-pan state (observer mode)
@@ -2217,7 +2216,6 @@ export class GameEngine {
   }
 
   private updateObserverCamera(deltaTime: number): void {
-    const canvas = this.render.canvas;
     // Pan speed scales with zoom so it feels consistent at all zoom levels
     const panSpeed = this.OBSERVER_PAN_SPEED / this.zoomLevel;
 
@@ -2226,19 +2224,6 @@ export class GameEngine {
     if (this.keys.has('s') || this.keys.has('arrowdown'))  this.observerPos.y += panSpeed * deltaTime;
     if (this.keys.has('a') || this.keys.has('arrowleft'))  this.observerPos.x -= panSpeed * deltaTime;
     if (this.keys.has('d') || this.keys.has('arrowright')) this.observerPos.x += panSpeed * deltaTime;
-
-    // Edge-scroll: compare mouse position (CSS px) against CSS canvas dimensions,
-    // NOT canvas.width/height which are physical pixels and DPR-scaled.
-    const mx   = this.mousePosition.x;
-    const my   = this.mousePosition.y;
-    const rect = canvas.getBoundingClientRect();
-    const w    = rect.width;
-    const h    = rect.height;
-    const edgeSpeed = panSpeed * 0.8;
-    if (mx < this.EDGE_SCROLL_MARGIN)     this.observerPos.x -= edgeSpeed * deltaTime;
-    if (mx > w - this.EDGE_SCROLL_MARGIN) this.observerPos.x += edgeSpeed * deltaTime;
-    if (my < this.EDGE_SCROLL_MARGIN)     this.observerPos.y -= edgeSpeed * deltaTime;
-    if (my > h - this.EDGE_SCROLL_MARGIN) this.observerPos.y += edgeSpeed * deltaTime;
 
     this.applyObserverCameraBounds();
   }
@@ -2729,12 +2714,12 @@ export class GameEngine {
     // Generous starter stock — enough for several buildings and plenty of trial-and-error.
     // Construction recipe reference: Connector=600 (Iron+Cu), MiningLaser=3000 (Iron+Cu+Si),
     // Refinery=3500, SmallTurret=2500, TCU=5000 (Iron+Ti+Cu+Si).
-    core.addToInventory('Iron',    50_000);
-    core.addToInventory('Copper',  20_000);
-    core.addToInventory('Silicon', 15_000);
-    core.addToInventory('Titanium', 5_000);
-    core.addToInventory('Nickel',   5_000);
-    core.addToInventory('Lithium',  3_000);
+    core.addToInventory('Iron',    500_000);
+    core.addToInventory('Copper',  200_000);
+    core.addToInventory('Silicon', 150_000);
+    core.addToInventory('Titanium', 50_000);
+    core.addToInventory('Nickel',   50_000);
+    core.addToInventory('Lithium',  30_000);
 
     // ── Player ship ────────────────────────────────────────────────
     const cockpitConfig: EntityConfig = { type: 'Cockpit', x: 0, y: 0, rotation: 0 };
@@ -2783,9 +2768,11 @@ export class GameEngine {
     }
 
     // ── Sector Conquest Systems ────────────────────────────────────
-    this.waveManager = new WaveManager(CORE_POS, (spec: WaveSpec) => {
-      this._spawnEnemyWave(spec);
-    });
+    this.waveManager = new WaveManager(
+      CORE_POS,
+      (spec: WaveSpec) => this._spawnEnemyWave(spec),
+      () => new Set(this.assemblies.filter(a => !a.destroyed).map(a => a.id)),
+    );
 
     this.objectivesManager = new ObjectivesManager(
       this.waveManager,
@@ -2811,8 +2798,9 @@ export class GameEngine {
   }
 
   /** Spawn an enemy wave at the position described by the WaveSpec. */
-  private _spawnEnemyWave(spec: WaveSpec): void {
+  private _spawnEnemyWave(spec: WaveSpec): string[] {
     const ships = (shipsData as { ships: { name: string; parts: EntityConfig[] }[] }).ships;
+    const spawnedIds: string[] = [];
     for (const group of spec.ships) {
       const shipDef = ships[group.shipIndex];
       if (!shipDef) continue;
@@ -2829,8 +2817,10 @@ export class GameEngine {
         this.assemblies.push(assembly);
         Matter.World.add(this.world, assembly.rootBody);
         this.controllerManager.createAIController(assembly);
+        spawnedIds.push(assembly.id);
       }
     }
+    return spawnedIds;
   }
 
   private spawnSandboxScenario(): void {

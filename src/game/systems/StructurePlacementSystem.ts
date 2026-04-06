@@ -278,13 +278,27 @@ export class StructurePlacementSystem {
     let validCount = 0;
 
     for (const { structure: s } of inRange) {
+      // Connection type compatibility: at least one side must be a Connector,
+      // OR both sides are ShieldFence. ShieldFence only connects to Connectors or ShieldFences.
+      const placingType = this.mode.kind === 'place' ? this.mode.structureType : null;
+      const aIsConn = placingType === 'Connector';
+      const bIsConn = s.type === 'Connector';
+      const aIsFence = placingType === 'ShieldFence';
+      const bIsFence = s.type === 'ShieldFence';
+      const typeCompatible =
+        (aIsConn || bIsConn) ||            // at least one Connector
+        (aIsFence && bIsFence);            // both ShieldFence
+      const fenceRestriction =
+        (!aIsFence || bIsConn || bIsFence) &&  // if placing fence, target must be Connector or Fence
+        (!bIsFence || aIsConn || aIsFence);    // if target is fence, placing must be Connector or Fence
+
       // Can the existing structure accept another connection?
       const existingCanAccept = this.gridManager.canAddConnection(s);
       // Would the new structure still have connection slots?
       const newCanAccept = validCount < maxConns;
       // Is the line blocked by another structure?
       const lineBlocked = this.gridManager.isConnectionLineBlocked(cursor, s.body.position, s);
-      const valid = existingCanAccept && newCanAccept && !lineBlocked;
+      const valid = typeCompatible && fenceRestriction && existingCanAccept && newCanAccept && !lineBlocked;
 
       results.push({ structure: s, valid });
       if (valid) validCount++;

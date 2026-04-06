@@ -2,6 +2,7 @@ import Matter from 'matter-js';
 import { StructureType, Vector2, GridPowerSummary } from '../../types/GameTypes';
 import { Structure } from './Structure';
 import { Assembly } from '../core/Assembly';
+import { checkLineOfSight } from '../weapons/WeaponUtils';
 
 /** Interval between target re-evaluation scans (ms). */
 const TARGET_SCAN_INTERVAL_MS = 500;
@@ -13,8 +14,6 @@ const AIM_THRESHOLD_RAD = 0.15;
  * Extends Structure with aiming, targeting, and laser creation.
  */
 export class StructureTurret extends Structure {
-  /** Current barrel angle in world-space radians. */
-  public currentAimAngle: number = 0;
   /** Desired angle toward the current target. */
   private targetAimAngle: number = 0;
   /** Currently tracked enemy assembly. */
@@ -26,8 +25,6 @@ export class StructureTurret extends Structure {
 
   constructor(type: StructureType, position: Vector2, team: number) {
     super(type, position, team);
-    // Start barrel pointing right (east)
-    this.currentAimAngle = 0;
     this.targetAimAngle = 0;
   }
 
@@ -45,6 +42,7 @@ export class StructureTurret extends Structure {
     now: number,
     assemblies: Assembly[],
     gridSummary: GridPowerSummary | null,
+    obstacleBodies?: Matter.Body[],
   ): Matter.Body[] {
     // Not operational until fully constructed, powered on, and not deconstructing
     if (!this.isOperational() || this.isDestroyed()) return [];
@@ -105,6 +103,14 @@ export class StructureTurret extends Structure {
 
     // Check aim alignment
     if (Math.abs(angleDiff) > AIM_THRESHOLD_RAD) return [];
+
+    // LOS check — don't fire if blocked by obstacles
+    if (obstacleBodies && obstacleBodies.length > 0 && this.targetAssembly) {
+      const barrelEnd = this.getBarrelEndpoint();
+      const targetPos = this.targetAssembly.rootBody.position;
+      const excludeIds = new Set([this.body.id]);
+      if (!checkLineOfSight(barrelEnd, targetPos, obstacleBodies, excludeIds)) return [];
+    }
 
     // Fire!
     this.lastFireTime = now;

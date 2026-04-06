@@ -34,6 +34,12 @@ export class Structure {
   /** Whether the player has manually toggled power off on this structure. */
   public isPoweredOn: boolean = true;
 
+  /** Current aim angle in world-space radians (used by single-turret parts with rotation: 'aim'). */
+  public currentAimAngle: number = 0;
+
+  /** Per-turret aim angles for multi-turret structures (indexed by StructurePartDefinition.turretIndex). */
+  public turretAngles: number[] = [];
+
   /** Whether this structure is currently deconstructing (reverse of construction). */
   public isDeconstructing: boolean = false;
   /** Resources returned to the grid so far during deconstruction. */

@@ -64,8 +64,6 @@ export class StructurePlacementRenderer implements IRenderer {
 
   private drawHologram(cx: number, cy: number, scale: number, type: StructureType, valid: boolean): void {
     const def = STRUCTURE_DEFINITIONS[type];
-    const hw = def.widthPx / 2;
-    const hh = def.heightPx / 2;
 
     const fillColor = valid ? PIXI.utils.string2hex(def.color) : 0x661111;
     const borderColor = valid ? PIXI.utils.string2hex(def.borderColor) : 0xff3333;
@@ -73,17 +71,48 @@ export class StructurePlacementRenderer implements IRenderer {
     const fillAlpha = valid ? 0.3 : 0.35;
     const borderAlpha = valid ? 0.6 : 0.8;
 
-    if (def.shape === 'hex') {
-      const radius = hw;
-      this.graphics.lineStyle(borderWidth, borderColor, borderAlpha);
-      this.graphics.beginFill(fillColor, fillAlpha);
-      this.drawHexagon(cx, cy, radius);
-      this.graphics.endFill();
+    if (def.parts && def.parts.length > 0) {
+      // Composite structure — draw each part as a hologram
+      const sorted = [...def.parts].sort((a, b) => a.zOrder - b.zOrder);
+      const partFill = valid ? 0x224466 : 0x661111;
+      for (const part of sorted) {
+        // Skip 'aim' parts — show only the static base in the preview
+        if (part.rotation === 'aim') continue;
+
+        const angle = part.fixedAngle ?? 0;
+        const pcx = cx + part.offsetX;
+        const pcy = cy + part.offsetY;
+        const phw = part.widthPx / 2;
+        const phh = part.heightPx / 2;
+
+        this.graphics.lineStyle(borderWidth, borderColor, borderAlpha);
+        this.graphics.beginFill(partFill, fillAlpha);
+        if (part.shape === 'hex') {
+          this.drawHexagon(pcx, pcy, phw);
+        } else if (part.shape === 'circle') {
+          this.graphics.drawCircle(pcx, pcy, phw);
+        } else if (Math.abs(angle) > 0.001) {
+          this.drawRotatedRect(pcx, pcy, phw, phh, angle);
+        } else {
+          this.graphics.drawRect(pcx - phw, pcy - phh, phw * 2, phh * 2);
+        }
+        this.graphics.endFill();
+      }
     } else {
-      this.graphics.lineStyle(borderWidth, borderColor, borderAlpha);
-      this.graphics.beginFill(fillColor, fillAlpha);
-      this.graphics.drawRect(cx - hw, cy - hh, hw * 2, hh * 2);
-      this.graphics.endFill();
+      // Simple single-shape structure
+      const hw = def.widthPx / 2;
+      const hh = def.heightPx / 2;
+      if (def.shape === 'hex') {
+        this.graphics.lineStyle(borderWidth, borderColor, borderAlpha);
+        this.graphics.beginFill(fillColor, fillAlpha);
+        this.drawHexagon(cx, cy, hw);
+        this.graphics.endFill();
+      } else {
+        this.graphics.lineStyle(borderWidth, borderColor, borderAlpha);
+        this.graphics.beginFill(fillColor, fillAlpha);
+        this.graphics.drawRect(cx - hw, cy - hh, hw * 2, hh * 2);
+        this.graphics.endFill();
+      }
     }
 
     // Draw sensor area preview if this structure type has one
@@ -99,6 +128,23 @@ export class StructurePlacementRenderer implements IRenderer {
         }
       }
     }
+  }
+
+  /** Draw a rotated rectangle by computing corner vertices. */
+  private drawRotatedRect(cx: number, cy: number, hw: number, hh: number, angle: number): void {
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const corners = [
+      { x: -hw, y: -hh }, { x: hw, y: -hh },
+      { x: hw, y: hh }, { x: -hw, y: hh },
+    ];
+    for (let i = 0; i < 4; i++) {
+      const rx = corners[i].x * cos - corners[i].y * sin + cx;
+      const ry = corners[i].x * sin + corners[i].y * cos + cy;
+      if (i === 0) this.graphics.moveTo(rx, ry);
+      else this.graphics.lineTo(rx, ry);
+    }
+    this.graphics.closePath();
   }
 
   private drawHexagon(cx: number, cy: number, radius: number): void {

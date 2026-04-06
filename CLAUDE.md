@@ -167,10 +167,11 @@ src/
 - Mining rate is separate from DPS — set as `miningRate` on `EntityTypeDefinition`. Details in `src/game/core/CLAUDE.md`.
 
 **Structure mining laser + sensor areas:**
-- `StructureMiningLaser` autonomously targets asteroids; `Refinery` has a sensor area for ore deposit (3s dwell). Details in `src/game/structures/CLAUDE.md`.
+- `MiningPlatform` (`StructureMiningPlatform` class) has 4 independent mining turrets on an X-shaped base; `Refinery` has a sensor area for ore deposit (3s dwell). Details in `src/game/structures/CLAUDE.md`.
 
 **Structure system (`src/game/structures/`):**
 - Static base-building structures with construction + networking. Details in `src/game/structures/CLAUDE.md`.
+- **Composite parts**: `StructureDefinition.parts?: StructurePartDefinition[]` — structures can define multiple visual sub-objects (base mount, rotating turret arm, etc.). Parts with `rotation: 'aim'` rotate with `Structure.currentAimAngle`. Physics body remains a single static shape from the definition's `widthPx/heightPx/shape`. `StructureRenderer.drawCompositeParts()` handles rendering. First use case: `MiningPlatform` (hex base + rotating turret).
 - `Structure` base class wraps a static Matter.js body with HP, team, power, storage, and **construction state**.
 - **Construction mechanic**: structures with `constructionCost > 0` start as scaffolding (10% HP, no power/storage). Resources are automatically delivered through the grid network via `GridManager.processConstructionPulse()`. Core has cost 0 (pre-built anchor). Repair uses the same system.
 - `StructureCore` provides baseline power + storage; `StructureManager` manages lifecycle; `GridManager` handles connections, routing, and construction/repair pulses.

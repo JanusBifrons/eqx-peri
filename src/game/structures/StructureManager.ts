@@ -6,7 +6,7 @@ import { StructureTurret } from './StructureTurret';
 import { StructureAssemblyYard } from './StructureAssemblyYard';
 import { StructureManufacturer } from './StructureManufacturer';
 import { StructureRecycler } from './StructureRecycler';
-import { StructureMiningLaser } from './StructureMiningLaser';
+import { StructureMiningPlatform } from './StructureMiningPlatform';
 import { GridManager } from './GridManager';
 import { Assembly } from '../core/Assembly';
 import { BeamFireSpec } from '../weapons/BeamSystem';
@@ -85,8 +85,8 @@ export class StructureManager {
       structure = new StructureManufacturer(position, team);
     } else if (type === 'Recycler') {
       structure = new StructureRecycler(position, team);
-    } else if (type === 'StructureMiningLaser') {
-      structure = new StructureMiningLaser(position, team);
+    } else if (type === 'MiningPlatform') {
+      structure = new StructureMiningPlatform(position, team);
     } else {
       structure = new Structure(type, position, team);
     }
@@ -127,13 +127,18 @@ export class StructureManager {
     // Update grid manager (topology rebuild, resource transfer pulses)
     this.gridManager.update(deltaTimeMs, this.structures);
 
-    // Tick turrets — collect any lasers they fire
+    // Build obstacle bodies for LOS checks (asteroids + all structure bodies)
     const now = Date.now();
+    const asteroidBodies = this.asteroidBodiesGetter?.() ?? [];
+    const obstacleBodies: Matter.Body[] = [...asteroidBodies];
+    for (const s of this.structures) obstacleBodies.push(s.body);
+
+    // Tick turrets — collect any lasers they fire
     const newLasers: Matter.Body[] = [];
     for (const s of this.structures) {
       if (s instanceof StructureTurret) {
         const summary = this.gridManager.getGridPowerSummary(s, this.structures);
-        const lasers = s.updateTurret(deltaTimeMs, now, assemblies, summary);
+        const lasers = s.updateTurret(deltaTimeMs, now, assemblies, summary, obstacleBodies);
         for (const l of lasers) newLasers.push(l);
       }
     }
@@ -170,14 +175,13 @@ export class StructureManager {
       }
     }
 
-    // Tick mining lasers — acquire asteroids and produce beam specs
+    // Tick mining platforms — acquire asteroids and produce beam specs
     this.miningBeamSpecs = [];
-    const asteroidBodies = this.asteroidBodiesGetter?.() ?? [];
     for (const s of this.structures) {
-      if (s instanceof StructureMiningLaser) {
+      if (s instanceof StructureMiningPlatform) {
         const summary = this.gridManager.getGridPowerSummary(s, this.structures);
-        const spec = s.updateMiningLaser(deltaTimeMs, now, asteroidBodies, summary);
-        if (spec) this.miningBeamSpecs.push(spec);
+        const specs = s.updateTurrets(deltaTimeMs, now, asteroidBodies, summary, obstacleBodies);
+        for (const spec of specs) this.miningBeamSpecs.push(spec);
       }
     }
 
