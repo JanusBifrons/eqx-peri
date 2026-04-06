@@ -120,6 +120,7 @@ Defined in `GameTypes.ts` as `STRUCTURE_DEFINITIONS: Record<StructureType, Struc
 - **A* routing**: `findRoute(from, to)` with hop-count cost and Euclidean heuristic. Route cache invalidated on topology changes.
 - **Pulse transfer**: every `TRANSFER_PULSE_MS` (1s), processes queued `requestTransfer()` calls. Respects bottleneck throughput along the route. Flashes connections on transfer.
 - **Resource generation**: `processResourceGeneration()` runs first in pulse cycle. Power-gated. Generates into structure's own `storedResources` buffer (e.g., Refinery).
+- **Ore routing**: `processResourceDistribution()` routes `MiningPlatform` ore (`CarbonaceousOre`, `SilicateOre`, `MetallicOre`) exclusively to Refinery destinations on the same grid. Refined materials from Refinery/Recycler route to any storage hub (Core, Battery).
 - **Construction/repair pulse**: `processConstructionPulse()` runs alongside transfer pulse. Delivers resources from grid storage to unbuilt structures (`CONSTRUCTION_PULSE_AMOUNT`) and damaged structures (`REPAIR_PULSE_AMOUNT`). Flashes route connections on delivery.
 
 ## ShieldWall (Shield Fence Barriers)

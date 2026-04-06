@@ -593,13 +593,17 @@ export class GridManager {
   /**
    * Move produced materials from producer structures (Refinery, Recycler)
    * into storage hubs (Core, Battery) across the grid.
+   * MiningPlatform ore is also routed, but exclusively to Refinery destinations
+   * since Refinery is the only structure that can process it.
    * Only producers push — storage hubs never redistribute their own inventory,
    * preventing infinite ping-pong between structures with capacity.
    */
   private processResourceDistribution(allStructures: Structure[]): void {
+    const ORE_TYPES: Set<OreType> = new Set(['CarbonaceousOre', 'SilicateOre', 'MetallicOre']);
     for (const source of allStructures) {
-      // Only producers should push their output into storage
-      if (source.type !== 'Refinery' && source.type !== 'Recycler') continue;
+      // Material producers push refined output; MiningPlatform pushes raw ore to Refineries
+      const isMiningPlatform = source.type === 'MiningPlatform';
+      if (source.type !== 'Refinery' && source.type !== 'Recycler' && !isMiningPlatform) continue;
       if (source.getInventoryTotal() <= 0) continue;
       if (!source.isConstructed || source.isDestroyed()) continue;
 
@@ -609,10 +613,14 @@ export class GridManager {
         if (sourceAmount <= 0) continue;
         let remaining = sourceAmount;
 
+        const isOre = ORE_TYPES.has(material as OreType);
+
         for (const dest of members) {
           if (dest === source) continue;
           if (dest.team !== source.team) continue;
           if (!dest.isConstructed || dest.isDestroyed()) continue;
+          // Ore can only be consumed by a Refinery — route it there directly
+          if (isOre && dest.type !== 'Refinery') continue;
           if (dest.getStorageCapacity() <= 0) continue;
 
           const destSpace = dest.getStorageCapacity() - dest.getInventoryTotal();
