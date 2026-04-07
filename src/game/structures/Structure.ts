@@ -45,6 +45,14 @@ export class Structure {
   /** Resources returned to the grid so far during deconstruction. */
   public deconstructionReturned: number = 0;
 
+  /**
+   * Refinery batch progress (0–1). Fills as ore is processed each pulse;
+   * resets to fractional carry-over when a batch completes and materials are yielded.
+   */
+  public refiningProgress: number = 0;
+  /** The ore type currently being accumulated into the refinery batch. Reset when ore type changes. */
+  public refiningOreType: OreType | null = null;
+
 
   /** Temporary power consumption spike (e.g. from grid absorbing shield wall hits). */
   private _powerSpikeAmount: number = 0;

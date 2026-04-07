@@ -411,9 +411,22 @@ export class StructureRenderer implements IRenderer {
           this.drawShieldFenceIcon(cx, cy, Math.min(hw, hh) * 0.5, scale);
         }
 
-        // Refinery icon (gear/refine)
+        // Refinery icon + batch progress bar
         if (!isBuilding && structure.type === 'Refinery') {
           this.drawRefineryIcon(cx, cy, Math.min(hw, hh) * 0.4, scale);
+          const refineFrac = structure.refiningProgress;
+          if (refineFrac > 0) {
+            const bBarW = Math.max(hw * 1.4, 14 * scale);
+            const bBarH = Math.max(2, 4 * scale);
+            this.graphics.lineStyle(0);
+            this.graphics.beginFill(0x333333, 0.7);
+            this.graphics.drawRect(cx - bBarW / 2, barY, bBarW, bBarH);
+            this.graphics.endFill();
+            this.graphics.beginFill(0x44cc88, 0.9);
+            this.graphics.drawRect(cx - bBarW / 2, barY, bBarW * Math.min(refineFrac, 1), bBarH);
+            this.graphics.endFill();
+            barY += bBarH + 2;
+          }
         }
 
         if (!isBuilding) {
@@ -936,9 +949,15 @@ export class StructureRenderer implements IRenderer {
         const resolvedAngle = (part.turretIndex !== undefined && structure.turretAngles.length > part.turretIndex)
           ? structure.turretAngles[part.turretIndex]
           : aimAngle;
-        // Offset is static (arm tip position) — only the turret shape itself rotates
-        partCx = cx + part.offsetX * scale;
-        partCy = cy + part.offsetY * scale;
+        // offsetX/Y is the true rotation pivot; forwardOffset shifts the drawn shape
+        // forward along the aim angle (e.g. so a barrel overhangs its mount).
+        const pivot = {
+          x: cx + part.offsetX * scale,
+          y: cy + part.offsetY * scale,
+        };
+        const fwd = (part.forwardOffset ?? 0) * scale;
+        partCx = pivot.x + Math.cos(resolvedAngle) * fwd;
+        partCy = pivot.y + Math.sin(resolvedAngle) * fwd;
         partAngle = resolvedAngle;
       } else {
         // Fixed parts can have a fixedAngle for angled arms

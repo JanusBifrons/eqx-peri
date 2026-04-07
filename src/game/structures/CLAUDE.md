@@ -182,11 +182,14 @@ Defined in `GameTypes.ts` as `STRUCTURE_DEFINITIONS: Record<StructureType, Struc
 - Extends `Structure` with 4 independent turret slots on an X-shaped base.
 - `updateTurrets(deltaTimeMs, now, asteroidBodies, gridSummary, obstacleBodies)` — called each frame by `StructureManager`; returns `BeamFireSpec[]` (up to 4).
 - **Power-gated**: requires `gridSummary.powerEfficiency > 0` and `isOperational()`.
-- **Targeting**: each turret independently finds closest asteroid within `miningRange`; prefers unclaimed asteroids (not targeted by other turrets on same platform). Re-scans every `ASTEROID_SCAN_INTERVAL_MS` (1s). Drops target at 1.2× range.
-- **Barrel rotation**: each turret smoothly rotates `turretAngles[i]` at 1.5 rad/s; fires only when within `AIM_THRESHOLD_RAD` (0.2 rad).
-- **LOS check**: uses `checkLineOfSight()` before firing — won't fire through obstacles.
+- **Targeting**: each turret independently finds closest asteroid within `miningRange`; prefers unclaimed asteroids (not targeted by other turrets on same platform). Re-scans every `ASTEROID_SCAN_INTERVAL_MS` (1s). All distance calculations use the turret's pivot position (`getTurretPivotPosition(i)`), not the structure center.
+- **Firing arc**: each turret can only target asteroids within ±90° (`MAX_TURRET_ARC_RAD`) of its arm direction (`ARM_ANGLES[i]`). Checked both at scan time and per-frame. Prevents cross-body shots through the platform's collision body.
+- **Range validation**: checked per-frame from turret pivot (not structure center). Target dropped immediately if out of range; barrel-to-target distance also checked before firing.
+- **Barrel rotation**: each turret smoothly rotates `turretAngles[i]` at 1.5 rad/s; fires only when within `AIM_THRESHOLD_RAD` (0.2 rad). Target angle computed from turret pivot to asteroid.
+- **LOS check**: uses `checkLineOfSight()` before firing — won't fire through obstacles. Self body excluded from LOS; firing arc constraint prevents the need to detect cross-body shots.
 - **Beam spec**: `weaponType: 'MiningLaser'` so `BeamSystem` triggers the mining callback. `weaponId` includes turret index.
-- `getTurretBarrelEndpoint(i)` — world-space barrel tip for turret `i`.
+- `getTurretPivotPosition(i)` — world-space center of the rotating turret part (arm tip position).
+- `getTurretBarrelEndpoint(i)` — world-space barrel tip for turret `i` (pivot + barrelLen in aim direction).
 - `getTargetAsteroidClass()` — returns any current target's `AsteroidClass` (for UI).
 - `StructureManager` routes `'MiningPlatform'` to this subclass in `spawnStructure()`.
 - `StructureManager` collects beam specs from all mining platforms in `update()` and exposes them via `getMiningBeamSpecs()`. `GameEngine` routes these to `BeamSystem.processBeamFire()`.

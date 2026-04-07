@@ -225,12 +225,12 @@ export class StructureMiningPlatform extends Structure {
     }
 
     const angle = this.turretAngles[turretIndex];
-    // Turret pivot position (offset from structure center, rotated by turret angle at rest)
-    // The offset is defined in the arm's direction, so we use the part's offset directly
+    // Pivot is at offsetX/Y (hex base center); forwardOffset shifts the drawn rect forward.
     const pivotX = this.body.position.x + turretPart.offsetX;
     const pivotY = this.body.position.y + turretPart.offsetY;
-    // Barrel extends forward from pivot
-    const barrelLen = turretPart.widthPx / 2 + 5;
+    // Barrel tip = pivot + forwardOffset + half-width + small gap
+    const forwardOffset = turretPart.forwardOffset ?? 0;
+    const barrelLen = turretPart.widthPx / 2 + forwardOffset + 5;
     return {
       x: pivotX + Math.cos(angle) * barrelLen,
       y: pivotY + Math.sin(angle) * barrelLen,

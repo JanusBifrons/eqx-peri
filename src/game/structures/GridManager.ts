@@ -1,5 +1,5 @@
 import Matter from 'matter-js';
-import { CONNECTION_MAX_RANGE, GridPowerSummary, TRANSFER_PULSE_MS, SHIELD_WALL_POWER_SPIKE_MS, OreType, REFINING_TABLES, REFINERY_PROCESS_RATE_KG, CONSTRUCTION_RATE_KG, REPAIR_RATE_KG, MaterialType } from '../../types/GameTypes';
+import { CONNECTION_MAX_RANGE, GridPowerSummary, TRANSFER_PULSE_MS, SHIELD_WALL_POWER_SPIKE_MS, OreType, REFINING_TABLES, REFINERY_PROCESS_RATE_KG, REFINERY_BATCH_KG, CONSTRUCTION_RATE_KG, REPAIR_RATE_KG, MaterialType } from '../../types/GameTypes';
 import { Structure } from './Structure';
 import { Connection } from './Connection';
 import { ShieldWall } from './ShieldWall';
@@ -591,26 +591,52 @@ export class GridManager {
   }
 
   /**
-   * Move produced materials from producer structures (Refinery, Recycler)
-   * into storage hubs (Core, Battery) across the grid.
-   * Only producers push — storage hubs never redistribute their own inventory,
-   * preventing infinite ping-pong between structures with capacity.
+   * Move produced materials from producer structures (MiningPlatform, Refinery, Recycler)
+   * into downstream consumers/storage across the grid.
+   *
+   * Rules:
+   * - A structure is a SOURCE if it has output ready to push. Only sources push.
+   * - A structure that is acting as a SOURCE this pulse cannot also be a DESTINATION
+   *   (one direction per pulse — prevents confusing bidirectional pulses on the same structure).
+   * - Refinery priority: only acts as a source when it has refined output (non-ore) in inventory.
+   *   If it has no refined output it stays silent, so ore can flow in from the MiningPlatform.
+   * - Destinations are sorted: processors first, pure storage (Core, Battery, Connector) last.
    */
   private processResourceDistribution(allStructures: Structure[]): void {
+    const PURE_STORAGE_TYPES = new Set(['Core', 'Battery', 'Connector']);
+
+    // Pre-compute which structures act as sources this pulse.
+    const sourcesThisPulse = new Set<string>();
+    for (const s of allStructures) {
+      if (s.type !== 'Refinery' && s.type !== 'Recycler' && s.type !== 'MiningPlatform') continue;
+      if (!s.isConstructed || s.isDestroyed() || s.getInventoryTotal() <= 0) continue;
+      // Refinery only outputs when it has refined materials — not while still accumulating ore.
+      if (s.type === 'Refinery') {
+        const hasOutput = s.getInventoryItems().some(([mat]) => !Structure.isOreType(mat));
+        if (!hasOutput) continue;
+      }
+      sourcesThisPulse.add(s.id);
+    }
+
     for (const source of allStructures) {
-      // Only producers should push their output into storage
-      if (source.type !== 'Refinery' && source.type !== 'Recycler') continue;
+      if (!sourcesThisPulse.has(source.id)) continue;
       if (source.getInventoryTotal() <= 0) continue;
-      if (!source.isConstructed || source.isDestroyed()) continue;
 
       const members = this.getGridMembers(source);
+      // Processors first, pure storage last.
+      const sortedMembers = [...members].sort((a, b) => {
+        const aStorage = PURE_STORAGE_TYPES.has(a.type) ? 1 : 0;
+        const bStorage = PURE_STORAGE_TYPES.has(b.type) ? 1 : 0;
+        return aStorage - bStorage;
+      });
 
       for (const [material, sourceAmount] of source.getInventoryItems()) {
         if (sourceAmount <= 0) continue;
         let remaining = sourceAmount;
 
-        for (const dest of members) {
+        for (const dest of sortedMembers) {
           if (dest === source) continue;
+          if (sourcesThisPulse.has(dest.id)) continue; // dest is also outputting this pulse
           if (dest.team !== source.team) continue;
           if (!dest.isConstructed || dest.isDestroyed()) continue;
           if (dest.getStorageCapacity() <= 0) continue;
@@ -642,6 +668,8 @@ export class GridManager {
   /**
    * Process ore in Refinery structures into refined materials via loot tables.
    * Runs once per pulse. Power-gated.
+   * Ore is consumed incrementally; materials are only yielded when a full
+   * REFINERY_BATCH_KG batch has been processed (visible as a progress bar).
    * 80% of processed ore becomes waste. 20% is split among drops by chance percentage.
    */
   private processRefining(allStructures: Structure[]): void {
@@ -652,23 +680,30 @@ export class GridManager {
       const summary = this.getGridPowerSummary(s, allStructures);
       if (summary.powerEfficiency <= 0) continue;
 
-      // Find ore in this refinery's inventory
       const oreTypes: OreType[] = ['CarbonaceousOre', 'SilicateOre', 'MetallicOre'];
       for (const oreType of oreTypes) {
         const oreAmount = s.getInventoryAmount(oreType);
         if (oreAmount <= 0) continue;
 
+        // Reset progress if the ore type changed
+        if (s.refiningOreType !== oreType) {
+          s.refiningOreType = oreType;
+          s.refiningProgress = 0;
+        }
+
         const processAmount = Math.min(oreAmount, REFINERY_PROCESS_RATE_KG * summary.powerEfficiency);
         s.removeFromInventory(oreType, processAmount);
+        s.refiningProgress += processAmount / REFINERY_BATCH_KG;
 
-        // 80% waste, 20% yield
-        const table = REFINING_TABLES[oreType];
-        const yieldAmount = processAmount * (1 - table.wasteFraction);
+        // Yield materials only when a full batch has been processed
+        if (s.refiningProgress >= 1.0) {
+          s.refiningProgress -= 1.0; // carry over fractional progress to next batch
 
-        for (const drop of table.drops) {
-          const produced = yieldAmount * (drop.dropChancePct / 100);
-          if (produced > 0) {
-            s.addToInventory(drop.material, produced);
+          const table = REFINING_TABLES[oreType];
+          const yieldAmount = REFINERY_BATCH_KG * (1 - table.wasteFraction);
+          for (const drop of table.drops) {
+            const produced = yieldAmount * (drop.dropChancePct / 100);
+            if (produced > 0) s.addToInventory(drop.material, produced);
           }
         }
         break; // process one ore type per pulse

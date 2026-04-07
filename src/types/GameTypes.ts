@@ -1225,6 +1225,9 @@ export const RECYCLER_PROCESS_RATE_KG = 30;
 /** Rate at which a Refinery processes ore per pulse (kg). */
 export const REFINERY_PROCESS_RATE_KG = 40;
 
+/** Ore processed per refining batch — fills the progress bar before yielding output. */
+export const REFINERY_BATCH_KG = 200;
+
 // ── Structure System ─────────────────────────────────────────────────────────
 
 export type StructureType = 'Core' | 'Connector' | 'SolarPanel' | 'Battery' | 'PowerStation' | 'SmallTurret' | 'MediumTurret' | 'LargeTurret' | 'Refinery' | 'ShieldFence' | 'AssemblyYard' | 'Manufacturer' | 'Recycler' | 'MiningPlatform' | 'TerritoryControlUnit';
@@ -1279,6 +1282,12 @@ export interface StructurePartDefinition {
   fixedAngle?: number;
   /** For 'aim' parts with multiple turrets: index into Structure.turretAngles[]. When absent, uses currentAimAngle. */
   turretIndex?: number;
+  /**
+   * For 'aim' parts: pixels to shift the drawn shape forward along the current aim angle,
+   * while the pivot (offsetX/offsetY) stays fixed. Use this when the rectangle's visual
+   * centre should be offset from the true rotation pivot (e.g. a barrel that overhangs its mount).
+   */
+  forwardOffset?: number;
   /** Drawing order (lower = drawn first / behind). */
   zOrder: number;
   /** Extra decorative shapes drawn within this part. */
@@ -1661,18 +1670,21 @@ export const STRUCTURE_DEFINITIONS: Readonly<Record<StructureType, StructureDefi
           ],
         });
         // Turret arm (rotates on top of the hex base)
+        // offsetX/Y is the true pivot (hex base center); forwardOffset shifts the drawn rect
+        // forward along the aim angle so the barrel overhangs the mount visually.
         parts.push({
           partId: `turret-${arm.idx}`,
           shape: 'rect',
           widthPx: TURRET_W,
           heightPx: TURRET_H,
-          offsetX: cos * baseDist + TURRET_ARM_OFFSET * cos,
-          offsetY: sin * baseDist + TURRET_ARM_OFFSET * sin,
+          offsetX: cos * baseDist,
+          offsetY: sin * baseDist,
           color: '#2a3a4a',
           borderColor: '#4a7a9a',
           lineWidth: 2,
           rotation: 'aim',
           turretIndex: arm.idx,
+          forwardOffset: TURRET_ARM_OFFSET,
           zOrder: 1,
           details: [
             // Barrel tip cap
