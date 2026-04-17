@@ -591,54 +591,36 @@ export class GridManager {
   }
 
   /**
-   * Move produced materials from producer structures (MiningPlatform, Refinery, Recycler)
-   * into downstream consumers/storage across the grid.
-   *
-   * Rules:
-   * - A structure is a SOURCE if it has output ready to push. Only sources push.
-   * - A structure that is acting as a SOURCE this pulse cannot also be a DESTINATION
-   *   (one direction per pulse — prevents confusing bidirectional pulses on the same structure).
-   * - Refinery priority: only acts as a source when it has refined output (non-ore) in inventory.
-   *   If it has no refined output it stays silent, so ore can flow in from the MiningPlatform.
-   * - Destinations are sorted: processors first, pure storage (Core, Battery, Connector) last.
+   * Move produced materials from producer structures (Refinery, Recycler)
+   * into storage hubs (Core, Battery) across the grid.
+   * MiningPlatform ore is also routed, but exclusively to Refinery destinations
+   * since Refinery is the only structure that can process it.
+   * Only producers push — storage hubs never redistribute their own inventory,
+   * preventing infinite ping-pong between structures with capacity.
    */
   private processResourceDistribution(allStructures: Structure[]): void {
-    const PURE_STORAGE_TYPES = new Set(['Core', 'Battery', 'Connector']);
-
-    // Pre-compute which structures act as sources this pulse.
-    const sourcesThisPulse = new Set<string>();
-    for (const s of allStructures) {
-      if (s.type !== 'Refinery' && s.type !== 'Recycler' && s.type !== 'MiningPlatform') continue;
-      if (!s.isConstructed || s.isDestroyed() || s.getInventoryTotal() <= 0) continue;
-      // Refinery only outputs when it has refined materials — not while still accumulating ore.
-      if (s.type === 'Refinery') {
-        const hasOutput = s.getInventoryItems().some(([mat]) => !Structure.isOreType(mat));
-        if (!hasOutput) continue;
-      }
-      sourcesThisPulse.add(s.id);
-    }
-
+    const ORE_TYPES: Set<OreType> = new Set(['CarbonaceousOre', 'SilicateOre', 'MetallicOre']);
     for (const source of allStructures) {
-      if (!sourcesThisPulse.has(source.id)) continue;
+      // Material producers push refined output; MiningPlatform pushes raw ore to Refineries
+      const isMiningPlatform = source.type === 'MiningPlatform';
+      if (source.type !== 'Refinery' && source.type !== 'Recycler' && !isMiningPlatform) continue;
       if (source.getInventoryTotal() <= 0) continue;
+      if (!source.isConstructed || source.isDestroyed()) continue;
 
       const members = this.getGridMembers(source);
-      // Processors first, pure storage last.
-      const sortedMembers = [...members].sort((a, b) => {
-        const aStorage = PURE_STORAGE_TYPES.has(a.type) ? 1 : 0;
-        const bStorage = PURE_STORAGE_TYPES.has(b.type) ? 1 : 0;
-        return aStorage - bStorage;
-      });
 
       for (const [material, sourceAmount] of source.getInventoryItems()) {
         if (sourceAmount <= 0) continue;
         let remaining = sourceAmount;
 
-        for (const dest of sortedMembers) {
+        const isOre = ORE_TYPES.has(material as OreType);
+
+        for (const dest of members) {
           if (dest === source) continue;
-          if (sourcesThisPulse.has(dest.id)) continue; // dest is also outputting this pulse
           if (dest.team !== source.team) continue;
           if (!dest.isConstructed || dest.isDestroyed()) continue;
+          // Ore can only be consumed by a Refinery — route it there directly
+          if (isOre && dest.type !== 'Refinery') continue;
           if (dest.getStorageCapacity() <= 0) continue;
 
           const destSpace = dest.getStorageCapacity() - dest.getInventoryTotal();
